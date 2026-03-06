@@ -45,6 +45,21 @@ class FakeExecutionService:
         )
 
 
+def _decode_sse_events(raw_body: str) -> list[tuple[str, dict[str, object]]]:
+    events: list[tuple[str, dict[str, object]]] = []
+    for chunk in raw_body.strip().split("\n\n"):
+        lines = chunk.splitlines()
+        event_line = next(line for line in lines if line.startswith("event: "))
+        data_line = next(line for line in lines if line.startswith("data: "))
+        events.append(
+            (
+                event_line.removeprefix("event: "),
+                json.loads(data_line.removeprefix("data: ")),
+            )
+        )
+    return events
+
+
 def _get_free_port() -> int:
     with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
         sock.bind(("127.0.0.1", 0))
@@ -131,9 +146,18 @@ def test_http_server_supports_thread_run_and_stream_flow() -> None:
         )
         stream_response = connection.getresponse()
         stream_payload = stream_response.read().decode("utf-8")
+        stream_events = _decode_sse_events(stream_payload)
         assert stream_response.status == 200
-        assert "event: run.started" in stream_payload
-        assert "event: run.completed" in stream_payload
-        assert "event: message.completed" in stream_payload
+        assert [event_type for event_type, _ in stream_events] == [
+            "run.started",
+            "message.delta",
+            "message.completed",
+            "thread.updated",
+            "run.completed",
+        ]
+        assert [payload["sequence"] for _, payload in stream_events] == list(
+            range(1, len(stream_events) + 1)
+        )
+        assert stream_events[-1][1]["payload"]["output"] == "http-stream"
     finally:
         connection.close()

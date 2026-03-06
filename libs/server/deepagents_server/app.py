@@ -6,6 +6,7 @@ import asyncio
 import json
 import re
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol
 from uuid import uuid4
 
@@ -77,6 +78,15 @@ class AppResponse:
     content_type: str = "application/json"
     headers: dict[str, str] = field(default_factory=dict)
     stream: Iterator[bytes] | None = None
+
+
+@dataclass
+class _SseStreamState:
+    """Mutable metadata for a single SSE stream response."""
+
+    run_id: str
+    thread_id: str
+    sequence: int = 0
 
 
 class ServerApp:
@@ -263,31 +273,36 @@ class ServerApp:
         effective_model: str | None,
         execution_request: ExecutionRequest,
     ) -> Iterator[bytes]:
-        yield self._encode_sse(
+        stream_state = _SseStreamState(run_id=run_id, thread_id=thread.thread_id)
+        yield self._encode_stream_event(
+            stream_state=stream_state,
             event_type="run.started",
             payload={
                 "assistant_id": effective_assistant,
-                "thread_id": thread.thread_id,
-                "run_id": run_id,
                 "model": effective_model,
                 "input": input_text,
             },
         )
         collected_output: list[str] = []
+        completion_payload: dict[str, object] | None = None
         try:
             for event in self._iter_runtime_events(execution_request):
-                if event.type == "message.delta":
-                    text = event.payload.get("text")
-                    if isinstance(text, str):
-                        collected_output.append(text)
-                yield self._encode_sse(event_type=event.type, payload=event.payload)
+                encoded_event, completion_payload, should_stop = self._handle_runtime_event(
+                    event,
+                    stream_state=stream_state,
+                    collected_output=collected_output,
+                    completion_payload=completion_payload,
+                )
+                if encoded_event is not None:
+                    yield encoded_event
+                if should_stop:
+                    return
         except RuntimeDependencyError as exc:
-            yield self._encode_sse(
+            yield self._encode_stream_event(
+                stream_state=stream_state,
                 event_type="run.failed",
                 payload={
                     "assistant_id": effective_assistant,
-                    "thread_id": thread.thread_id,
-                    "run_id": run_id,
                     "model": effective_model,
                     "error": "runtime_dependency_unavailable",
                     "message": str(exc),
@@ -295,12 +310,11 @@ class ServerApp:
             )
             return
         except Exception:  # noqa: BLE001
-            yield self._encode_sse(
+            yield self._encode_stream_event(
+                stream_state=stream_state,
                 event_type="run.failed",
                 payload={
                     "assistant_id": effective_assistant,
-                    "thread_id": thread.thread_id,
-                    "run_id": run_id,
                     "model": effective_model,
                     "error": "runtime_error",
                     "message": "Execution failed.",
@@ -308,24 +322,108 @@ class ServerApp:
             )
             return
 
+        try:
+            yield from self._emit_success_events(
+                stream_state=stream_state,
+                thread=thread,
+                effective_assistant=effective_assistant,
+                effective_model=effective_model,
+                collected_output=collected_output,
+                completion_payload=completion_payload,
+            )
+        except Exception:  # noqa: BLE001
+            yield self._encode_stream_event(
+                stream_state=stream_state,
+                event_type="run.failed",
+                payload={
+                    "assistant_id": effective_assistant,
+                    "model": effective_model,
+                    "error": "runtime_error",
+                    "message": "Execution failed.",
+                },
+            )
+
+    def _handle_runtime_event(
+        self,
+        event: RuntimeEvent,
+        *,
+        stream_state: _SseStreamState,
+        collected_output: list[str],
+        completion_payload: dict[str, object] | None,
+    ) -> tuple[bytes | None, dict[str, object] | None, bool]:
+        payload = self._normalize_stream_payload(event.payload)
+
+        if event.type == "message.delta":
+            text = payload.get("text")
+            if isinstance(text, str):
+                collected_output.append(text)
+
+        if event.type == "run.completed":
+            return None, payload, False
+
+        if event.type == "run.failed":
+            return (
+                self._encode_stream_event(
+                    stream_state=stream_state,
+                    event_type=event.type,
+                    payload=payload,
+                ),
+                completion_payload,
+                True,
+            )
+
+        return (
+            self._encode_stream_event(
+                stream_state=stream_state,
+                event_type=event.type,
+                payload=payload,
+            ),
+            completion_payload,
+            False,
+        )
+
+    def _emit_success_events(  # noqa: PLR0913
+        self,
+        *,
+        stream_state: _SseStreamState,
+        thread: ThreadRecord,
+        effective_assistant: str,
+        effective_model: str | None,
+        collected_output: list[str],
+        completion_payload: dict[str, object] | None,
+    ) -> Iterator[bytes]:
         updated = self._thread_store.record_run(
             thread.thread_id,
             assistant_id=effective_assistant,
             model=effective_model,
         )
-        if collected_output:
-            yield self._encode_sse(
+        final_output = self._resolve_final_output(collected_output, completion_payload)
+        if final_output:
+            yield self._encode_stream_event(
+                stream_state=stream_state,
                 event_type="message.completed",
                 payload={
                     "assistant_id": effective_assistant,
-                    "thread_id": thread.thread_id,
-                    "run_id": run_id,
                     "model": effective_model,
-                    "output": "".join(collected_output),
+                    "output": final_output,
                 },
             )
         if updated is not None:
-            yield self._encode_sse(event_type="thread.updated", payload=updated.to_payload())
+            yield self._encode_stream_event(
+                stream_state=stream_state,
+                event_type="thread.updated",
+                payload=self._normalize_stream_payload(updated.to_payload()),
+            )
+        yield self._encode_stream_event(
+            stream_state=stream_state,
+            event_type="run.completed",
+            payload=self._build_completion_payload(
+                completion_payload,
+                assistant_id=effective_assistant,
+                model=effective_model,
+                output=final_output,
+            ),
+        )
 
     def _iter_runtime_events(self, request: ExecutionRequest) -> Iterator[RuntimeEvent]:
         iterator = self._execution_service.stream(request).__aiter__()
@@ -350,6 +448,74 @@ class ServerApp:
     def _encode_sse(self, *, event_type: str, payload: dict[str, object]) -> bytes:
         data = json.dumps(payload, ensure_ascii=False)
         return f"event: {event_type}\ndata: {data}\n\n".encode()
+
+    def _encode_stream_event(
+        self,
+        *,
+        stream_state: _SseStreamState,
+        event_type: str,
+        payload: dict[str, object],
+    ) -> bytes:
+        return self._encode_sse(
+            event_type=event_type,
+            payload=self._build_stream_envelope(
+                stream_state=stream_state,
+                event_type=event_type,
+                payload=payload,
+            ),
+        )
+
+    def _build_stream_envelope(
+        self,
+        *,
+        stream_state: _SseStreamState,
+        event_type: str,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        stream_state.sequence += 1
+        return {
+            "type": event_type,
+            "run_id": stream_state.run_id,
+            "thread_id": stream_state.thread_id,
+            "sequence": stream_state.sequence,
+            "timestamp": self._timestamp_now(),
+            "payload": payload,
+        }
+
+    def _normalize_stream_payload(self, payload: dict[str, object]) -> dict[str, object]:
+        normalized = dict(payload)
+        normalized.pop("thread_id", None)
+        return normalized
+
+    def _resolve_final_output(
+        self,
+        collected_output: list[str],
+        completion_payload: dict[str, object] | None,
+    ) -> str:
+        if completion_payload is not None:
+            output = completion_payload.get("output")
+            if isinstance(output, str):
+                return output
+        return "".join(collected_output)
+
+    def _build_completion_payload(
+        self,
+        completion_payload: dict[str, object] | None,
+        *,
+        assistant_id: str,
+        model: str | None,
+        output: str,
+    ) -> dict[str, object]:
+        if completion_payload is not None:
+            return completion_payload
+        return {
+            "assistant_id": assistant_id,
+            "model": model,
+            "output": output,
+        }
+
+    def _timestamp_now(self) -> str:
+        return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
     def _generate_run_id(self) -> str:
         return f"run_{uuid4().hex}"

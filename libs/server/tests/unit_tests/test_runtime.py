@@ -206,7 +206,10 @@ def test_interrupt_decisions_follow_shell_allow_list_semantics() -> None:
                                 value={
                                     "action_requests": [
                                         {"name": "execute", "args": {"command": "ls -la"}},
-                                        {"name": "fetch_url", "args": {"url": "https://example.com"}},
+                                        {
+                                            "name": "fetch_url",
+                                            "args": {"url": "https://example.com"},
+                                        },
                                     ]
                                 },
                             )
@@ -246,3 +249,60 @@ def test_interrupt_decisions_follow_shell_allow_list_semantics() -> None:
             }
         }
     ]
+
+
+def test_stream_emits_interrupt_required_before_completion() -> None:
+    adapter = FakeRuntimeAdapter(
+        passes=[
+            [
+                (
+                    (),
+                    "updates",
+                    {
+                        "__interrupt__": [
+                            FakeInterrupt(
+                                id="interrupt-1",
+                                value={
+                                    "action_requests": [
+                                        {
+                                            "name": "fetch_url",
+                                            "args": {"url": "https://example.com"},
+                                        }
+                                    ]
+                                },
+                            )
+                        ]
+                    },
+                )
+            ],
+            [
+                (
+                    (),
+                    "messages",
+                    (
+                        FakeAIMessage(content_blocks=[{"type": "text", "text": "done"}]),
+                        {},
+                    ),
+                )
+            ],
+        ],
+    )
+    service = ExecutionService(adapter=adapter)
+
+    async def _collect_events() -> list[RuntimeEvent]:
+        return [
+            event
+            async for event in service.stream(
+                ExecutionRequest(assistant_id="assistant-interrupt", input="need interrupt")
+            )
+        ]
+
+    events = asyncio.run(_collect_events())
+
+    assert [event.type for event in events] == [
+        "interrupt.required",
+        "message.delta",
+        "run.completed",
+    ]
+    assert events[0].payload["interrupt_id"] == "interrupt-1"
+    assert events[-1].payload["output"] == "done"
