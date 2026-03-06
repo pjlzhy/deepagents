@@ -1,6 +1,10 @@
 import json
+from typing import cast
 
-from deepagents_server.app import AppResponse, ServerApp, create_app
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from deepagents_server.app import create_app
 from deepagents_server.runtime import ExecutionResult, RuntimeEvent
 from deepagents_server.state import InMemoryThreadStore
 
@@ -82,13 +86,7 @@ class FailingExecutionService(FakeExecutionService):
         raise RuntimeError(msg)
 
 
-def _decode_json(response: AppResponse) -> dict[str, object]:
-    return json.loads(response.body.decode("utf-8"))
-
-
-def _decode_sse_events(response: AppResponse) -> list[tuple[str, dict[str, object]]]:
-    assert response.stream is not None
-    raw_body = b"".join(response.stream).decode("utf-8")
+def _decode_sse_events(raw_body: str) -> list[tuple[str, dict[str, object]]]:
     events: list[tuple[str, dict[str, object]]] = []
     for chunk in raw_body.strip().split("\n\n"):
         lines = chunk.splitlines()
@@ -103,7 +101,19 @@ def _decode_sse_events(response: AppResponse) -> list[tuple[str, dict[str, objec
     return events
 
 
-def _create_test_app(*, execution_service=None) -> ServerApp:
+def _event_payload(event: tuple[str, dict[str, object]]) -> dict[str, object]:
+    payload = event[1]["payload"]
+    assert isinstance(payload, dict)
+    return cast("dict[str, object]", payload)
+
+
+def _string_field(payload: dict[str, object], key: str) -> str:
+    value = payload[key]
+    assert isinstance(value, str)
+    return value
+
+
+def _create_test_app(*, execution_service=None) -> FastAPI:
     return create_app(
         execution_service=execution_service or FakeExecutionService(),
         thread_store=InMemoryThreadStore(generate_thread_id=lambda: "thread-test-1"),
@@ -111,35 +121,31 @@ def _create_test_app(*, execution_service=None) -> ServerApp:
 
 
 def test_health_route_returns_ok() -> None:
-    app = _create_test_app()
-
-    response = app.handle_request("GET", "/healthz")
+    with TestClient(_create_test_app()) as client:
+        response = client.get("/healthz")
 
     assert response.status_code == 200
-    assert response.content_type == "application/json"
-    assert _decode_json(response) == {"status": "ok"}
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json() == {"status": "ok"}
 
 
 def test_unknown_route_returns_404() -> None:
-    app = _create_test_app()
-
-    response = app.handle_request("GET", "/missing")
+    with TestClient(_create_test_app()) as client:
+        response = client.get("/missing")
 
     assert response.status_code == 404
-    assert response.content_type == "application/json"
-    assert _decode_json(response)["error"] == "not_found"
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json()["error"] == "not_found"
 
 
 def test_create_thread_returns_schema_payload() -> None:
-    app = _create_test_app()
+    with TestClient(_create_test_app()) as client:
+        response = client.post(
+            "/v1/threads",
+            content=b'{"assistant_id":"assistant-alpha","model":"gpt-5"}',
+        )
 
-    response = app.handle_request(
-        "POST",
-        "/v1/threads",
-        body=b'{"assistant_id":"assistant-alpha","model":"gpt-5"}',
-    )
-
-    payload = _decode_json(response)
+    payload = response.json()
     assert response.status_code == 201
     assert payload["assistant_id"] == "assistant-alpha"
     assert payload["thread_id"] == "thread-test-1"
@@ -148,34 +154,29 @@ def test_create_thread_returns_schema_payload() -> None:
 
 
 def test_invalid_thread_body_returns_422() -> None:
-    app = _create_test_app()
+    with TestClient(_create_test_app()) as client:
+        response = client.post(
+            "/v1/threads",
+            content=b'{"assistant_id":"assistant-alpha","assistant_id":"duplicate"}',
+        )
 
-    response = app.handle_request(
-        "POST",
-        "/v1/threads",
-        body=b'{"assistant_id":"assistant-alpha","assistant_id":"duplicate"}',
-    )
-
-    payload = _decode_json(response)
+    payload = response.json()
     assert response.status_code == 422
     assert payload["error"] == "validation_error"
 
 
 def test_run_route_returns_output_and_thread_state() -> None:
-    app = _create_test_app()
-    app.handle_request(
-        "POST",
-        "/v1/threads",
-        body=b'{"assistant_id":"assistant-alpha","model":"gpt-5"}',
-    )
+    with TestClient(_create_test_app()) as client:
+        client.post(
+            "/v1/threads",
+            content=b'{"assistant_id":"assistant-alpha","model":"gpt-5"}',
+        )
+        response = client.post(
+            "/v1/threads/thread-test-1/runs",
+            content=b'{"input":"hello"}',
+        )
 
-    response = app.handle_request(
-        "POST",
-        "/v1/threads/thread-test-1/runs",
-        body=b'{"input":"hello"}',
-    )
-
-    payload = _decode_json(response)
+    payload = response.json()
     assert response.status_code == 200
     assert payload["assistant_id"] == "assistant-alpha"
     assert payload["thread_id"] == "thread-test-1"
@@ -186,23 +187,24 @@ def test_run_route_returns_output_and_thread_state() -> None:
 
 
 def test_stream_route_returns_sse_events() -> None:
-    app = _create_test_app()
-    app.handle_request(
-        "POST",
-        "/v1/threads",
-        body=b'{"assistant_id":"assistant-alpha","model":"gpt-5"}',
-    )
+    with TestClient(_create_test_app()) as client:
+        client.post(
+            "/v1/threads",
+            content=b'{"assistant_id":"assistant-alpha","model":"gpt-5"}',
+        )
+        with client.stream(
+            "POST",
+            "/v1/threads/thread-test-1/runs/stream",
+            content=b'{"input":"hello"}',
+        ) as response:
+            body = "".join(response.iter_text())
 
-    response = app.handle_request(
-        "POST",
-        "/v1/threads/thread-test-1/runs/stream",
-        body=b'{"input":"hello"}',
-    )
+    events = _decode_sse_events(body)
 
     assert response.status_code == 200
-    assert response.content_type == "text/event-stream"
-    events = _decode_sse_events(response)
-
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert [payload["type"] for _, payload in events] == [event_type for event_type, _ in events]
+    assert [payload["sequence"] for _, payload in events] == list(range(1, len(events) + 1))
     assert [event_type for event_type, _ in events] == [
         "run.started",
         "message.delta",
@@ -213,41 +215,38 @@ def test_stream_route_returns_sse_events() -> None:
         "thread.updated",
         "run.completed",
     ]
-    assert [payload["type"] for _, payload in events] == [event_type for event_type, _ in events]
-    assert [payload["sequence"] for _, payload in events] == list(range(1, len(events) + 1))
-    assert all(payload["run_id"].startswith("run_") for _, payload in events)
+    assert all(_string_field(payload, "run_id").startswith("run_") for _, payload in events)
     assert all(payload["thread_id"] == "thread-test-1" for _, payload in events)
-    assert all(payload["timestamp"].endswith("Z") for _, payload in events)
-    assert events[1][1]["payload"]["text"] == "streamed"
-    assert events[2][1]["payload"]["name"] == "fetch_url"
-    assert events[3][1]["payload"]["content"] == "ok"
-    assert events[4][1]["payload"]["interrupt_id"] == "interrupt-1"
-    assert events[5][1]["payload"]["output"] == "streamed"
-    assert events[6][1]["payload"]["run_count"] == 1
-    assert events[7][1]["payload"]["output"] == "streamed"
+    assert all(_string_field(payload, "timestamp").endswith("Z") for _, payload in events)
+    assert _event_payload(events[1])["text"] == "streamed"
+    assert _event_payload(events[2])["name"] == "fetch_url"
+    assert _event_payload(events[3])["content"] == "ok"
+    assert _event_payload(events[4])["interrupt_id"] == "interrupt-1"
+    assert _event_payload(events[5])["output"] == "streamed"
+    assert _event_payload(events[6])["run_count"] == 1
+    assert _event_payload(events[7])["output"] == "streamed"
 
 
 def test_stream_route_translates_runtime_errors_to_failed_events() -> None:
-    app = _create_test_app(execution_service=FailingExecutionService())
-    app.handle_request(
-        "POST",
-        "/v1/threads",
-        body=b'{"assistant_id":"assistant-alpha","model":"gpt-5"}',
-    )
+    with TestClient(_create_test_app(execution_service=FailingExecutionService())) as client:
+        client.post(
+            "/v1/threads",
+            content=b'{"assistant_id":"assistant-alpha","model":"gpt-5"}',
+        )
+        with client.stream(
+            "POST",
+            "/v1/threads/thread-test-1/runs/stream",
+            content=b'{"input":"hello"}',
+        ) as response:
+            body = "".join(response.iter_text())
 
-    response = app.handle_request(
-        "POST",
-        "/v1/threads/thread-test-1/runs/stream",
-        body=b'{"input":"hello"}',
-    )
-
-    events = _decode_sse_events(response)
+    events = _decode_sse_events(body)
 
     assert [event_type for event_type, _ in events] == [
         "run.started",
         "message.delta",
         "run.failed",
     ]
-    assert events[-1][1]["payload"]["error"] == "runtime_error"
+    assert _event_payload(events[-1])["error"] == "runtime_error"
     assert all(event_type != "run.completed" for event_type, _ in events)
     assert all(event_type != "message.completed" for event_type, _ in events)

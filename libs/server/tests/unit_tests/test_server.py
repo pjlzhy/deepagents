@@ -6,6 +6,7 @@ import time
 from contextlib import closing
 from http.client import HTTPConnection
 from threading import Thread
+from typing import cast
 from urllib.request import urlopen
 
 from deepagents_server.app import create_app
@@ -60,11 +61,34 @@ def _decode_sse_events(raw_body: str) -> list[tuple[str, dict[str, object]]]:
     return events
 
 
+def _event_payload(event: tuple[str, dict[str, object]]) -> dict[str, object]:
+    payload = event[1]["payload"]
+    assert isinstance(payload, dict)
+    return cast("dict[str, object]", payload)
+
+
 def _get_free_port() -> int:
     with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
         sock.bind(("127.0.0.1", 0))
         sock.listen(1)
         return int(sock.getsockname()[1])
+
+
+def _wait_for_server(port: int) -> None:
+    deadline = time.time() + 5
+    last_error: OSError | None = None
+    while time.time() < deadline:
+        try:
+            with urlopen(f"http://127.0.0.1:{port}/healthz", timeout=0.5) as response:
+                if response.status == 200:
+                    return
+        except OSError as exc:
+            last_error = exc
+            time.sleep(0.05)
+    if last_error is not None:
+        raise last_error
+    msg = "Server did not start before timeout."
+    raise RuntimeError(msg)
 
 
 def test_http_server_serves_healthz() -> None:
@@ -83,11 +107,11 @@ def test_http_server_serves_healthz() -> None:
     )
 
     thread.start()
-    time.sleep(0.1)
+    _wait_for_server(port)
 
     with urlopen(f"http://127.0.0.1:{port}/healthz", timeout=2) as response:
         assert response.status == 200
-        assert response.read() == b'{"status": "ok"}'
+        assert json.loads(response.read().decode("utf-8")) == {"status": "ok"}
 
 
 def test_http_server_supports_thread_run_and_stream_flow() -> None:
@@ -106,7 +130,7 @@ def test_http_server_supports_thread_run_and_stream_flow() -> None:
     )
 
     thread.start()
-    time.sleep(0.1)
+    _wait_for_server(port)
 
     connection = HTTPConnection("127.0.0.1", port, timeout=2)
     try:
@@ -158,6 +182,6 @@ def test_http_server_supports_thread_run_and_stream_flow() -> None:
         assert [payload["sequence"] for _, payload in stream_events] == list(
             range(1, len(stream_events) + 1)
         )
-        assert stream_events[-1][1]["payload"]["output"] == "http-stream"
+        assert _event_payload(stream_events[-1])["output"] == "http-stream"
     finally:
         connection.close()

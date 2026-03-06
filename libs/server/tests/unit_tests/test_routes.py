@@ -1,10 +1,15 @@
 from __future__ import annotations
 
-import json
+from typing import TYPE_CHECKING
 
-from deepagents_server.app import AppResponse, ServerApp, create_app
+from fastapi.testclient import TestClient
+
+from deepagents_server.app import create_app
 from deepagents_server.runtime import ExecutionResult, RuntimeEvent
 from deepagents_server.state import InMemoryThreadStore
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
 
 
 class FakeExecutionService:
@@ -37,74 +42,61 @@ class FakeExecutionService:
         )
 
 
-def _create_app() -> ServerApp:
+def _create_app() -> FastAPI:
     return create_app(
         execution_service=FakeExecutionService(),
         thread_store=InMemoryThreadStore(generate_thread_id=lambda: "thread-routes-1"),
     )
 
 
-def _decode_json(response: AppResponse) -> dict[str, object]:
-    return json.loads(response.body.decode("utf-8"))
-
-
 def test_get_thread_returns_created_record() -> None:
-    app = _create_app()
-    app.handle_request(
-        "POST",
-        "/v1/threads",
-        body=b'{"assistant_id":"assistant-routes","model":"gpt-4.1"}',
-    )
-
-    response = app.handle_request("GET", "/v1/threads/thread-routes-1")
+    with TestClient(_create_app()) as client:
+        client.post(
+            "/v1/threads",
+            content=b'{"assistant_id":"assistant-routes","model":"gpt-4.1"}',
+        )
+        response = client.get("/v1/threads/thread-routes-1")
 
     assert response.status_code == 200
-    assert _decode_json(response)["assistant_id"] == "assistant-routes"
+    assert response.json()["assistant_id"] == "assistant-routes"
 
 
 def test_unknown_thread_returns_404() -> None:
-    app = _create_app()
+    with TestClient(_create_app()) as client:
+        response = client.get("/v1/threads/missing-thread")
 
-    response = app.handle_request("GET", "/v1/threads/missing-thread")
-
-    payload = _decode_json(response)
+    payload = response.json()
     assert response.status_code == 404
     assert payload["error"] == "not_found"
 
 
 def test_run_route_rejects_invalid_json() -> None:
-    app = _create_app()
-    app.handle_request(
-        "POST",
-        "/v1/threads",
-        body=b'{"assistant_id":"assistant-routes"}',
-    )
+    with TestClient(_create_app()) as client:
+        client.post(
+            "/v1/threads",
+            content=b'{"assistant_id":"assistant-routes"}',
+        )
+        response = client.post(
+            "/v1/threads/thread-routes-1/runs",
+            content=b'{"input":',
+        )
 
-    response = app.handle_request(
-        "POST",
-        "/v1/threads/thread-routes-1/runs",
-        body=b'{"input":',
-    )
-
-    payload = _decode_json(response)
+    payload = response.json()
     assert response.status_code == 400
     assert payload["error"] == "invalid_json"
 
 
 def test_run_route_rejects_unknown_fields() -> None:
-    app = _create_app()
-    app.handle_request(
-        "POST",
-        "/v1/threads",
-        body=b'{"assistant_id":"assistant-routes"}',
-    )
+    with TestClient(_create_app()) as client:
+        client.post(
+            "/v1/threads",
+            content=b'{"assistant_id":"assistant-routes"}',
+        )
+        response = client.post(
+            "/v1/threads/thread-routes-1/runs",
+            content=b'{"input":"hello","unexpected":true}',
+        )
 
-    response = app.handle_request(
-        "POST",
-        "/v1/threads/thread-routes-1/runs",
-        body=b'{"input":"hello","unexpected":true}',
-    )
-
-    payload = _decode_json(response)
+    payload = response.json()
     assert response.status_code == 422
     assert payload["error"] == "validation_error"

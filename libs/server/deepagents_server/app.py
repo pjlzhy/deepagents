@@ -1,14 +1,17 @@
-"""Application factory and route handling for the Deep Agents HTTP server."""
+"""FastAPI application factory and route handling for the Deep Agents HTTP server."""
 
 from __future__ import annotations
 
 import asyncio
 import json
-import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol
 from uuid import uuid4
+
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from deepagents_server.runtime import (
     ExecutionRequest,
@@ -25,13 +28,10 @@ from deepagents_server.schemas import (
 from deepagents_server.state import InMemoryThreadStore, ThreadRecord
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Iterator, Mapping
+    from collections.abc import AsyncIterator, Iterator
 
-_HEALTH_PATH = "/healthz"
-_THREADS_PATH = "/v1/threads"
-_THREAD_PATH_RE = re.compile(r"^/v1/threads/(?P<thread_id>[^/]+)$")
-_RUN_PATH_RE = re.compile(r"^/v1/threads/(?P<thread_id>[^/]+)/runs$")
-_STREAM_PATH_RE = re.compile(r"^/v1/threads/(?P<thread_id>[^/]+)/runs/stream$")
+
+_NOT_FOUND_STATUS = 404
 
 
 class ExecutionServiceProtocol(Protocol):
@@ -40,44 +40,8 @@ class ExecutionServiceProtocol(Protocol):
     async def run(self, request: ExecutionRequest) -> object:
         """Run a request to completion."""
 
-    async def stream(self, request: ExecutionRequest) -> AsyncIterator[RuntimeEvent]:
+    def stream(self, request: ExecutionRequest) -> AsyncIterator[RuntimeEvent]:
         """Stream runtime events for a request."""
-
-
-@dataclass(frozen=True)
-class AppRequest:
-    """Normalized HTTP request passed from the server adapter to the app.
-
-    Args:
-        method: Uppercase HTTP method.
-        path: URL path without query string.
-        headers: Request headers indexed by original name.
-        body: Raw request body bytes.
-    """
-
-    method: str
-    path: str
-    headers: Mapping[str, str]
-    body: bytes = b""
-
-
-@dataclass
-class AppResponse:
-    """HTTP response returned by the app router.
-
-    Args:
-        status_code: HTTP status code.
-        body: Serialized response body for non-streaming responses.
-        content_type: MIME type sent to the client.
-        headers: Additional HTTP headers.
-        stream: Optional byte iterator for SSE responses.
-    """
-
-    status_code: int
-    body: bytes = b""
-    content_type: str = "application/json"
-    headers: dict[str, str] = field(default_factory=dict)
-    stream: Iterator[bytes] | None = None
 
 
 @dataclass
@@ -89,13 +53,8 @@ class _SseStreamState:
     sequence: int = 0
 
 
-class ServerApp:
-    """Route container for the MVP Deep Agents HTTP server.
-
-    Args:
-        execution_service: Runtime service used by run routes.
-        thread_store: Persistent thread metadata store.
-    """
+class _FastApiRuntime:
+    """Shared FastAPI route implementation for the server package."""
 
     def __init__(
         self,
@@ -103,7 +62,7 @@ class ServerApp:
         execution_service: ExecutionServiceProtocol,
         thread_store: InMemoryThreadStore,
     ) -> None:
-        """Create the route container.
+        """Create the route runtime.
 
         Args:
             execution_service: Runtime service used by run routes.
@@ -112,106 +71,42 @@ class ServerApp:
         self._execution_service = execution_service
         self._thread_store = thread_store
 
-    def handle_request(
-        self,
-        method: str,
-        path: str,
-        *,
-        headers: Mapping[str, str] | None = None,
-        body: bytes = b"",
-    ) -> AppResponse:
-        """Handle a single HTTP request.
+    async def health(self) -> dict[str, str]:
+        """Return the health payload for the server."""
+        return {"status": "ok"}
 
-        Args:
-            method: HTTP method from the incoming request.
-            path: Request path.
-            headers: Optional HTTP headers for the request.
-            body: Optional raw request body.
-
-        Returns:
-            Application response ready to serialize over HTTP.
-        """
-        request = AppRequest(
-            method=method.upper(),
-            path=path,
-            headers=headers or {},
-            body=body,
-        )
-
-        try:
-            return self._dispatch_request(request)
-        except SchemaValidationError as exc:
-            return self._json_response(exc.status_code, serialize_error(exc))
-        except RuntimeDependencyError as exc:
-            payload = {
-                "error": "runtime_dependency_unavailable",
-                "message": str(exc),
-            }
-            return self._json_response(503, payload)
-        except Exception:  # noqa: BLE001
-            payload = {
-                "error": "internal_error",
-                "message": "Internal server error.",
-            }
-            return self._json_response(500, payload)
-
-    def _dispatch_request(self, request: AppRequest) -> AppResponse:
-        if request.method == "GET" and request.path == _HEALTH_PATH:
-            return self._json_response(200, {"status": "ok"})
-        if request.method == "POST" and request.path == _THREADS_PATH:
-            return self._handle_create_thread(request)
-
-        thread_match = _THREAD_PATH_RE.match(request.path)
-        if request.method == "GET" and thread_match:
-            return self._handle_get_thread(thread_match.group("thread_id"))
-
-        run_match = _RUN_PATH_RE.match(request.path)
-        if request.method == "POST" and run_match:
-            return self._handle_run(thread_id=run_match.group("thread_id"), request=request)
-
-        stream_match = _STREAM_PATH_RE.match(request.path)
-        if request.method == "POST" and stream_match:
-            return self._handle_stream(thread_id=stream_match.group("thread_id"), request=request)
-
-        return self._json_response(404, {"error": "not_found", "message": "Route not found."})
-
-    def _handle_create_thread(self, request: AppRequest) -> AppResponse:
-        thread_request = parse_thread_create_request(request.body)
+    async def create_thread(self, request: Request) -> JSONResponse:
+        """Create a new thread record from the incoming request."""
+        create_request = parse_thread_create_request(await request.body())
         thread = self._thread_store.create_thread(
-            assistant_id=thread_request.assistant_id,
-            model=thread_request.model,
+            assistant_id=create_request.assistant_id,
+            model=create_request.model,
         )
-        return self._json_response(201, thread.to_payload())
+        return self.json_response(201, thread.to_payload())
 
-    def _handle_get_thread(self, thread_id: str) -> AppResponse:
+    async def get_thread(self, thread_id: str) -> JSONResponse:
+        """Return the persisted thread metadata for a thread ID."""
         thread = self._thread_store.get_thread(thread_id)
         if thread is None:
-            return self._json_response(
-                404,
-                {"error": "not_found", "message": f"Unknown thread_id '{thread_id}'."},
-            )
-        return self._json_response(200, thread.to_payload())
+            return self.not_found_thread_response(thread_id)
+        return self.json_response(200, thread.to_payload())
 
-    def _handle_run(self, *, thread_id: str, request: AppRequest) -> AppResponse:
+    async def run(self, thread_id: str, request: Request) -> JSONResponse:
+        """Run a thread request to completion and return the final payload."""
         thread = self._thread_store.get_thread(thread_id)
         if thread is None:
-            return self._json_response(
-                404,
-                {"error": "not_found", "message": f"Unknown thread_id '{thread_id}'."},
-            )
+            return self.not_found_thread_response(thread_id)
 
-        run_request = parse_run_request(request.body)
+        run_request = parse_run_request(await request.body())
         effective_assistant = run_request.assistant_id or thread.assistant_id
         effective_model = run_request.model if run_request.model is not None else thread.model
         run_id = self._generate_run_id()
-        result = asyncio.run(
-            self._execution_service.run(
-                ExecutionRequest(
-                    assistant_id=effective_assistant,
-                    input=run_request.input,
-                    model=effective_model,
-                    thread_id=thread.thread_id,
-                )
+        result = await self._execution_service.run(
+            ExecutionRequest(
+                assistant_id=effective_assistant,
+                input=run_request.input,
+                model=effective_model,
+                thread_id=thread.thread_id,
             )
         )
         result_model = getattr(result, "model", effective_model)
@@ -229,17 +124,19 @@ class ServerApp:
             "output": getattr(result, "output", ""),
             "thread": updated.to_payload() if updated is not None else thread.to_payload(),
         }
-        return self._json_response(200, payload)
+        return self.json_response(200, payload)
 
-    def _handle_stream(self, *, thread_id: str, request: AppRequest) -> AppResponse:
+    async def stream(
+        self,
+        thread_id: str,
+        request: Request,
+    ) -> JSONResponse | StreamingResponse:
+        """Stream a run request as SSE events."""
         thread = self._thread_store.get_thread(thread_id)
         if thread is None:
-            return self._json_response(
-                404,
-                {"error": "not_found", "message": f"Unknown thread_id '{thread_id}'."},
-            )
+            return self.not_found_thread_response(thread_id)
 
-        run_request = parse_run_request(request.body)
+        run_request = parse_run_request(await request.body())
         effective_assistant = run_request.assistant_id or thread.assistant_id
         effective_model = run_request.model if run_request.model is not None else thread.model
         run_id = self._generate_run_id()
@@ -249,11 +146,8 @@ class ServerApp:
             model=effective_model,
             thread_id=thread.thread_id,
         )
-        return AppResponse(
-            status_code=200,
-            content_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "Connection": "close"},
-            stream=self._stream_response(
+        return StreamingResponse(
+            self._stream_response(
                 thread=thread,
                 run_id=run_id,
                 input_text=run_request.input,
@@ -261,6 +155,8 @@ class ServerApp:
                 effective_model=effective_model,
                 execution_request=execution_request,
             ),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Connection": "close"},
         )
 
     def _stream_response(  # noqa: PLR0913
@@ -438,11 +334,20 @@ class ServerApp:
             loop.run_until_complete(loop.shutdown_asyncgens())
             loop.close()
 
-    def _json_response(self, status_code: int, payload: dict[str, object]) -> AppResponse:
-        return AppResponse(
-            status_code=status_code,
-            body=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-            content_type="application/json",
+    def json_response(self, status_code: int, payload: dict[str, object]) -> JSONResponse:
+        return JSONResponse(status_code=status_code, content=payload)
+
+    def not_found_thread_response(self, thread_id: str) -> JSONResponse:
+        return self.json_response(
+            _NOT_FOUND_STATUS,
+            {"error": "not_found", "message": f"Unknown thread_id '{thread_id}'."},
+        )
+
+    def not_found_route_response(self, path: str) -> JSONResponse:
+        """Return the API payload for an unknown route."""
+        return self.json_response(
+            _NOT_FOUND_STATUS,
+            {"error": "not_found", "message": f"Unknown route '{path}'."},
         )
 
     def _encode_sse(self, *, event_type: str, payload: dict[str, object]) -> bytes:
@@ -525,17 +430,50 @@ def create_app(
     *,
     execution_service: ExecutionServiceProtocol | None = None,
     thread_store: InMemoryThreadStore | None = None,
-) -> ServerApp:
-    """Create the Deep Agents server application.
+) -> FastAPI:
+    """Create the FastAPI application for the Deep Agents server.
 
     Args:
         execution_service: Optional execution service override for tests.
         thread_store: Optional thread store override for tests.
 
     Returns:
-        Configured route container with MVP HTTP routes.
+        Configured FastAPI application.
     """
-    return ServerApp(
+    runtime = _FastApiRuntime(
         execution_service=execution_service or ExecutionService(),
         thread_store=thread_store or InMemoryThreadStore(),
     )
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+    @app.exception_handler(SchemaValidationError)
+    async def handle_schema_validation_error(
+        request: Request,
+        exc: SchemaValidationError,
+    ) -> JSONResponse:
+        del request
+        return runtime.json_response(exc.status_code, serialize_error(exc))
+
+    @app.exception_handler(StarletteHTTPException)
+    async def handle_http_exception(
+        request: Request,
+        exc: StarletteHTTPException,
+    ) -> JSONResponse:
+        if exc.status_code == _NOT_FOUND_STATUS:
+            return runtime.not_found_route_response(request.url.path)
+        return runtime.json_response(
+            exc.status_code,
+            {"error": "http_error", "message": str(exc.detail)},
+        )
+
+    app.add_api_route("/healthz", runtime.health, methods=["GET"])
+    app.add_api_route("/v1/threads", runtime.create_thread, methods=["POST"])
+    app.add_api_route("/v1/threads/{thread_id}", runtime.get_thread, methods=["GET"])
+    app.add_api_route(
+        "/v1/threads/{thread_id}/runs/stream",
+        runtime.stream,
+        methods=["POST"],
+        response_model=None,
+    )
+    app.add_api_route("/v1/threads/{thread_id}/runs", runtime.run, methods=["POST"])
+    return app

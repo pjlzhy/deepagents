@@ -8,7 +8,8 @@ This package currently provides:
 
 - A standalone package skeleton under `libs/server`
 - A lightweight `python -m deepagents_server` entry point
-- A placeholder health check route at `GET /healthz`
+- A FastAPI-based HTTP application served by `uvicorn`
+- A health check route at `GET /healthz`
 - A shared `ExecutionService` with sync and streaming run APIs for non-UI orchestration
 - No runtime dependency on `deepagents-cli` or `textual` for the health route; the CLI-backed runtime adapter is loaded lazily
 
@@ -33,7 +34,7 @@ Expected response:
 
 ## Design notes
 
-- The server skeleton intentionally uses only the Python standard library for the health route.
+- The HTTP transport now uses FastAPI plus `uvicorn`, while request validation and runtime orchestration stay in local modules.
 - Future issues will add runtime execution, schema validation, thread state, streaming, and tests.
 - The package boundary follows `docs/cli_http_server_boundary.md`.
 
