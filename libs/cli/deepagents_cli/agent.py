@@ -103,7 +103,7 @@ def reset_agent(agent_name: str, source_agent: str | None = None) -> None:
             )
             return
 
-        source_content = source_md.read_text()
+        source_content = source_md.read_text(encoding="utf-8")
         action_desc = f"contents of agent '{source_agent}'"
     else:
         source_content = get_default_coding_instructions()
@@ -152,7 +152,7 @@ def get_system_prompt(assistant_id: str, sandbox_type: str | None = None) -> str
         ... {CONDITIONAL SECTIONS} ...
         ```
     """
-    template = (Path(__file__).parent / "system_prompt.md").read_text()
+    template = (Path(__file__).parent / "system_prompt.md").read_text(encoding="utf-8")
 
     skills_path = f"~/.deepagents/{assistant_id}/skills/"
 

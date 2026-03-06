@@ -2012,11 +2012,20 @@ class DeepAgentsApp(App):
                     idx = pending_tool_indices.pop(tc_id)
                     data = result[idx]
                     status = getattr(msg, "status", "success")
-                    content = (
-                        msg.content
-                        if isinstance(msg.content, str)
-                        else str(msg.content)
-                    )
+                    # Extract text content from various message formats
+                    if isinstance(msg.content, str):
+                        content = msg.content
+                    elif isinstance(msg.content, list):
+                        # Handle content_blocks format: [{'type': 'text', 'text': '...'}]
+                        text_parts = []
+                        for block in msg.content:
+                            if isinstance(block, dict) and block.get("type") == "text":
+                              text_parts.append(block.get("text", ""))
+                            elif isinstance(block, str):
+                              text_parts.append(block)
+                        content = "\n".join(text_parts) if text_parts else str(msg.content)
+                    else:
+                        content = str(msg.content)
                     if status == "success":
                         data.tool_status = ToolStatus.SUCCESS
                     else:
