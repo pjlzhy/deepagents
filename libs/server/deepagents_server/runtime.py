@@ -127,6 +127,25 @@ class RuntimeContext:
     shell_allow_list: list[str] | None
 
 
+@dataclass(frozen=True)
+class RuntimeDependencies:
+    """Resolved CLI-backed runtime dependencies.
+
+    Keeping these imports explicit preserves source navigation and signatures while
+    still allowing the server to load them lazily at runtime.
+    """
+
+    create_cli_agent: Callable[..., tuple[RuntimeAgentProtocol, object]]
+    create_model: Callable[..., CliModelResultProtocol]
+    settings: CliSettingsProtocol
+    generate_thread_id: Callable[[], str]
+    get_checkpointer: Callable[[], AbstractAsyncContextManager[object]]
+    fetch_url: object
+    http_request: object
+    web_search: object
+    create_sandbox: Callable[..., AbstractContextManager[object]]
+
+
 class RuntimeAdapter(Protocol):
     """Adapter that bridges the server runtime to a concrete agent backend."""
 
@@ -491,29 +510,9 @@ class CliRuntimeAdapter:
     async def open_runtime(self, request: ExecutionRequest) -> AsyncIterator[RuntimeContext]:
         """Open a CLI-backed runtime context."""
         dependencies = self._load_dependencies()
-        generate_thread_id = cast(
-            "Callable[[], str]",
-            dependencies["generate_thread_id"],
-        )
-        create_model = cast(
-            "Callable[..., CliModelResultProtocol]",
-            dependencies["create_model"],
-        )
-        create_cli_agent = cast(
-            "Callable[..., tuple[RuntimeAgentProtocol, object]]",
-            dependencies["create_cli_agent"],
-        )
-        get_checkpointer = cast(
-            "Callable[[], AbstractAsyncContextManager[object]]",
-            dependencies["get_checkpointer"],
-        )
-        settings = cast("CliSettingsProtocol", dependencies["settings"])
-        fetch_url = dependencies["fetch_url"]
-        http_request = dependencies["http_request"]
-        web_search = dependencies["web_search"]
 
-        thread_id = request.thread_id or generate_thread_id()
-        model_result = create_model(
+        thread_id = request.thread_id or dependencies.generate_thread_id()
+        model_result = dependencies.create_model(
             request.model,
             extra_kwargs=request.model_params,
             profile_overrides=request.profile_override,
@@ -537,12 +536,8 @@ class CliRuntimeAdapter:
         async with AsyncExitStack() as exit_stack:
             sandbox_backend = None
             if request.sandbox_type != "none":
-                create_sandbox = cast(
-                    "Callable[..., AbstractContextManager[object]]",
-                    dependencies["create_sandbox"],
-                )
                 try:
-                    sandbox_cm = create_sandbox(
+                    sandbox_cm = dependencies.create_sandbox(
                         request.sandbox_type,
                         sandbox_id=request.sandbox_id,
                         setup_script_path=request.sandbox_setup,
@@ -560,7 +555,9 @@ class CliRuntimeAdapter:
             elif request.checkpointer_backend == "memory":
                 checkpointer = None
             elif request.checkpointer_backend == "local":
-                checkpointer = await exit_stack.enter_async_context(get_checkpointer())
+                checkpointer = await exit_stack.enter_async_context(
+                    dependencies.get_checkpointer()
+                )
             else:
                 msg = (
                     f"Unsupported checkpointer backend '{request.checkpointer_backend}'. "
@@ -568,13 +565,13 @@ class CliRuntimeAdapter:
                 )
                 raise RuntimeServiceError(msg)
 
-            tools = [http_request, fetch_url]
-            if settings.has_tavily:
-                tools.append(web_search)
+            tools = [dependencies.http_request, dependencies.fetch_url]
+            if dependencies.settings.has_tavily:
+                tools.append(dependencies.web_search)
 
-            shell_allow_list = settings.shell_allow_list
+            shell_allow_list = dependencies.settings.shell_allow_list
             enable_shell = bool(shell_allow_list)
-            agent, _backend = create_cli_agent(
+            agent, _backend = dependencies.create_cli_agent(
                 model=model_result.model,
                 assistant_id=request.assistant_id,
                 tools=tools,
@@ -599,73 +596,8 @@ class CliRuntimeAdapter:
 
     def build_resume_input(self, resume_payload: HitlResumePayload) -> object:
         """Build the resume input for a HITL continuation."""
-        command_cls = cast(
-            "Callable[..., object]",
-            self._load_dependency(
-                module_name="langgraph.types",
-                attribute_name="Command",
-            ),
-        )
-        return command_cls(resume=resume_payload)
-
-    def is_shell_command_allowed(
-        self,
-        command: str,
-        allow_list: list[str] | None,
-    ) -> bool:
-        """Delegate shell allow-list checks to the CLI implementation."""
-        checker = cast(
-            "Callable[[str, list[str] | None], bool]",
-            self._load_dependency(
-                module_name="deepagents_cli.config",
-                attribute_name="is_shell_command_allowed",
-            ),
-        )
-        return checker(command, allow_list)
-
-    def _load_dependencies(self) -> dict[str, object]:
-        return {
-            "create_cli_agent": self._load_dependency(
-                module_name="deepagents_cli.agent",
-                attribute_name="create_cli_agent",
-            ),
-            "create_model": self._load_dependency(
-                module_name="deepagents_cli.config",
-                attribute_name="create_model",
-            ),
-            "settings": self._load_dependency(
-                module_name="deepagents_cli.config",
-                attribute_name="settings",
-            ),
-            "generate_thread_id": self._load_dependency(
-                module_name="deepagents_cli.sessions",
-                attribute_name="generate_thread_id",
-            ),
-            "get_checkpointer": self._load_dependency(
-                module_name="deepagents_cli.sessions",
-                attribute_name="get_checkpointer",
-            ),
-            "fetch_url": self._load_dependency(
-                module_name="deepagents_cli.tools",
-                attribute_name="fetch_url",
-            ),
-            "http_request": self._load_dependency(
-                module_name="deepagents_cli.tools",
-                attribute_name="http_request",
-            ),
-            "web_search": self._load_dependency(
-                module_name="deepagents_cli.tools",
-                attribute_name="web_search",
-            ),
-            "create_sandbox": self._load_dependency(
-                module_name="deepagents_cli.integrations.sandbox_factory",
-                attribute_name="create_sandbox",
-            ),
-        }
-
-    def _load_dependency(self, module_name: str, attribute_name: str) -> object:
         try:
-            module = __import__(module_name, fromlist=[attribute_name])
+            from langgraph.types import Command  # noqa: PLC0415
         except ImportError as exc:
             msg = (
                 "CLI-backed runtime dependencies are unavailable. Install "
@@ -673,4 +605,71 @@ class CliRuntimeAdapter:
                 "server execution service."
             )
             raise RuntimeDependencyError(msg) from exc
-        return getattr(module, attribute_name)
+
+        return Command(resume=resume_payload)
+
+    def is_shell_command_allowed(
+        self,
+        command: str,
+        allow_list: list[str] | None,
+    ) -> bool:
+        """Delegate shell allow-list checks to the CLI implementation."""
+        try:
+            from deepagents_cli.config import is_shell_command_allowed  # noqa: PLC0415
+        except ImportError as exc:
+            msg = (
+                "CLI-backed runtime dependencies are unavailable. Install "
+                "`deepagents-cli` in the same environment before using the "
+                "server execution service."
+            )
+            raise RuntimeDependencyError(msg) from exc
+
+        return is_shell_command_allowed(command, allow_list)
+
+    def _load_dependencies(self) -> RuntimeDependencies:
+        try:
+            from deepagents_cli.agent import create_cli_agent  # noqa: PLC0415
+            from deepagents_cli.config import create_model, settings  # noqa: PLC0415
+            from deepagents_cli.integrations.sandbox_factory import (  # noqa: PLC0415
+                create_sandbox,
+            )
+            from deepagents_cli.sessions import (  # noqa: PLC0415
+                generate_thread_id,
+                get_checkpointer,
+            )
+            from deepagents_cli.tools import (  # noqa: PLC0415
+                fetch_url,
+                http_request,
+                web_search,
+            )
+        except ImportError as exc:
+            msg = (
+                "CLI-backed runtime dependencies are unavailable. Install "
+                "`deepagents-cli` in the same environment before using the "
+                "server execution service."
+            )
+            raise RuntimeDependencyError(msg) from exc
+
+        return RuntimeDependencies(
+            create_cli_agent=cast(
+                "Callable[..., tuple[RuntimeAgentProtocol, object]]",
+                create_cli_agent,
+            ),
+            create_model=cast(
+                "Callable[..., CliModelResultProtocol]",
+                create_model,
+            ),
+            settings=cast("CliSettingsProtocol", settings),
+            generate_thread_id=cast("Callable[[], str]", generate_thread_id),
+            get_checkpointer=cast(
+                "Callable[[], AbstractAsyncContextManager[object]]",
+                get_checkpointer,
+            ),
+            fetch_url=fetch_url,
+            http_request=http_request,
+            web_search=web_search,
+            create_sandbox=cast(
+                "Callable[..., AbstractContextManager[object]]",
+                create_sandbox,
+            ),
+        )

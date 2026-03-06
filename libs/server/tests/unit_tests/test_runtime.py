@@ -3,21 +3,26 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
 from deepagents_server.runtime import (
+    CliModelResultProtocol,
     CliRuntimeAdapter,
+    CliSettingsProtocol,
     ExecutionRequest,
     ExecutionService,
+    RuntimeAgentProtocol,
     RuntimeContext,
+    RuntimeDependencies,
     RuntimeEvent,
     RuntimeServiceError,
 )
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Callable
+    from contextlib import AbstractAsyncContextManager, AbstractContextManager
 
 
 @dataclass(frozen=True)
@@ -115,8 +120,9 @@ class _FakeCliModelResult:
 
 
 class _FakeCliSettings:
-    has_tavily = False
-    shell_allow_list: ClassVar[list[str]] = ["ls"]
+    def __init__(self) -> None:
+        self.has_tavily = False
+        self.shell_allow_list: list[str] | None = ["ls"]
 
 
 class RecordingCliRuntimeAdapter(CliRuntimeAdapter):
@@ -125,7 +131,7 @@ class RecordingCliRuntimeAdapter(CliRuntimeAdapter):
         self.get_checkpointer_calls = 0
         self.create_sandbox_error: Exception | None = None
 
-    def _load_dependencies(self) -> dict[str, object]:
+    def _load_dependencies(self) -> RuntimeDependencies:
         def create_model(
             model: str | None,
             *,
@@ -150,23 +156,32 @@ class RecordingCliRuntimeAdapter(CliRuntimeAdapter):
             *,
             sandbox_id: str | None,
             setup_script_path: str | None,
-        ) -> object:
+        ) -> _NullContext:
             del sandbox_type, sandbox_id, setup_script_path
             if self.create_sandbox_error is not None:
                 raise self.create_sandbox_error
             return _NullContext()
 
-        return {
-            "create_cli_agent": create_cli_agent,
-            "create_model": create_model,
-            "settings": _FakeCliSettings(),
-            "generate_thread_id": lambda: "thread-generated",
-            "get_checkpointer": get_checkpointer,
-            "fetch_url": object(),
-            "http_request": object(),
-            "web_search": object(),
-            "create_sandbox": create_sandbox,
-        }
+        return RuntimeDependencies(
+            create_cli_agent=cast(
+                "Callable[..., tuple[RuntimeAgentProtocol, object]]",
+                create_cli_agent,
+            ),
+            create_model=cast("Callable[..., CliModelResultProtocol]", create_model),
+            settings=cast("CliSettingsProtocol", _FakeCliSettings()),
+            generate_thread_id=cast("Callable[[], str]", lambda: "thread-generated"),
+            get_checkpointer=cast(
+                "Callable[[], AbstractAsyncContextManager[object]]",
+                get_checkpointer,
+            ),
+            fetch_url=object(),
+            http_request=object(),
+            web_search=object(),
+            create_sandbox=cast(
+                "Callable[..., AbstractContextManager[object]]",
+                create_sandbox,
+            ),
+        )
 
 
 class _NullContext:
