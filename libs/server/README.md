@@ -17,7 +17,7 @@ This package currently provides:
 
 ```bash
 cd libs/server
-uv run --project . python -m deepagents_server --host 127.0.0.1 --port 8080
+uv run --project . python -m deepagents_server --host 127.0.0.1 --port 8080 --checkpointer-backend local
 ```
 
 Then call the health endpoint:
@@ -37,6 +37,7 @@ Expected response:
 The MVP package does not define any server-specific environment variables yet.
 
 - Bind settings come from the CLI flags `--host` and `--port`
+- Runtime defaults can also set `--checkpointer-backend` (`local` or `memory`) and `--sandbox-type` (`none` only in the MVP server)
 - Runtime execution inherits the process environment of the launched server
 - If the CLI-backed runtime reads existing `deepagents-cli` environment variables, the server sees the same values because it runs in the same process environment
 
@@ -85,12 +86,14 @@ uv run --project . --group test ty check deepagents_server tests
 ## Design notes
 
 - The HTTP transport now uses FastAPI plus `uvicorn`, while request validation and runtime orchestration stay in local modules.
+- New threads inherit a session context that carries `thread_id`, per-thread runtime defaults, optional injected checkpointer, and the generated `run_id` used for each execution.
 - The MVP test matrix covers config parsing, request schema validation, runtime service behavior, HTTP routes, SSE streaming, and uvicorn-backed server smoke checks.
 - The package boundary follows `docs/cli_http_server_boundary.md`.
 
 ## Known limitations
 
 - The only persistence mode today is the in-memory thread store in `deepagents_server.state`
+- Execution requests can reuse either the CLI-backed local checkpointer or an in-process memory backend, but unsupported sandbox providers fail fast with a clear error
 - The CLI-backed runtime adapter is still a local-process integration, not a standalone remote execution service
 - Approval callbacks, file upload and download APIs, authentication, deployment packaging, and observability are not part of the MVP
 - Health checks are dependency-light, but runtime execution still requires the CLI-backed dependencies to be importable in the same environment

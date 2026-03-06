@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from fastapi.testclient import TestClient
 
 from deepagents_server.app import create_app
+from deepagents_server.config import RuntimeDefaults
 from deepagents_server.runtime import ExecutionResult, RuntimeEvent
 from deepagents_server.state import InMemoryThreadStore
 
@@ -40,6 +41,15 @@ class FakeExecutionService:
                 "output": "chunk",
             },
         )
+
+
+class RecordingExecutionService(FakeExecutionService):
+    def __init__(self) -> None:
+        self.requests = []
+
+    async def run(self, request):
+        self.requests.append(request)
+        return await super().run(request)
 
 
 def _create_app() -> FastAPI:
@@ -100,3 +110,36 @@ def test_run_route_rejects_unknown_fields() -> None:
     payload = response.json()
     assert response.status_code == 422
     assert payload["error"] == "validation_error"
+
+
+def test_run_route_injects_thread_runtime_defaults() -> None:
+    service = RecordingExecutionService()
+    thread_store = InMemoryThreadStore(
+        generate_thread_id=lambda: "thread-routes-config",
+        default_runtime_defaults=RuntimeDefaults(
+            checkpointer_backend="memory",
+            enable_memory=True,
+            enable_skills=True,
+        ),
+    )
+
+    with TestClient(create_app(execution_service=service, thread_store=thread_store)) as client:
+        create_response = client.post(
+            "/v1/threads",
+            content=b'{"assistant_id":"assistant-routes","model":"gpt-4.1"}',
+        )
+        run_response = client.post(
+            "/v1/threads/thread-routes-config/runs",
+            content=b'{"input":"hello"}',
+        )
+
+    assert create_response.status_code == 201
+    assert run_response.status_code == 200
+    assert len(service.requests) == 1
+    request = service.requests[0]
+    assert request.thread_id == "thread-routes-config"
+    assert request.checkpointer_backend == "memory"
+    assert request.enable_memory is True
+    assert request.enable_skills is True
+    assert request.run_id is not None
+    assert request.run_id.startswith("run_")

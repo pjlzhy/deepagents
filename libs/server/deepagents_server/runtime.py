@@ -52,6 +52,10 @@ class ExecutionRequest:
         sandbox_id: Optional existing sandbox identifier.
         sandbox_setup: Optional sandbox setup script path.
         checkpointer: Optional injected checkpointer.
+        checkpointer_backend: Backend to use when no checkpointer is injected.
+        enable_memory: Whether memory-related defaults are enabled for the thread.
+        enable_skills: Whether skills-related defaults are enabled for the thread.
+        run_id: Optional run identifier associated with the execution.
     """
 
     assistant_id: str
@@ -64,6 +68,10 @@ class ExecutionRequest:
     sandbox_id: str | None = None
     sandbox_setup: str | None = None
     checkpointer: object | None = None
+    checkpointer_backend: str = "local"
+    enable_memory: bool = False
+    enable_skills: bool = False
+    run_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -517,6 +525,11 @@ class CliRuntimeAdapter:
             "metadata": {
                 "assistant_id": request.assistant_id,
                 "agent_name": request.assistant_id,
+                "run_id": request.run_id,
+                "checkpointer_backend": request.checkpointer_backend,
+                "sandbox_type": request.sandbox_type,
+                "enable_memory": request.enable_memory,
+                "enable_skills": request.enable_skills,
                 "updated_at": datetime.now(UTC).isoformat(),
             },
         }
@@ -528,17 +541,32 @@ class CliRuntimeAdapter:
                     "Callable[..., AbstractContextManager[object]]",
                     dependencies["create_sandbox"],
                 )
-                sandbox_cm = create_sandbox(
-                    request.sandbox_type,
-                    sandbox_id=request.sandbox_id,
-                    setup_script_path=request.sandbox_setup,
-                )
-                sandbox_backend = exit_stack.enter_context(sandbox_cm)
+                try:
+                    sandbox_cm = create_sandbox(
+                        request.sandbox_type,
+                        sandbox_id=request.sandbox_id,
+                        setup_script_path=request.sandbox_setup,
+                    )
+                    sandbox_backend = exit_stack.enter_context(sandbox_cm)
+                except Exception as exc:
+                    msg = (
+                        f"Sandbox type '{request.sandbox_type}' is not supported in the current "
+                        f"server environment: {exc}"
+                    )
+                    raise RuntimeServiceError(msg) from exc
 
-            if request.checkpointer is None:
+            if request.checkpointer is not None:
+                checkpointer = request.checkpointer
+            elif request.checkpointer_backend == "memory":
+                checkpointer = None
+            elif request.checkpointer_backend == "local":
                 checkpointer = await exit_stack.enter_async_context(get_checkpointer())
             else:
-                checkpointer = request.checkpointer
+                msg = (
+                    f"Unsupported checkpointer backend '{request.checkpointer_backend}'. "
+                    "Expected one of: local, memory."
+                )
+                raise RuntimeServiceError(msg)
 
             tools = [http_request, fetch_url]
             if settings.has_tavily:

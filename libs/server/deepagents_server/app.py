@@ -102,11 +102,12 @@ class _FastApiRuntime:
         effective_model = run_request.model if run_request.model is not None else thread.model
         run_id = self._generate_run_id()
         result = await self._execution_service.run(
-            ExecutionRequest(
+            self._build_execution_request(
+                thread=thread,
+                run_id=run_id,
+                input_text=run_request.input,
                 assistant_id=effective_assistant,
-                input=run_request.input,
                 model=effective_model,
-                thread_id=thread.thread_id,
             )
         )
         result_model = getattr(result, "model", effective_model)
@@ -114,6 +115,7 @@ class _FastApiRuntime:
             thread.thread_id,
             assistant_id=effective_assistant,
             model=result_model,
+            run_id=run_id,
         )
         payload = {
             "assistant_id": effective_assistant,
@@ -140,11 +142,12 @@ class _FastApiRuntime:
         effective_assistant = run_request.assistant_id or thread.assistant_id
         effective_model = run_request.model if run_request.model is not None else thread.model
         run_id = self._generate_run_id()
-        execution_request = ExecutionRequest(
+        execution_request = self._build_execution_request(
+            thread=thread,
+            run_id=run_id,
+            input_text=run_request.input,
             assistant_id=effective_assistant,
-            input=run_request.input,
             model=effective_model,
-            thread_id=thread.thread_id,
         )
         return StreamingResponse(
             self._stream_response(
@@ -157,6 +160,31 @@ class _FastApiRuntime:
             ),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "Connection": "close"},
+        )
+
+    def _build_execution_request(
+        self,
+        *,
+        thread: ThreadRecord,
+        run_id: str,
+        input_text: str,
+        assistant_id: str,
+        model: str | None,
+    ) -> ExecutionRequest:
+        runtime_defaults = thread.runtime_defaults
+        return ExecutionRequest(
+            assistant_id=assistant_id,
+            input=input_text,
+            model=model,
+            thread_id=thread.thread_id,
+            sandbox_type=runtime_defaults.sandbox_type,
+            sandbox_id=runtime_defaults.sandbox_id,
+            sandbox_setup=runtime_defaults.sandbox_setup,
+            checkpointer=runtime_defaults.checkpointer,
+            checkpointer_backend=runtime_defaults.checkpointer_backend,
+            enable_memory=runtime_defaults.enable_memory,
+            enable_skills=runtime_defaults.enable_skills,
+            run_id=run_id,
         )
 
     def _stream_response(  # noqa: PLR0913

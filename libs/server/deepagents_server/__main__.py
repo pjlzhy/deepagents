@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from deepagents_server.app import create_app
 from deepagents_server.config import parse_config
 from deepagents_server.server import run_server
 
@@ -10,7 +9,7 @@ from deepagents_server.server import run_server
 def main() -> None:
     """Run the Deep Agents HTTP server."""
     config = parse_config()
-    run_server(config, app=create_app())
+    run_server(config)
 
 
 if __name__ == "__main__":

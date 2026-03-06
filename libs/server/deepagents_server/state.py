@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from threading import Lock
 from typing import TYPE_CHECKING
@@ -10,6 +10,8 @@ from uuid import uuid4
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+from deepagents_server.config import RuntimeDefaults
 
 
 def utc_now() -> datetime:
@@ -44,6 +46,8 @@ class ThreadRecord:
         created_at: Creation timestamp in ISO 8601 format.
         updated_at: Last mutation timestamp in ISO 8601 format.
         run_count: Number of successful runs recorded on the thread.
+        last_run_id: Most recent run identifier recorded on the thread.
+        runtime_defaults: Default runtime context reused by future runs.
     """
 
     thread_id: str
@@ -52,6 +56,8 @@ class ThreadRecord:
     created_at: str
     updated_at: str
     run_count: int = 0
+    last_run_id: str | None = None
+    runtime_defaults: RuntimeDefaults = field(default_factory=RuntimeDefaults, repr=False)
 
     def to_payload(self) -> dict[str, object]:
         """Serialize the thread record into an API payload.
@@ -77,24 +83,34 @@ class InMemoryThreadStore:
         *,
         generate_thread_id: Callable[[], str] | None = None,
         now: Callable[[], datetime] | None = None,
+        default_runtime_defaults: RuntimeDefaults | None = None,
     ) -> None:
         """Create the in-memory thread store.
 
         Args:
             generate_thread_id: Optional thread ID generator for tests.
             now: Optional clock override for deterministic timestamps.
+            default_runtime_defaults: Default session context for new threads.
         """
         self._generate_thread_id = generate_thread_id or self._default_thread_id
         self._now = now or utc_now
+        self._default_runtime_defaults = default_runtime_defaults or RuntimeDefaults()
         self._records: dict[str, ThreadRecord] = {}
         self._lock = Lock()
 
-    def create_thread(self, *, assistant_id: str, model: str | None) -> ThreadRecord:
+    def create_thread(
+        self,
+        *,
+        assistant_id: str,
+        model: str | None,
+        runtime_defaults: RuntimeDefaults | None = None,
+    ) -> ThreadRecord:
         """Create and persist a new thread.
 
         Args:
             assistant_id: Assistant identifier bound to the thread.
             model: Optional default model for the thread.
+            runtime_defaults: Optional runtime defaults to store on the thread.
 
         Returns:
             Newly created thread record.
@@ -106,6 +122,7 @@ class InMemoryThreadStore:
             model=model,
             created_at=timestamp,
             updated_at=timestamp,
+            runtime_defaults=runtime_defaults or self._default_runtime_defaults,
         )
         with self._lock:
             self._records[record.thread_id] = record
@@ -129,6 +146,7 @@ class InMemoryThreadStore:
         *,
         assistant_id: str,
         model: str | None,
+        run_id: str | None = None,
     ) -> ThreadRecord | None:
         """Update a thread after a successful run.
 
@@ -136,6 +154,7 @@ class InMemoryThreadStore:
             thread_id: Thread identifier to update.
             assistant_id: Effective assistant used for the run.
             model: Effective model used for the run.
+            run_id: Optional run identifier to persist on the thread.
 
         Returns:
             Updated thread record, if the thread exists.
@@ -150,6 +169,7 @@ class InMemoryThreadStore:
                 model=model,
                 updated_at=format_timestamp(self._now()),
                 run_count=existing.run_count + 1,
+                last_run_id=run_id,
             )
             self._records[thread_id] = updated
             return updated

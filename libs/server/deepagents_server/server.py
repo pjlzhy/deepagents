@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 import uvicorn
 
 from deepagents_server.app import create_app
+from deepagents_server.state import InMemoryThreadStore
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -21,7 +22,9 @@ def run_server(config: ServerConfig, *, app: FastAPI | None = None) -> None:
         config: Server bind configuration.
         app: Optional pre-built FastAPI application for tests.
     """
-    server_app = app or create_app()
+    server_app = app or create_app(
+        thread_store=InMemoryThreadStore(default_runtime_defaults=config.runtime_defaults)
+    )
     uvicorn.run(
         server_app,
         host=config.host,
