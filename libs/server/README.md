@@ -17,7 +17,7 @@ This package currently provides:
 
 ```bash
 cd libs/server
-python -m deepagents_server --host 127.0.0.1 --port 8080
+uv run --project . python -m deepagents_server --host 127.0.0.1 --port 8080
 ```
 
 Then call the health endpoint:
@@ -32,11 +32,75 @@ Expected response:
 {"status":"ok"}
 ```
 
+## Environment variables
+
+The MVP package does not define any server-specific environment variables yet.
+
+- Bind settings come from the CLI flags `--host` and `--port`
+- Runtime execution inherits the process environment of the launched server
+- If the CLI-backed runtime reads existing `deepagents-cli` environment variables, the server sees the same values because it runs in the same process environment
+
+## API examples
+
+Create a thread:
+
+```bash
+curl -X POST http://127.0.0.1:8080/v1/threads \
+  -H "Content-Type: application/json" \
+  -d '{"assistant_id":"assistant-alpha","model":"gpt-5"}'
+```
+
+Fetch a thread:
+
+```bash
+curl http://127.0.0.1:8080/v1/threads/thread_123
+```
+
+Run a synchronous request:
+
+```bash
+curl -X POST http://127.0.0.1:8080/v1/threads/thread_123/runs \
+  -H "Content-Type: application/json" \
+  -d '{"input":"Say hello","assistant_id":"assistant-alpha","model":"gpt-5"}'
+```
+
+Run a streaming request:
+
+```bash
+curl -N -X POST http://127.0.0.1:8080/v1/threads/thread_123/runs/stream \
+  -H "Content-Type: application/json" \
+  -d '{"input":"Say hello","assistant_id":"assistant-alpha","model":"gpt-5"}'
+```
+
+## Validation
+
+Run the server package checks from `libs/server`:
+
+```bash
+uv run --project . --group test pytest tests/unit_tests/test_config.py tests/unit_tests/test_schemas.py tests/unit_tests/test_app.py tests/unit_tests/test_routes.py tests/unit_tests/test_runtime.py tests/unit_tests/test_server.py
+uv run --project . --group test ruff check deepagents_server tests README.md
+uv run --project . --group test ty check deepagents_server tests
+```
+
 ## Design notes
 
 - The HTTP transport now uses FastAPI plus `uvicorn`, while request validation and runtime orchestration stay in local modules.
-- Future issues will add runtime execution, schema validation, thread state, streaming, and tests.
+- The MVP test matrix covers config parsing, request schema validation, runtime service behavior, HTTP routes, SSE streaming, and uvicorn-backed server smoke checks.
 - The package boundary follows `docs/cli_http_server_boundary.md`.
+
+## Known limitations
+
+- The only persistence mode today is the in-memory thread store in `deepagents_server.state`
+- The CLI-backed runtime adapter is still a local-process integration, not a standalone remote execution service
+- Approval callbacks, file upload and download APIs, authentication, deployment packaging, and observability are not part of the MVP
+- Health checks are dependency-light, but runtime execution still requires the CLI-backed dependencies to be importable in the same environment
+
+## Differences from the CLI
+
+- The server exposes JSON and SSE contracts only; it does not render Textual or terminal UI state
+- Thread lifecycle is explicit through `POST /v1/threads` and `GET /v1/threads/{thread_id}` instead of interactive CLI session controls
+- Health checks and HTTP startup must not import `deepagents_cli.app` or `textual` at runtime
+- CLI-only features such as approval UI presentation and terminal-focused affordances remain out of scope for the server MVP
 
 ## Streaming contract
 
