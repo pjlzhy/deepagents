@@ -9,7 +9,8 @@ This package currently provides:
 - A standalone package skeleton under `libs/server`
 - A lightweight `python -m deepagents_server` entry point
 - A placeholder health check route at `GET /healthz`
-- No runtime dependency on `deepagents-cli` or `textual`
+- A shared `ExecutionService` with sync and streaming run APIs for non-UI orchestration
+- No runtime dependency on `deepagents-cli` or `textual` for the health route; the CLI-backed runtime adapter is loaded lazily
 
 ## Quick start
 
