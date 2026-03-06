@@ -96,6 +96,7 @@ uv run --project . --group test ty check deepagents_server tests
 - Execution requests can reuse either the CLI-backed local checkpointer or an in-process memory backend, but unsupported sandbox providers fail fast with a clear error
 - The CLI-backed runtime adapter is still a local-process integration, not a standalone remote execution service
 - Approval callbacks, file upload and download APIs, authentication, deployment packaging, and observability are not part of the MVP
+- See `docs/cli_http_server_backlog.md` for the audited backlog and the entry gates required before any of those capabilities move into implementation
 - Health checks are dependency-light, but runtime execution still requires the CLI-backed dependencies to be importable in the same environment
 
 ## Differences from the CLI

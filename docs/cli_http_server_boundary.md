@@ -60,6 +60,11 @@ The server MVP keeps the existing names used by the CLI runtime so that request 
 3. Keep API schema names aligned with CLI/runtime terminology.
 4. Add regression tests in the server package to prevent `textual` or `deepagents_cli.app` runtime imports.
 
+## Phase gates
+
+- Advanced capabilities such as approval callbacks, file transfer, authn/authz, deployment packaging, and observability are tracked in `docs/cli_http_server_backlog.md`.
+- Changes that cross the current MVP boundary must update the active plan or `issues/*.csv` snapshot before implementation begins.
+
 ## Review checklist
 
 - Does the change preserve `assistant_id`, `thread_id`, and `model` naming across route schema and runtime config?
