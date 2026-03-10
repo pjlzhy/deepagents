@@ -14,6 +14,8 @@
 #   GROQ_API_KEY       — needed for Groq-hosted models
 #   OLLAMA_API_KEY     — needed for Ollama Cloud models
 #   OLLAMA_HOST        — set to https://ollama.com for cloud inference
+#   BASETEN_API_KEY    — needed for Baseten-hosted models
+#   FIREWORKS_API_KEY  — needed for Fireworks-hosted models
 
 name: "📊 Evals"
 
@@ -29,7 +31,9 @@ on:
         type: choice
         options:
           - all
+          - set0
           - set1
+          - set2
           - "anthropic:claude-haiku-4-5-20251001"
           - "anthropic:claude-sonnet-4-20250514"
           - "anthropic:claude-sonnet-4-5-20250929"
@@ -64,6 +68,17 @@ on:
           - "ollama:qwen3-coder:480b-cloud"
           - "ollama:qwen3.5:397b-cloud"
           - "ollama:deepseek-v3.2:cloud"
+          - "baseten:zai-org/GLM-5"
+          - "baseten:MiniMaxAI/MiniMax-M2.5"
+          - "baseten:moonshotai/Kimi-K2.5"
+          - "baseten:deepseek-ai/DeepSeek-V3.2"
+          - "baseten:Qwen/Qwen3-Coder-480B-A35B-Instruct"
+          - "fireworks:fireworks/qwen3-vl-235b-a22b-thinking"
+          - "fireworks:fireworks/deepseek-v3-0324"
+          - "fireworks:fireworks/minimax-m2p1"
+          - "fireworks:fireworks/kimi-k2p5"
+          - "fireworks:fireworks/glm-5"
+          - "fireworks:fireworks/minimax-m2p5"
       models_override:
         description: "Override: comma-separated models (e.g. 'openai:gpt-4.1,openai:o3'). Takes priority over dropdown when non-empty."
         required: false
@@ -118,6 +133,8 @@ jobs:
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
       OLLAMA_HOST: "https://ollama.com"
+      BASETEN_API_KEY: ${{ secrets.BASETEN_API_KEY }}
+      FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
     steps:
       - name: "📋 Checkout Code"
         uses: actions/checkout@v6
@@ -153,7 +170,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: "📥 Download eval artifacts"
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           path: evals_artifacts
 
@@ -166,3 +183,10 @@ jobs:
 
       - name: "🧾 Write summary"
         run: uv run --with tabulate python .github/scripts/aggregate_evals.py
+
+      - name: "📤 Upload JSON summary"
+        uses: actions/upload-artifact@v7
+        with:
+          name: evals-summary
+          path: evals_summary.json
+          if-no-files-found: warn

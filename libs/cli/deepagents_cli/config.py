@@ -60,16 +60,34 @@ COLORS = {
     "agent": "#10b981",
     "thinking": "#34d399",
     "tool": "#fbbf24",
-    "mode_bash": "#ff1493",
+    "mode_shell": "#ff1493",
     "mode_command": "#8b5cf6",
 }
 """App color scheme."""
 
 MODE_PREFIXES: dict[str, str] = {
-    "bash": "!",
+    "shell": "!",
     "command": "/",
 }
 """Maps each non-normal mode to its trigger character."""
+
+MODE_DISPLAY_GLYPHS: dict[str, str] = {
+    "shell": "$",
+    "command": "/",
+}
+"""Maps each non-normal mode to its display glyph shown in the prompt/UI."""
+
+if MODE_PREFIXES.keys() != MODE_DISPLAY_GLYPHS.keys():
+    _only_prefixes = MODE_PREFIXES.keys() - MODE_DISPLAY_GLYPHS.keys()
+    _only_glyphs = MODE_DISPLAY_GLYPHS.keys() - MODE_PREFIXES.keys()
+    msg = (
+        "MODE_PREFIXES and MODE_DISPLAY_GLYPHS have mismatched keys: "
+        f"only in PREFIXES={_only_prefixes}, only in GLYPHS={_only_glyphs}"
+    )
+    raise ValueError(msg)
+
+PREFIX_TO_MODE: dict[str, str] = {v: k for k, v in MODE_PREFIXES.items()}
+"""Reverse lookup: trigger character -> mode name."""
 
 
 class CharsetMode(StrEnum):
@@ -114,6 +132,9 @@ class Glyphs:
     tree_last: str  # "└── " vs "`-- "
     tree_vertical: str  # "│   " vs "|   "
 
+    # Status bar
+    git_branch: str  # "↗" vs "git:"
+
 
 UNICODE_GLYPHS = Glyphs(
     tool_prefix="⏺",
@@ -140,6 +161,7 @@ UNICODE_GLYPHS = Glyphs(
     tree_branch="├── ",
     tree_last="└── ",
     tree_vertical="│   ",
+    git_branch="↗",
 )
 
 ASCII_GLYPHS = Glyphs(
@@ -167,6 +189,7 @@ ASCII_GLYPHS = Glyphs(
     tree_branch="+-- ",
     tree_last="`-- ",
     tree_vertical="|   ",
+    git_branch="git:",
 )
 
 _glyphs_cache: Glyphs | None = None
@@ -254,6 +277,18 @@ def reset_glyphs_cache() -> None:
     _glyphs_cache = None
 
 
+def newline_shortcut() -> str:
+    """Return the platform-native label for the newline keyboard shortcut.
+
+    macOS labels the modifier "Option" while other platforms use Ctrl+J
+    as the most reliable cross-terminal shortcut.
+
+    Returns:
+        A human-readable shortcut string, e.g. `'Option+Enter'` or `'Ctrl+J'`.
+    """
+    return "Option+Enter" if sys.platform == "darwin" else "Ctrl+J"
+
+
 # Text art banners (Unicode and ASCII variants)
 
 _UNICODE_BANNER = f"""
@@ -329,27 +364,60 @@ config: RunnableConfig = {"recursion_limit": 1000}
 console = Console(highlight=False)
 
 
+class _ShellAllowAll(list):  # noqa: FURB189  # sentinel type, not a general-purpose list subclass
+    """Sentinel subclass for unrestricted shell access.
+
+    Using a dedicated type instead of a plain list lets consumers use
+    `isinstance` checks, which survive serialization/copy unlike identity
+    checks (`is`).
+    """
+
+
+SHELL_ALLOW_ALL: list[str] = _ShellAllowAll(["__ALL__"])
+"""Sentinel value returned by `parse_shell_allow_list` for `--shell-allow-list=all`."""
+
+
 def parse_shell_allow_list(allow_list_str: str | None) -> list[str] | None:
     """Parse shell allow-list from string.
 
     Args:
-        allow_list_str: Comma-separated list of commands, or "recommended" for
-            safe defaults.
+        allow_list_str: Comma-separated list of commands, `'recommended'` for
+            safe defaults, or `'all'` to allow any command.
 
-            Can also include "recommended" in the list to merge with custom commands.
+            `'all'` must be the sole value — it is not recognized inside a
+            comma-separated list (unlike `'recommended'`).
+
+            Can also include `'recommended'` in the list to merge with custom
+            commands.
 
     Returns:
-        List of allowed commands, or None if no allow-list configured.
+        List of allowed commands, `SHELL_ALLOW_ALL` if `'all'` was specified,
+            or `None` if no allow-list configured.
+
+    Raises:
+        ValueError: If `'all'` is combined with other commands.
     """
     if not allow_list_str:
         return None
 
-    # Special value "recommended" uses our curated safe list
+    # Special value 'all' allows any shell command
+    if allow_list_str.strip().lower() == "all":
+        return SHELL_ALLOW_ALL
+
+    # Special value 'recommended' uses our curated safe list
     if allow_list_str.strip().lower() == "recommended":
         return list(RECOMMENDED_SAFE_SHELL_COMMANDS)
 
     # Split by comma and strip whitespace
     commands = [cmd.strip() for cmd in allow_list_str.split(",") if cmd.strip()]
+
+    # Reject ambiguous input: 'all' mixed with other commands
+    if any(cmd.lower() == "all" for cmd in commands):
+        msg = (
+            "Cannot combine 'all' with other commands in --shell-allow-list. "
+            "Use '--shell-allow-list all' alone to allow any command."
+        )
+        raise ValueError(msg)
 
     # If "recommended" is in the list, merge with recommended commands
     result = []
@@ -433,12 +501,12 @@ class Settings:
         Returns:
             Settings instance with detected configuration
         """
-        # Detect API keys
-        openai_key = os.environ.get("OPENAI_API_KEY")
-        anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
-        google_key = os.environ.get("GOOGLE_API_KEY")
-        nvidia_key = os.environ.get("NVIDIA_API_KEY")
-        tavily_key = os.environ.get("TAVILY_API_KEY")
+        # Detect API keys (normalize empty strings to None)
+        openai_key = os.environ.get("OPENAI_API_KEY") or None
+        anthropic_key = os.environ.get("ANTHROPIC_API_KEY") or None
+        google_key = os.environ.get("GOOGLE_API_KEY") or None
+        nvidia_key = os.environ.get("NVIDIA_API_KEY") or None
+        tavily_key = os.environ.get("TAVILY_API_KEY") or None
         google_cloud_project = os.environ.get("GOOGLE_CLOUD_PROJECT")
 
         # Detect LangSmith configuration
@@ -470,6 +538,111 @@ class Settings:
             project_root=project_root,
             shell_allow_list=shell_allow_list,
         )
+
+    def reload_from_environment(self, *, start_path: Path | None = None) -> list[str]:
+        """Reload selected settings from environment variables and project files.
+
+        This refreshes only fields that are expected to change at runtime
+        (API keys, Google Cloud project, project root, shell allow-list, and
+        LangSmith tracing project).
+
+        Runtime model state (`model_name`, `model_provider`,
+        `model_context_limit`) and the original user LangSmith project
+        (`user_langchain_project`) are intentionally preserved -- they are
+        not in `reloadable_fields` and are never touched by this method.
+
+        Args:
+            start_path: Directory to start project detection from (defaults to cwd).
+
+        Returns:
+            A list of human-readable change descriptions.
+        """
+        dotenv.load_dotenv(override=True)
+
+        api_key_fields = {
+            "openai_api_key",
+            "anthropic_api_key",
+            "google_api_key",
+            "nvidia_api_key",
+            "tavily_api_key",
+        }
+        reloadable_fields = (
+            "openai_api_key",
+            "anthropic_api_key",
+            "google_api_key",
+            "nvidia_api_key",
+            "tavily_api_key",
+            "google_cloud_project",
+            "deepagents_langchain_project",
+            "project_root",
+            "shell_allow_list",
+        )
+
+        previous = {field: getattr(self, field) for field in reloadable_fields}
+
+        try:
+            shell_allow_list = parse_shell_allow_list(
+                os.environ.get("DEEPAGENTS_SHELL_ALLOW_LIST")
+            )
+        except ValueError:
+            logger.warning(
+                "Invalid DEEPAGENTS_SHELL_ALLOW_LIST during reload; "
+                "keeping previous value"
+            )
+            shell_allow_list = previous["shell_allow_list"]
+
+        try:
+            project_root = _find_project_root(start_path)
+        except OSError:
+            logger.warning(
+                "Could not detect project root during reload; keeping previous value"
+            )
+            project_root = previous["project_root"]
+
+        refreshed = {
+            "openai_api_key": os.environ.get("OPENAI_API_KEY") or None,
+            "anthropic_api_key": os.environ.get("ANTHROPIC_API_KEY") or None,
+            "google_api_key": os.environ.get("GOOGLE_API_KEY") or None,
+            "nvidia_api_key": os.environ.get("NVIDIA_API_KEY") or None,
+            "tavily_api_key": os.environ.get("TAVILY_API_KEY") or None,
+            "google_cloud_project": os.environ.get("GOOGLE_CLOUD_PROJECT"),
+            "deepagents_langchain_project": os.environ.get(
+                "DEEPAGENTS_LANGSMITH_PROJECT"
+            ),
+            "project_root": project_root,
+            "shell_allow_list": shell_allow_list,
+        }
+
+        for field, value in refreshed.items():
+            setattr(self, field, value)
+
+        # Sync the LANGSMITH_PROJECT env var so LangSmith tracing picks up
+        # the change
+        new_project = refreshed["deepagents_langchain_project"]
+        if new_project:
+            os.environ["LANGSMITH_PROJECT"] = new_project
+        elif previous["deepagents_langchain_project"]:
+            # Override was previously active but new value is unset; restore.
+            if _original_langsmith_project:
+                os.environ["LANGSMITH_PROJECT"] = _original_langsmith_project
+            else:
+                os.environ.pop("LANGSMITH_PROJECT", None)
+
+        def _display(field: str, value: object) -> str:
+            if field in api_key_fields:
+                return "set" if value else "unset"
+            return str(value)
+
+        changes: list[str] = []
+        for field in reloadable_fields:
+            old_value = previous[field]
+            new_value = refreshed[field]
+            if old_value != new_value:
+                changes.append(
+                    f"{field}: {_display(field, old_value)} -> "
+                    f"{_display(field, new_value)}"
+                )
+        return changes
 
     @property
     def has_openai(self) -> bool:
@@ -871,22 +1044,32 @@ def contains_dangerous_patterns(command: str) -> bool:
 def is_shell_command_allowed(command: str, allow_list: list[str] | None) -> bool:
     """Check if a shell command is in the allow-list.
 
-    The allow-list matches against the first token of the command (the executable name).
-    This allows read-only commands like ls, cat, grep, etc. to be auto-approved.
+    The allow-list matches against the first token of the command (the executable
+    name). This allows read-only commands like ls, cat, grep, etc. to be
+    auto-approved.
 
-    SECURITY: This function rejects commands containing dangerous shell patterns
-    (command substitution, redirects, process substitution, etc.) BEFORE parsing,
-    to prevent injection attacks that could bypass the allow-list.
+    When `allow_list` is the `SHELL_ALLOW_ALL` sentinel, all non-empty commands
+    are approved unconditionally — dangerous pattern checks are skipped.
+
+    SECURITY: For regular allow-lists, this function rejects commands containing
+    dangerous shell patterns (command substitution, redirects, process
+    substitution, etc.) BEFORE parsing, to prevent injection attacks that could
+    bypass the allow-list.
 
     Args:
-        command: The full shell command to check
-        allow_list: List of allowed command names (e.g., ["ls", "cat", "grep"])
+        command: The full shell command to check.
+        allow_list: List of allowed command names (e.g., `["ls", "cat", "grep"]`),
+            the `SHELL_ALLOW_ALL` sentinel to allow any command, or `None`.
 
     Returns:
-        True if the command is allowed, False otherwise.
+        `True` if the command is allowed, `False` otherwise.
     """
     if not allow_list or not command or not command.strip():
         return False
+
+    # SHELL_ALLOW_ALL sentinel — skip pattern and token checks
+    if isinstance(allow_list, _ShellAllowAll):
+        return True
 
     # SECURITY: Check for dangerous patterns BEFORE any parsing
     # This prevents injection attacks like: ls "$(rm -rf /)"

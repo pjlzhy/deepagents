@@ -3,19 +3,15 @@
 Provides `run_non_interactive` which runs a single user task against the
 agent graph, streams results to stdout, and exits with an appropriate code.
 
-Shell commands are gated by an optional allow-list. When no allow-list is
-set, shell is disabled and all other tool calls are auto-approved via the
-`auto_approve` flag. When an allow-list is provided, shell is enabled and
-all tool calls (shell and non-shell) pass through HITL, where non-shell
-tools are approved unconditionally and shell commands are validated against
-the list.
+Shell commands are gated by an optional allow-list (`--shell-allow-list`):
+
+- Not set → shell disabled, all other tool calls auto-approved.
+- `recommended` or explicit list → shell enabled, commands validated
+    against the list; non-shell tools approved unconditionally.
+- `all` → shell enabled, any command allowed, all tools auto-approved.
 
 An optional quiet mode (`--quiet` / `-q`) redirects all console output to
 stderr, leaving stdout exclusively for the agent's response text.
-
-Note: in non-interactive mode (`-n`), auto-approval is determined solely by
-whether a `--shell-allow-list` is present, not by the `--auto-approve` CLI
-flag. See `run_non_interactive` for details.
 """
 
 from __future__ import annotations
@@ -27,6 +23,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from langchain.agents.middleware.human_in_the_loop import ActionRequest, HITLRequest
@@ -39,6 +36,7 @@ from rich.text import Text
 
 from deepagents_cli.agent import DEFAULT_AGENT_NAME, create_cli_agent
 from deepagents_cli.config import (
+    SHELL_ALLOW_ALL,
     SHELL_TOOL_NAMES,
     build_langsmith_thread_url,
     create_model,
@@ -46,10 +44,19 @@ from deepagents_cli.config import (
     settings,
 )
 from deepagents_cli.file_ops import FileOpTracker
+from deepagents_cli.hooks import dispatch_hook, dispatch_hook_fire_and_forget
 from deepagents_cli.model_config import ModelConfigError
 from deepagents_cli.sessions import generate_thread_id, get_checkpointer
 from deepagents_cli.textual_adapter import SessionStats, print_usage_table
 from deepagents_cli.tools import fetch_url, http_request, web_search
+from deepagents_cli.unicode_security import (
+    check_url_safety,
+    detect_dangerous_unicode,
+    format_warning_detail,
+    iter_string_values,
+    looks_like_url_key,
+    summarize_issues,
+)
 
 if TYPE_CHECKING:
     from langchain_core.runnables import RunnableConfig
@@ -220,6 +227,7 @@ def _process_interrupts(
                 continue
             state.pending_interrupts[interrupt_obj.id] = validated_request
             state.interrupt_occurred = True
+            dispatch_hook_fire_and_forget("input.required", {})
 
 
 def _process_ai_message(
@@ -373,9 +381,13 @@ def _make_hitl_decision(
 ) -> dict[str, str]:
     """Decide whether to approve or reject a single action request.
 
+    This function is only invoked when a restrictive shell allow-list is
+    configured (not `all`). When shell is disabled or unrestricted,
+    `interrupt_on` is empty and this function is bypassed entirely.
+
     Shell tools are always gated: if an allow-list is configured, the command
     is validated against it; if no allow-list is configured, shell commands
-    are rejected outright (defense-in-depth -- the caller should disable
+    are rejected outright (defense-in-depth — the caller should disable
     shell tools when no allow-list is present, but this function fails
     closed regardless). Non-shell tools are approved unconditionally.
 
@@ -389,6 +401,9 @@ def _make_hitl_decision(
         Decision dict with a `type` key (`"approve"` or `"reject"`)
             and an optional `message` key with a human-readable explanation.
     """
+    for warning in _collect_action_request_warnings(action_request):
+        console.print(f"[yellow]Warning:[/yellow] {warning}")
+
     action_name = action_request.get("name", "")
 
     if action_name in SHELL_TOOL_NAMES:
@@ -427,6 +442,41 @@ def _make_hitl_decision(
 
     console.print(f"[dim]✓ Auto-approved action: {action_name}[/dim]")
     return {"type": "approve"}
+
+
+def _collect_action_request_warnings(action_request: ActionRequest) -> list[str]:
+    """Collect Unicode/URL safety warnings for one action request.
+
+    Recursively inspects all nested string values in action arguments.
+
+    Returns:
+        Warning messages for suspicious values in action arguments.
+    """
+    warnings: list[str] = []
+    args = action_request.get("args", {})
+    if not isinstance(args, dict):
+        return warnings
+
+    tool_name = str(action_request.get("name", "unknown"))
+
+    for arg_path, text in iter_string_values(args):
+        issues = detect_dangerous_unicode(text)
+        if issues:
+            warnings.append(
+                f"{tool_name}.{arg_path} contains hidden Unicode "
+                f"({summarize_issues(issues)})"
+            )
+
+        if looks_like_url_key(arg_path):
+            safety = check_url_safety(text)
+            if safety.safe:
+                continue
+            detail = format_warning_detail(safety.warnings)
+            if safety.decoded_domain:
+                detail = f"{detail}; decoded host: {safety.decoded_domain}"
+            warnings.append(f"{tool_name}.{arg_path} URL warning: {detail}")
+
+    return warnings
 
 
 def _process_hitl_interrupts(state: StreamState, console: Console) -> None:
@@ -517,6 +567,9 @@ async def _run_agent_loop(
         "messages": [{"role": "user", "content": message}]
     }
 
+    thread_id = config.get("configurable", {}).get("thread_id", "")
+    await dispatch_hook("session.start", {"thread_id": thread_id})
+
     start_time = time.monotonic()
 
     # Initial stream
@@ -562,6 +615,9 @@ async def _run_agent_loop(
             console.print(link_text)
         console.print("[green]✓ Task completed[/green]")
         print_usage_table(state.stats, wall_time, console)
+
+    await dispatch_hook("task.complete", {"thread_id": thread_id})
+    await dispatch_hook("session.end", {"thread_id": thread_id})
 
 
 def _build_non_interactive_header(
@@ -620,14 +676,22 @@ async def run_non_interactive(
     profile_override: dict[str, Any] | None = None,
     quiet: bool = False,
     stream: bool = True,
+    mcp_config_path: str | None = None,
+    no_mcp: bool = False,
+    trust_project_mcp: bool = False,
 ) -> int:
     """Run a single task non-interactively and exit.
 
-    When no `shell_allow_list` is configured, shell execution is disabled
-    and all other tool calls are auto-approved (no HITL prompts). When an
-    allow-list **is** provided, shell execution is enabled but gated by the
-    list; commands not in the list are rejected with an error message sent
-    back to the agent.
+    The agent is created with `interactive=False`, which tailors the system
+    prompt for autonomous headless execution (no clarification questions,
+    reasonable assumptions).
+
+    Shell access and auto-approval are controlled by `--shell-allow-list`:
+
+    - Not set → shell disabled, all other tools auto-approved.
+    - `recommended` or explicit list → shell enabled, commands gated by
+        allow-list; non-shell tools approved unconditionally.
+    - `all` → shell enabled, any command allowed, all tools auto-approved.
 
     Note: startup header rendering avoids synchronous LangSmith URL lookups.
     A background thread resolves the thread URL concurrently and the result is
@@ -656,6 +720,12 @@ async def run_non_interactive(
 
             When `False`, the full response is buffered and written to stdout in
             one shot after the agent finishes.
+        mcp_config_path: Optional path to MCP servers JSON configuration file.
+            Merged on top of auto-discovered configs (highest precedence).
+        no_mcp: Disable all MCP tool loading.
+        trust_project_mcp: When `True`, allow project-level stdio MCP
+            servers. When `False` (default), project stdio servers are
+            silently skipped.
 
     Returns:
         Exit code: 0 for success, 1 for error, 130 for keyboard interrupt.
@@ -677,13 +747,27 @@ async def run_non_interactive(
     result.apply_to_settings()
     thread_id = generate_thread_id()
 
+    try:
+        cwd = str(Path.cwd())
+    except OSError:
+        logger.warning("Could not determine working directory", exc_info=True)
+        cwd = ""
+    metadata: dict[str, str] = {
+        "assistant_id": assistant_id,
+        "agent_name": assistant_id,
+        "updated_at": datetime.now(UTC).isoformat(),
+    }
+    if cwd:
+        metadata["cwd"] = cwd
+    from deepagents_cli.textual_adapter import _get_git_branch
+
+    branch = _get_git_branch()
+    if branch:
+        metadata["git_branch"] = branch
+
     config: RunnableConfig = {
         "configurable": {"thread_id": thread_id},
-        "metadata": {
-            "assistant_id": assistant_id,
-            "agent_name": assistant_id,
-            "updated_at": datetime.now(UTC).isoformat(),
-        },
+        "metadata": metadata,
     }
 
     thread_url_lookup: ThreadUrlLookupState | None = None
@@ -726,17 +810,47 @@ async def run_non_interactive(
             console.print(f"[red]Sandbox creation failed: {e}[/red]")
             return 1
 
+    mcp_session_manager = None
+    mcp_server_info: list[Any] | None = None
     try:
         async with get_checkpointer() as checkpointer:
             tools = [http_request, fetch_url]
             if settings.has_tavily:
                 tools.append(web_search)
 
-            # If an allow-list is provided, enable shell but disable
-            # auto-approve so HITL can gate commands. If no allow-list, disable
-            # shell entirely and auto-approve all other tools.
+            # Load MCP tools (explicit config, auto-discovery, or disabled)
+            try:
+                from deepagents_cli.mcp_tools import resolve_and_load_mcp_tools
+
+                (
+                    mcp_tools,
+                    mcp_session_manager,
+                    mcp_server_info,
+                ) = await resolve_and_load_mcp_tools(
+                    explicit_config_path=mcp_config_path,
+                    no_mcp=no_mcp,
+                    trust_project_mcp=trust_project_mcp,
+                )
+                tools.extend(mcp_tools)
+                if mcp_tools:
+                    label = "MCP tool" if len(mcp_tools) == 1 else "MCP tools"
+                    console.print(f"[green]✓ Loaded {len(mcp_tools)} {label}[/green]")
+            except FileNotFoundError as e:
+                console.print(f"[red]✗ MCP config file not found: {e}[/red]")
+                return 1
+            except RuntimeError as e:
+                console.print(f"[red]✗ Failed to load MCP tools: {e}[/red]")
+                return 1
+
+            # Shell access is controlled by --shell-allow-list:
+            #   not set        → shell disabled, auto-approve all other tools
+            #   recommended/…  → shell enabled, gated by list
+            #   all            → shell enabled, any command, auto-approve
             enable_shell = bool(settings.shell_allow_list)
-            use_auto_approve = not enable_shell
+            shell_is_unrestricted = isinstance(
+                settings.shell_allow_list, type(SHELL_ALLOW_ALL)
+            )
+            use_auto_approve = not enable_shell or shell_is_unrestricted
 
             agent, composite_backend = create_cli_agent(
                 model=model,
@@ -744,9 +858,11 @@ async def run_non_interactive(
                 tools=tools,
                 sandbox=sandbox_backend,
                 sandbox_type=sandbox_type if sandbox_type != "none" else None,
+                interactive=False,
                 auto_approve=use_auto_approve,
                 enable_shell=enable_shell,
                 checkpointer=checkpointer,
+                mcp_server_info=mcp_server_info,
             )
 
             file_op_tracker = FileOpTracker(
@@ -785,6 +901,11 @@ async def run_non_interactive(
         console.print(f"\n[red]Unexpected error ({type(e).__name__}): {e}[/red]")
         return 1
     finally:
+        if mcp_session_manager is not None:
+            try:
+                await mcp_session_manager.cleanup()
+            except Exception:
+                logger.warning("MCP session cleanup failed", exc_info=True)
         try:
             exit_stack.close()
         except (OSError, RuntimeError) as cleanup_err:

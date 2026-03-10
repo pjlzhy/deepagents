@@ -89,6 +89,7 @@ def show_help() -> None:
     console.print(
         "  --auto-approve             Auto-approve all tool calls (toggle: Shift+Tab)"
     )
+    console.print("  --ask-user                 Enable ask_user interactive questions")
     console.print("  --sandbox TYPE             Remote sandbox for execution")
     console.print(
         "  --sandbox-id ID            Reuse existing sandbox (skips creation/cleanup)"
@@ -96,16 +97,25 @@ def show_help() -> None:
     console.print(
         "  --sandbox-setup PATH       Setup script to run in sandbox after creation"
     )
+    console.print(
+        "  --mcp-config PATH          Load MCP tools from config file"
+        " (merged on top of auto-discovered configs)"
+    )
+    console.print("  --no-mcp                   Disable all MCP tool loading")
+    console.print(
+        "  --trust-project-mcp        Trust project MCP configs (skip approval prompt)"
+    )
     console.print("  -n, --non-interactive MSG  Run a single task and exit")
     console.print("  -q, --quiet                Clean output for piping (needs -n)")
     console.print(
         "  --no-stream                Buffer full response instead of streaming"
     )
     console.print(
-        "  --shell-allow-list CMDS    Comma-separated local shell commands to allow"
+        "  --shell-allow-list CMDS    Comma-separated commands, 'recommended', or 'all'"
     )
     console.print("  --default-model [MODEL]    Set, show, or manage the default model")
     console.print("  --clear-default-model      Clear the default model")
+    console.print("  --acp                      Run as an ACP server over stdio")
     console.print("  -v, --version              Show deepagents CLI and SDK versions")
     console.print("  -h, --help                 Show this help message and exit")
     console.print()
@@ -121,6 +131,10 @@ def show_help() -> None:
     )
     console.print(
         "  deepagents -n 'Search logs' --shell-allow-list ls,cat,grep # Specify list",
+        style=COLORS["dim"],
+    )
+    console.print(
+        "  deepagents -n 'Fix tests' --shell-allow-list all           # Any command",
         style=COLORS["dim"],
     )
     console.print()
@@ -303,6 +317,8 @@ def show_threads_help() -> None:
     console.print()
     console.print("[bold]Examples:[/bold]", style=COLORS["primary"])
     console.print("  deepagents threads list")
+    console.print("  deepagents threads list -n 10")
+    console.print("  deepagents threads list --agent mybot")
     console.print("  deepagents threads delete abc123")
     console.print()
 
@@ -328,12 +344,28 @@ def show_threads_list_help() -> None:
     console.print("  deepagents threads list [options]")
     console.print()
     console.print("[bold]Options:[/bold]", style=COLORS["primary"])
-    console.print("  --agent NAME      Filter by agent name")
-    console.print("  --limit N         Maximum threads to display (default: 20)")
-    console.print("  -h, --help        Show this help message")
+    console.print("  --agent NAME              Filter by agent name")
+    console.print("  --branch TEXT             Filter by git branch name")
+    console.print(
+        "  --sort {created,updated}  Sort order (default: from config, or updated)"
+    )
+    console.print(
+        "  -n, --limit N             Maximum threads to display (default: 20)"
+    )
+    console.print(
+        "  -v, --verbose             Show all columns (branch, created, prompt)"
+    )
+    console.print(
+        "  -r, --relative/--no-relative"
+        "  Show relative timestamps (default: from config)"
+    )
+    console.print("  -h, --help                Show this help message")
     console.print()
     console.print("[bold]Examples:[/bold]", style=COLORS["primary"])
     console.print("  deepagents threads list")
+    console.print("  deepagents threads list -n 10")
     console.print("  deepagents threads list --agent mybot")
-    console.print("  deepagents threads list --limit 50")
+    console.print("  deepagents threads list --branch main -v")
+    console.print("  deepagents threads list --sort created --limit 50")
+    console.print("  deepagents threads list -r")
     console.print()

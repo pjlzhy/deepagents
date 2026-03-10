@@ -12,10 +12,11 @@ from rich.console import Console
 from rich.style import Style
 from rich.text import Text
 
-from deepagents_cli.config import ModelResult
+from deepagents_cli.config import SHELL_ALLOW_ALL, ModelResult
 from deepagents_cli.non_interactive import (
     ThreadUrlLookupState,
     _build_non_interactive_header,
+    _collect_action_request_warnings,
     _make_hitl_decision,
     _start_langsmith_thread_url_lookup,
     run_non_interactive,
@@ -114,6 +115,15 @@ class TestMakeHitlDecision:
             )
             assert result["type"] == "reject"
 
+    def test_shell_with_allow_all_approved(self, console: Console) -> None:
+        """Shell commands should be approved when SHELL_ALLOW_ALL is set."""
+        with patch("deepagents_cli.non_interactive.settings") as mock_settings:
+            mock_settings.shell_allow_list = SHELL_ALLOW_ALL
+            result = _make_hitl_decision(
+                {"name": "execute", "args": {"command": "rm -rf /"}}, console
+            )
+            assert result == {"type": "approve"}
+
     @pytest.mark.parametrize("tool_name", ["bash", "shell", "execute"])
     def test_all_shell_tool_names_recognised(
         self, tool_name: str, console: Console
@@ -125,6 +135,33 @@ class TestMakeHitlDecision:
                 {"name": tool_name, "args": {"command": "rm -rf /"}}, console
             )
             assert result["type"] == "reject"
+
+    def test_collect_action_request_warnings_for_hidden_unicode(self) -> None:
+        """Hidden Unicode in action args should generate warnings."""
+        warnings = _collect_action_request_warnings(
+            {"name": "execute", "args": {"command": "echo he\u200bllo"}}
+        )
+        assert warnings
+        assert any("hidden Unicode" in warning for warning in warnings)
+
+    def test_collect_action_request_warnings_for_suspicious_url(self) -> None:
+        """Suspicious URLs in action args should generate warnings."""
+        warnings = _collect_action_request_warnings(
+            {"name": "fetch_url", "args": {"url": "https://аpple.com"}}
+        )
+        assert warnings
+        assert any("URL warning" in warning for warning in warnings)
+
+    def test_collect_action_request_warnings_nested_values(self) -> None:
+        """Nested string values should be inspected recursively."""
+        warnings = _collect_action_request_warnings(
+            {
+                "name": "http_request",
+                "args": {"headers": {"Referer": "echo \u200bhello"}},
+            }
+        )
+        assert warnings
+        assert any("hidden Unicode" in warning for warning in warnings)
 
 
 class TestBuildNonInteractiveHeader:
@@ -258,6 +295,10 @@ class TestSandboxSetupForwarding:
             patch(
                 "deepagents_cli.non_interactive.create_cli_agent",
             ) as mock_create_agent,
+            patch(
+                "deepagents_cli.mcp_tools.resolve_and_load_mcp_tools",
+                return_value=([], None, []),
+            ),
         ):
             mock_settings.shell_allow_list = None
             mock_settings.has_tavily = False
@@ -329,6 +370,10 @@ class TestQuietMode:
             patch(
                 "deepagents_cli.non_interactive.create_cli_agent",
             ) as mock_create_agent,
+            patch(
+                "deepagents_cli.mcp_tools.resolve_and_load_mcp_tools",
+                return_value=([], None, []),
+            ),
         ):
             mock_settings.shell_allow_list = None
             mock_settings.has_tavily = False
@@ -394,6 +439,10 @@ class TestQuietMode:
             patch(
                 "deepagents_cli.non_interactive.create_cli_agent",
             ) as mock_create_agent,
+            patch(
+                "deepagents_cli.mcp_tools.resolve_and_load_mcp_tools",
+                return_value=([], None, []),
+            ),
             patch.object(sys, "stdout", stdout_buf),
             patch.object(sys, "stderr", stderr_buf),
         ):
@@ -482,6 +531,10 @@ class TestNoStreamMode:
             patch(
                 "deepagents_cli.non_interactive.create_cli_agent",
             ) as mock_create_agent,
+            patch(
+                "deepagents_cli.mcp_tools.resolve_and_load_mcp_tools",
+                return_value=([], None, []),
+            ),
             patch.object(sys, "stdout", stdout_buf),
         ):
             mock_settings.shell_allow_list = None
@@ -558,6 +611,10 @@ class TestNoStreamMode:
             patch(
                 "deepagents_cli.non_interactive.create_cli_agent",
             ) as mock_create_agent,
+            patch(
+                "deepagents_cli.mcp_tools.resolve_and_load_mcp_tools",
+                return_value=([], None, []),
+            ),
             patch.object(sys, "stdout", stdout_buf),
         ):
             mock_settings.shell_allow_list = None
@@ -622,6 +679,10 @@ class TestFastFollowLangsmithLink:
             patch(
                 "deepagents_cli.non_interactive.create_cli_agent",
             ) as mock_create_agent,
+            patch(
+                "deepagents_cli.mcp_tools.resolve_and_load_mcp_tools",
+                return_value=([], None, []),
+            ),
         ):
             mock_settings.shell_allow_list = None
             mock_settings.has_tavily = False
@@ -682,6 +743,10 @@ class TestFastFollowLangsmithLink:
             patch(
                 "deepagents_cli.non_interactive.create_cli_agent",
             ) as mock_create_agent,
+            patch(
+                "deepagents_cli.mcp_tools.resolve_and_load_mcp_tools",
+                return_value=([], None, []),
+            ),
         ):
             mock_settings.shell_allow_list = None
             mock_settings.has_tavily = False
@@ -740,6 +805,10 @@ class TestFastFollowLangsmithLink:
             patch(
                 "deepagents_cli.non_interactive.create_cli_agent",
             ) as mock_create_agent,
+            patch(
+                "deepagents_cli.mcp_tools.resolve_and_load_mcp_tools",
+                return_value=([], None, []),
+            ),
         ):
             mock_settings.shell_allow_list = None
             mock_settings.has_tavily = False
@@ -793,6 +862,10 @@ class TestFastFollowLangsmithLink:
             patch(
                 "deepagents_cli.non_interactive.create_cli_agent",
             ) as mock_create_agent,
+            patch(
+                "deepagents_cli.mcp_tools.resolve_and_load_mcp_tools",
+                return_value=([], None, []),
+            ),
         ):
             mock_settings.shell_allow_list = None
             mock_settings.has_tavily = False
@@ -846,6 +919,146 @@ class TestStartLangsmithThreadUrlLookup:
             state = _start_langsmith_thread_url_lookup("tid")
             assert state.done.wait(timeout=2.0)
         assert state.url is None
+
+
+class TestShellAllowListDecisionLogic:
+    """Tests for shell allow-list → enable_shell + auto_approve derivation."""
+
+    @pytest.mark.parametrize(
+        ("shell_allow_list", "expected_enable_shell", "expected_auto"),
+        [
+            pytest.param(
+                None,
+                False,
+                True,
+                id="no-allow-list-disables-shell-auto-approves",
+            ),
+            pytest.param(
+                ["ls", "cat"],
+                True,
+                False,
+                id="restrictive-list-enables-shell-with-gating",
+            ),
+            pytest.param(
+                SHELL_ALLOW_ALL,
+                True,
+                True,
+                id="allow-all-enables-shell-auto-approves",
+            ),
+        ],
+    )
+    async def test_shell_auto_approve_branches(
+        self,
+        shell_allow_list: list[str] | None,
+        expected_enable_shell: bool,
+        expected_auto: bool,
+    ) -> None:
+        """Verify create_cli_agent receives correct enable_shell and auto_approve."""
+        mock_cp = MagicMock()
+        mock_checkpointer_cm = AsyncMock()
+        mock_checkpointer_cm.__aenter__.return_value = mock_cp
+        mock_checkpointer_cm.__aexit__.return_value = None
+
+        with (
+            patch(
+                "deepagents_cli.non_interactive.create_model",
+                return_value=ModelResult(
+                    model=MagicMock(),
+                    model_name="test-model",
+                    provider="test",
+                ),
+            ),
+            patch(
+                "deepagents_cli.non_interactive.generate_thread_id",
+                return_value="test-thread",
+            ),
+            patch(
+                "deepagents_cli.non_interactive.settings",
+            ) as mock_settings,
+            patch(
+                "deepagents_cli.non_interactive.build_langsmith_thread_url",
+                return_value=None,
+            ),
+            patch(
+                "deepagents_cli.non_interactive.get_checkpointer",
+                return_value=mock_checkpointer_cm,
+            ),
+            patch(
+                "deepagents_cli.non_interactive.create_cli_agent",
+            ) as mock_create_agent,
+            patch(
+                "deepagents_cli.mcp_tools.resolve_and_load_mcp_tools",
+                return_value=([], None, []),
+            ),
+        ):
+            mock_settings.shell_allow_list = shell_allow_list
+            mock_settings.has_tavily = False
+            mock_settings.model_name = None
+
+            mock_agent = MagicMock()
+            mock_agent.astream = MagicMock(return_value=_async_iter([]))
+            mock_create_agent.return_value = (mock_agent, MagicMock())
+
+            await run_non_interactive(message="test task")
+
+        _, kwargs = mock_create_agent.call_args
+        assert kwargs["enable_shell"] is expected_enable_shell
+        assert kwargs["auto_approve"] is expected_auto
+
+
+class TestNonInteractivePrompt:
+    """Tests that run_non_interactive passes interactive=False to create_cli_agent."""
+
+    async def test_passes_interactive_false(self) -> None:
+        mock_cp = MagicMock()
+        mock_checkpointer_cm = AsyncMock()
+        mock_checkpointer_cm.__aenter__.return_value = mock_cp
+        mock_checkpointer_cm.__aexit__.return_value = None
+
+        with (
+            patch(
+                "deepagents_cli.non_interactive.create_model",
+                return_value=ModelResult(
+                    model=MagicMock(),
+                    model_name="test-model",
+                    provider="test",
+                ),
+            ),
+            patch(
+                "deepagents_cli.non_interactive.generate_thread_id",
+                return_value="test-thread",
+            ),
+            patch(
+                "deepagents_cli.non_interactive.settings",
+            ) as mock_settings,
+            patch(
+                "deepagents_cli.non_interactive.build_langsmith_thread_url",
+                return_value=None,
+            ),
+            patch(
+                "deepagents_cli.non_interactive.get_checkpointer",
+                return_value=mock_checkpointer_cm,
+            ),
+            patch(
+                "deepagents_cli.non_interactive.create_cli_agent",
+            ) as mock_create_agent,
+            patch(
+                "deepagents_cli.mcp_tools.resolve_and_load_mcp_tools",
+                return_value=([], None, []),
+            ),
+        ):
+            mock_settings.shell_allow_list = None
+            mock_settings.has_tavily = False
+            mock_settings.model_name = None
+
+            mock_agent = MagicMock()
+            mock_agent.astream = MagicMock(return_value=_async_iter([]))
+            mock_create_agent.return_value = (mock_agent, MagicMock())
+
+            await run_non_interactive(message="do the thing")
+
+        _, kwargs = mock_create_agent.call_args
+        assert kwargs["interactive"] is False
 
 
 async def _async_iter(items: list[object]) -> AsyncIterator[object]:  # noqa: RUF029
