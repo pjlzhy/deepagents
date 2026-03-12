@@ -17,9 +17,11 @@ from deepagents_cli.agent import (
     _format_edit_file_description,
     _format_execute_description,
     _format_fetch_url_description,
+    _format_local_filesystem_tool_path,
     _format_task_description,
     _format_web_search_description,
     _format_write_file_description,
+    _join_tool_path,
     create_cli_agent,
     get_system_prompt,
     list_agents,
@@ -370,6 +372,47 @@ class TestGetSystemPromptModelIdentity:
         assert "(provider:" not in prompt
         assert "context window" not in prompt
 
+    def test_windows_local_prompt_uses_virtual_file_tool_paths(self) -> None:
+        """Windows local mode should instruct file tools to use `/...` paths."""
+        mock_settings = Mock()
+        mock_settings.model_name = None
+        mock_settings.model_provider = None
+        mock_settings.model_context_limit = None
+
+        with (
+            patch("deepagents_cli.agent.settings", mock_settings),
+            patch(
+                "deepagents_cli.agent.Path.cwd",
+                return_value=Path("D:/open_project/deepagents/libs/cli"),
+            ),
+        ):
+            prompt = get_system_prompt("test-agent")
+
+        assert (
+            "Native shell working directory: "
+            r"`D:\open_project\deepagents\libs\cli`"
+        ) in prompt
+        assert (
+            "File tool working directory: `/open_project/deepagents/libs/cli`"
+        ) in prompt
+        assert "do not use drive-letter paths like `D:\\...`" in prompt
+        assert "`/open_project/deepagents/libs/cli/research_project/file.md`" in prompt
+
+
+def test_format_local_filesystem_tool_path_windows_drive() -> None:
+    """Windows drive-letter cwd should be converted to file-tool path form."""
+    assert (
+        _format_local_filesystem_tool_path(Path("D:/open_project/deepagents/libs/cli"))
+        == "/open_project/deepagents/libs/cli"
+    )
+
+
+def test_join_tool_path_handles_root() -> None:
+    """Joining under root should not produce a double slash."""
+    assert (
+        _join_tool_path("/", "research_project/file.md") == "/research_project/file.md"
+    )
+
 
 class TestDefaultAgentName:
     """Tests for the DEFAULT_AGENT_NAME constant."""
@@ -510,9 +553,9 @@ class TestCreateCliAgentSkillsSources:
         fake_model = _make_fake_chat_model()
         with (
             patch("deepagents_cli.agent.settings", mock_settings),
-            patch("deepagents_cli.agent.SkillsMiddleware", FakeSkillsMiddleware),
-            patch("deepagents_cli.agent.MemoryMiddleware"),
-            patch("deepagents_cli.agent.create_deep_agent", return_value=mock_agent),
+            patch("deepagents.middleware.SkillsMiddleware", FakeSkillsMiddleware),
+            patch("deepagents.middleware.MemoryMiddleware"),
+            patch("deepagents.create_deep_agent", return_value=mock_agent),
             patch(
                 "deepagents.graph.init_chat_model",
                 return_value=fake_model,
@@ -583,11 +626,11 @@ class TestCreateCliAgentMemorySources:
         fake_model = _make_fake_chat_model()
         with (
             patch("deepagents_cli.agent.settings", mock_settings),
-            patch("deepagents_cli.agent.SkillsMiddleware"),
-            patch("deepagents_cli.agent.MemoryMiddleware", FakeMemoryMiddleware),
-            patch("deepagents_cli.agent.FilesystemBackend"),
+            patch("deepagents.middleware.SkillsMiddleware"),
+            patch("deepagents.middleware.MemoryMiddleware", FakeMemoryMiddleware),
+            patch("deepagents.backends.filesystem.FilesystemBackend"),
             patch(
-                "deepagents_cli.agent.create_deep_agent",
+                "deepagents.create_deep_agent",
                 return_value=mock_agent,
             ),
             patch(
@@ -649,11 +692,11 @@ class TestCreateCliAgentMemorySources:
         fake_model = _make_fake_chat_model()
         with (
             patch("deepagents_cli.agent.settings", mock_settings),
-            patch("deepagents_cli.agent.SkillsMiddleware"),
-            patch("deepagents_cli.agent.MemoryMiddleware", FakeMemoryMiddleware),
-            patch("deepagents_cli.agent.FilesystemBackend"),
+            patch("deepagents.middleware.SkillsMiddleware"),
+            patch("deepagents.middleware.MemoryMiddleware", FakeMemoryMiddleware),
+            patch("deepagents.backends.filesystem.FilesystemBackend"),
             patch(
-                "deepagents_cli.agent.create_deep_agent",
+                "deepagents.create_deep_agent",
                 return_value=mock_agent,
             ),
             patch(
@@ -719,7 +762,7 @@ class TestMiddlewareStackConformance:
         with (
             patch("deepagents_cli.agent.settings", mock_settings),
             patch(
-                "deepagents_cli.agent.create_deep_agent",
+                "deepagents.create_deep_agent",
                 side_effect=capture_create_agent,
             ),
             patch(

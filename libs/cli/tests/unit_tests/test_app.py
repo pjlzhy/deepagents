@@ -20,6 +20,7 @@ from textual.widgets import Static
 from deepagents_cli.app import (
     _ITERM_CURSOR_GUIDE_OFF,
     _ITERM_CURSOR_GUIDE_ON,
+    REMEMBER_PROMPT,
     DeepAgentsApp,
     QueuedMessage,
     TextualSessionState,
@@ -610,12 +611,12 @@ class TestTraceCommand:
 
             with (
                 patch(
-                    "deepagents_cli.app.build_langsmith_thread_url",
+                    "deepagents_runtime.tracing.build_langsmith_thread_url",
                     return_value="https://smith.langchain.com/o/org/projects/p/proj/t/test-thread-123",
                 ),
                 patch("deepagents_cli.app.webbrowser.open") as mock_open,
             ):
-                await app._handle_trace_command("/trace")
+                await app._handle_command("/trace")
                 await pilot.pause()
 
             mock_open.assert_called_once_with(
@@ -636,10 +637,10 @@ class TestTraceCommand:
             app._session_state = TextualSessionState()
 
             with patch(
-                "deepagents_cli.app.build_langsmith_thread_url",
+                "deepagents_runtime.tracing.build_langsmith_thread_url",
                 return_value=None,
             ):
-                await app._handle_trace_command("/trace")
+                await app._handle_command("/trace")
                 await pilot.pause()
 
             app_msgs = app.query(AppMessage)
@@ -652,7 +653,7 @@ class TestTraceCommand:
             await pilot.pause()
             app._session_state = None
 
-            await app._handle_trace_command("/trace")
+            await app._handle_command("/trace")
             await pilot.pause()
 
             app_msgs = app.query(AppMessage)
@@ -667,7 +668,7 @@ class TestTraceCommand:
 
             with (
                 patch(
-                    "deepagents_cli.app.build_langsmith_thread_url",
+                    "deepagents_runtime.tracing.build_langsmith_thread_url",
                     return_value="https://smith.langchain.com/t/test-thread-123",
                 ),
                 patch(
@@ -675,7 +676,7 @@ class TestTraceCommand:
                     side_effect=webbrowser.Error("no browser"),
                 ),
             ):
-                await app._handle_trace_command("/trace")
+                await app._handle_command("/trace")
                 await pilot.pause()
 
             app_msgs = app.query(AppMessage)
@@ -692,10 +693,10 @@ class TestTraceCommand:
             app._session_state = TextualSessionState(thread_id="test-thread-123")
 
             with patch(
-                "deepagents_cli.app.build_langsmith_thread_url",
+                "deepagents_runtime.tracing.build_langsmith_thread_url",
                 side_effect=RuntimeError("SDK error"),
             ):
-                await app._handle_trace_command("/trace")
+                await app._handle_command("/trace")
                 await pilot.pause()
 
             app_msgs = app.query(AppMessage)
@@ -757,6 +758,161 @@ class TestRunAgentTaskMediaTracker:
 
             errors = app.query(ErrorMessage)
             assert any("Agent error: boom" in str(w._content) for w in errors)
+
+
+class TestHandleCommandRuntimeParsing:
+    """Tests shared runtime command parsing through the Textual app."""
+
+    async def test_remember_command_uses_shared_prompt_builder(self) -> None:
+        """`/remember ...` should route the built prompt through the agent path."""
+        app = DeepAgentsApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            with patch.object(
+                app,
+                "_handle_user_message",
+                new_callable=AsyncMock,
+            ) as mock_handle_user_message:
+                await app._handle_command("/remember Focus on tests")
+
+            mock_handle_user_message.assert_awaited_once()
+            assert mock_handle_user_message.await_args is not None
+            prompt = mock_handle_user_message.await_args.args[0]
+            assert REMEMBER_PROMPT in prompt
+            assert "Focus on tests" in prompt
+
+    async def test_model_switch_command_uses_shared_parser(self) -> None:
+        """`/model ...` should switch models using the parsed runtime argument."""
+        app = DeepAgentsApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            with patch.object(
+                app,
+                "_switch_model",
+                new_callable=AsyncMock,
+            ) as mock_switch_model:
+                await app._handle_command("/model claude-sonnet-4-5")
+
+            mock_switch_model.assert_awaited_once_with("claude-sonnet-4-5")
+
+    async def test_model_selector_command_shows_model_picker(self) -> None:
+        """`/model` with no arguments should open the model picker."""
+        app = DeepAgentsApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            with patch.object(
+                app,
+                "_show_model_selector",
+                new_callable=AsyncMock,
+            ) as mock_show_model_selector:
+                await app._handle_command("/model")
+
+            mock_show_model_selector.assert_awaited_once()
+
+    async def test_threads_command_shows_thread_selector(self) -> None:
+        """`/threads` should open the thread selector UI."""
+        app = DeepAgentsApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            with patch.object(
+                app,
+                "_show_thread_selector",
+                new_callable=AsyncMock,
+            ) as mock_show_thread_selector:
+                await app._handle_command("/threads")
+
+            mock_show_thread_selector.assert_awaited_once()
+
+    async def test_model_default_usage_shows_hint(self) -> None:
+        """`/model --default` with no argument should show usage guidance."""
+        app = DeepAgentsApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            await app._handle_command("/model --default")
+            await pilot.pause()
+
+            app_msgs = app.query(AppMessage)
+            assert any(
+                "Usage: /model --default provider:model" in str(widget._content)
+                for widget in app_msgs
+            )
+
+    async def test_tokens_command_uses_shared_runtime_message_builder(self) -> None:
+        """`/tokens` should render the shared runtime usage text."""
+        app = DeepAgentsApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app._token_tracker is not None
+            app._token_tracker.current_context = 12_500
+
+            with (
+                patch("deepagents_cli.app.settings.model_name", "gpt-test"),
+                patch("deepagents_cli.app.settings.model_context_limit", 100_000),
+                patch.object(
+                    app,
+                    "_get_conversation_token_line",
+                    new_callable=AsyncMock,
+                    return_value="Conversation only: 4.2K",
+                ) as mock_conversation_line,
+            ):
+                await app._handle_command("/tokens")
+                await pilot.pause()
+
+            mock_conversation_line.assert_awaited_once()
+            app_msgs = app.query(AppMessage)
+            assert any(
+                "12.5K / 100.0K tokens" in str(widget._content)
+                and "gpt-test" in str(widget._content)
+                and "Conversation only: 4.2K" in str(widget._content)
+                for widget in app_msgs
+            )
+
+    async def test_docs_command_uses_shared_runtime_url_resolution(self) -> None:
+        """`/docs` should resolve a runtime-provided URL and open the browser."""
+        app = DeepAgentsApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            with (
+                patch("deepagents_cli.app.DOCS_URL", "https://example.com/docs"),
+                patch("deepagents_cli.app.webbrowser.open") as mock_open,
+            ):
+                await app._handle_command("/docs")
+                await pilot.pause()
+
+            mock_open.assert_called_once_with("https://example.com/docs")
+            app_msgs = app.query(AppMessage)
+            assert any("https://example.com/docs" in str(w._content) for w in app_msgs)
+
+    async def test_clear_command_uses_shared_runtime_actions(self) -> None:
+        """`/clear` should use runtime actions and update the active thread."""
+        app = DeepAgentsApp(thread_id="oldthread")
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app._session_state is not None
+            assert app._lc_thread_id == "oldthread"
+            assert app._session_state.thread_id == "oldthread"
+
+            await app._mount_message(UserMessage("hello before clear"))
+
+            with patch(
+                "deepagents_runtime.commands._generate_thread_id",
+                return_value="newthread",
+            ):
+                await app._handle_command("/clear")
+                await pilot.pause()
+
+            assert app._lc_thread_id == "newthread"
+            assert app._session_state.thread_id == "newthread"
+            app_msgs = app.query(AppMessage)
+            assert any(
+                "Started new thread: newthread" in str(w._content) for w in app_msgs
+            )
 
 
 class TestAppFocusRestoresChatInput:
@@ -915,15 +1071,17 @@ class TestBashCommandInterrupt:
             mock_proc.wait = AsyncMock()
 
             with (
+                patch("deepagents_runtime.run_service.sys") as mock_sys,
                 patch(
                     "asyncio.create_subprocess_shell",
                     return_value=mock_proc,
                 ),
-                patch("os.killpg") as mock_killpg,
-                patch("os.getpgid", return_value=12345),
-                pytest.raises(asyncio.CancelledError),
+                patch("os.killpg", create=True) as mock_killpg,
+                patch("os.getpgid", return_value=12345, create=True),
             ):
-                await app._run_bash_task("sleep 999")
+                mock_sys.platform = "linux"
+                with pytest.raises(asyncio.CancelledError):
+                    await app._run_bash_task("sleep 999")
 
             mock_killpg.assert_called()
 
@@ -1012,14 +1170,15 @@ class TestBashCommandInterrupt:
             mock_proc.returncode = None
             mock_proc.pid = 12345
             mock_proc.wait = AsyncMock()
+            mock_proc.terminate = MagicMock()
 
             with (
                 patch(
                     "asyncio.create_subprocess_shell",
                     return_value=mock_proc,
                 ),
-                patch("os.killpg"),
-                patch("os.getpgid", return_value=12345),
+                patch("os.killpg", create=True),
+                patch("os.getpgid", return_value=12345, create=True),
             ):
                 await app._run_bash_task("sleep 999")
                 await pilot.pause()
@@ -1042,8 +1201,8 @@ class TestBashCommandInterrupt:
 
             with (
                 patch("deepagents_cli.app.sys") as mock_sys,
-                patch("os.killpg") as mock_killpg,
-                patch("os.getpgid", return_value=42) as mock_getpgid,
+                patch("os.killpg", create=True) as mock_killpg,
+                patch("os.getpgid", return_value=42, create=True) as mock_getpgid,
             ):
                 mock_sys.platform = "linux"
                 await app._kill_bash_process()
@@ -1066,16 +1225,21 @@ class TestBashCommandInterrupt:
 
             with (
                 patch("deepagents_cli.app.sys") as mock_sys,
-                patch("os.killpg") as mock_killpg,
-                patch("os.getpgid", return_value=42),
+                patch("os.killpg", create=True) as mock_killpg,
+                patch("os.getpgid", return_value=42, create=True),
             ):
                 mock_sys.platform = "linux"
                 await app._kill_bash_process()
 
-            # First call: SIGTERM, second call: SIGKILL
-            assert mock_killpg.call_count == 2
-            mock_killpg.assert_any_call(42, signal.SIGTERM)
-            mock_killpg.assert_any_call(42, signal.SIGKILL)
+            sigkill = getattr(signal, "SIGKILL", None)
+            if sigkill is None:
+                mock_killpg.assert_called_once_with(42, signal.SIGTERM)
+                mock_proc.kill.assert_called_once()
+            else:
+                # First call: SIGTERM, second call: SIGKILL
+                assert mock_killpg.call_count == 2
+                mock_killpg.assert_any_call(42, signal.SIGTERM)
+                mock_killpg.assert_any_call(42, sigkill)
 
     async def test_no_op_when_no_bash_running(self) -> None:
         """Ctrl+C with no bash running should fall through to quit hint."""
@@ -1133,7 +1297,7 @@ class TestBashCommandInterrupt:
             mock_proc.pid = 42
             app._bash_process = mock_proc
 
-            with patch("os.killpg") as mock_killpg:
+            with patch("os.killpg", create=True) as mock_killpg:
                 await app._kill_bash_process()
 
             mock_killpg.assert_not_called()

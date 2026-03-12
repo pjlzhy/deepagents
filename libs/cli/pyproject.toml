@@ -27,6 +27,7 @@ classifiers = [
 dependencies = [
     # Framework
     "deepagents==0.4.5",
+    "deepagents-runtime==0.0.1",
     "langchain>=1.2.10,<2.0.0",
     "langgraph-checkpoint-sqlite>=3.0.0,<4.0.0",
 
@@ -122,10 +123,11 @@ packages = ["deepagents_cli"]
 
 [tool.uv.sources]
 deepagents = { path = "../deepagents", editable = true }
+deepagents-runtime = { path = "../runtime", editable = true }
 
 [tool.ty.environment]
 python-version = "3.11"
-extra-paths = ["../deepagents"]
+extra-paths = ["../deepagents", "../runtime"]
 
 [tool.ty.rules]
 # https://docs.astral.sh/ty/rules/

@@ -6,11 +6,12 @@ from collections.abc import AsyncIterator, Generator
 from datetime import datetime
 from io import StringIO
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, ClassVar
 from unittest.mock import MagicMock
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langgraph.types import Command
 from rich.console import Console
 
 from deepagents_cli.textual_adapter import (
@@ -24,7 +25,7 @@ from deepagents_cli.textual_adapter import (
     format_token_count,
     print_usage_table,
 )
-from deepagents_cli.widgets.messages import SummarizationMessage
+from deepagents_cli.widgets.messages import AppMessage, SummarizationMessage
 
 
 async def _mock_mount(widget: object) -> None:
@@ -195,6 +196,80 @@ class _FakeAgent:
             yield chunk
 
 
+class _ScriptedAgent:
+    """Fake agent that yields a different stream for each invocation."""
+
+    def __init__(self, passes: list[list[tuple[Any, ...]]]) -> None:
+        self._passes = passes
+        self.inputs: list[object] = []
+
+    async def astream(
+        self,
+        stream_input: object,
+        **__: Any,
+    ) -> AsyncIterator[tuple[Any, ...]]:
+        """Yield the next configured pass and record the input used."""
+        self.inputs.append(stream_input)
+        index = len(self.inputs) - 1
+        for chunk in self._passes[index]:
+            yield chunk
+
+
+def _make_hitl_request() -> dict[str, object]:
+    """Build a valid HITL request payload for adapter tests."""
+    return {
+        "action_requests": [
+            {
+                "name": "execute",
+                "args": {"command": "dir"},
+                "description": "Run command",
+            }
+        ],
+        "review_configs": [
+            {
+                "action_name": "execute",
+                "allowed_decisions": ["approve", "reject"],
+            }
+        ],
+    }
+
+
+class _FakeToolCallMessage:
+    """Non-Textual tool widget used to test approval state transitions."""
+
+    instances: ClassVar[list["_FakeToolCallMessage"]] = []
+
+    def __init__(
+        self,
+        tool_name: str,
+        args: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self._tool_name = tool_name
+        self._args = args or {}
+        self.id = kwargs.get("id")
+        self.running_calls = 0
+        self.rejected_calls = 0
+        self.success_calls: list[str] = []
+        self.error_calls: list[str] = []
+        type(self).instances.append(self)
+
+    def set_running(self) -> None:
+        self.running_calls += 1
+
+    def set_rejected(self) -> None:
+        self.rejected_calls += 1
+
+    def update_args(self, args: dict[str, Any] | None) -> None:
+        self._args = args or {}
+
+    def set_success(self, result: str = "") -> None:
+        self.success_calls.append(result)
+
+    def set_error(self, error: str) -> None:
+        self.error_calls.append(error)
+
+
 class TestExecuteTaskTextualSummarizationFeedback:
     """Tests for summarization spinner and notification feedback."""
 
@@ -319,6 +394,326 @@ class TestExecuteTaskTextualSummarizationFeedback:
 
         assert any(
             isinstance(widget, SummarizationMessage) for widget in mounted_widgets
+        )
+
+
+class TestExecuteTaskTextualRuntimeEventBridge:
+    """Tests for the shared runtime event translation in Textual mode."""
+
+    async def test_mounts_tool_widget_on_early_start_without_args(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A tool start event should render immediately even before args arrive."""
+        _FakeToolCallMessage.instances.clear()
+        monkeypatch.setattr(
+            "deepagents_cli.textual_adapter.ToolCallMessage",
+            _FakeToolCallMessage,
+        )
+
+        async def mount_message(_widget: object) -> None:
+            await asyncio.sleep(0)
+
+        chunks = [
+            (
+                (),
+                "messages",
+                (
+                    SimpleNamespace(
+                        content_blocks=[
+                            {
+                                "type": "tool_call_chunk",
+                                "name": "read_file",
+                                "id": "call-1",
+                                "index": 0,
+                            }
+                        ]
+                    ),
+                    {},
+                ),
+            ),
+        ]
+
+        adapter = TextualUIAdapter(
+            mount_message=mount_message,
+            update_status=_noop_status,
+            request_approval=_mock_approval,
+        )
+
+        await execute_task_textual(
+            user_input="hello",
+            agent=_FakeAgent(chunks),
+            assistant_id="assistant",
+            session_state=SimpleNamespace(thread_id="thread-1", auto_approve=False),
+            adapter=adapter,
+        )
+
+        assert len(_FakeToolCallMessage.instances) == 1
+        tool_widget = _FakeToolCallMessage.instances[0]
+        assert tool_widget._tool_name == "read_file"
+        assert tool_widget._args == {}
+
+    async def test_mounts_tool_widget_when_args_arrive_after_early_start(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A later args chunk should still create and complete the tool widget."""
+        _FakeToolCallMessage.instances.clear()
+        monkeypatch.setattr(
+            "deepagents_cli.textual_adapter.ToolCallMessage",
+            _FakeToolCallMessage,
+        )
+
+        async def mount_message(_widget: object) -> None:
+            await asyncio.sleep(0)
+
+        chunks = [
+            (
+                (),
+                "messages",
+                (
+                    SimpleNamespace(
+                        content_blocks=[
+                            {
+                                "type": "tool_call_chunk",
+                                "name": "read_file",
+                                "id": "call-1",
+                                "index": 0,
+                            }
+                        ]
+                    ),
+                    {},
+                ),
+            ),
+            (
+                (),
+                "messages",
+                (
+                    SimpleNamespace(
+                        content_blocks=[
+                            {
+                                "type": "tool_call_chunk",
+                                "id": "call-1",
+                                "index": 0,
+                                "args": '{"path":"README.md"}',
+                            }
+                        ]
+                    ),
+                    {},
+                ),
+            ),
+            (
+                (),
+                "messages",
+                (
+                    ToolMessage(
+                        content="done",
+                        tool_call_id="call-1",
+                        name="read_file",
+                        status="success",
+                    ),
+                    {},
+                ),
+            ),
+        ]
+
+        adapter = TextualUIAdapter(
+            mount_message=mount_message,
+            update_status=_noop_status,
+            request_approval=_mock_approval,
+        )
+
+        await execute_task_textual(
+            user_input="hello",
+            agent=_FakeAgent(chunks),
+            assistant_id="assistant",
+            session_state=SimpleNamespace(thread_id="thread-1", auto_approve=False),
+            adapter=adapter,
+        )
+
+        assert len(_FakeToolCallMessage.instances) == 1
+        tool_widget = _FakeToolCallMessage.instances[0]
+        assert tool_widget._tool_name == "read_file"
+        assert tool_widget._args == {"path": "README.md"}
+        assert tool_widget.success_calls == ["done"]
+
+
+class TestExecuteTaskTextualHitlFlow:
+    """Tests for HITL approval/reject flow in the shared run loop."""
+
+    async def test_resumes_after_approval(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """An approved interrupt should resume the agent with `Command(resume=...)`."""
+        _FakeToolCallMessage.instances.clear()
+        monkeypatch.setattr(
+            "deepagents_cli.textual_adapter.ToolCallMessage",
+            _FakeToolCallMessage,
+        )
+
+        mounted_widgets: list[object] = []
+
+        async def mount_message(widget: object) -> None:
+            await asyncio.sleep(0)
+            mounted_widgets.append(widget)
+
+        async def request_approval(*_: object) -> Future[object]:
+            await asyncio.sleep(0)
+            future: Future[object] = Future()
+            future.set_result({"type": "approve"})
+            return future
+
+        initial_pass = [
+            (
+                (),
+                "messages",
+                (
+                    SimpleNamespace(
+                        content_blocks=[
+                            {
+                                "type": "tool_call",
+                                "name": "execute",
+                                "args": {"command": "dir"},
+                                "id": "call-1",
+                            }
+                        ],
+                        chunk_position="last",
+                    ),
+                    {},
+                ),
+            ),
+            (
+                (),
+                "updates",
+                {
+                    "__interrupt__": [
+                        SimpleNamespace(id="interrupt-1", value=_make_hitl_request())
+                    ]
+                },
+            ),
+        ]
+        resumed_pass = [
+            (
+                (),
+                "messages",
+                (
+                    ToolMessage(
+                        content="done",
+                        tool_call_id="call-1",
+                        name="execute",
+                        status="success",
+                    ),
+                    {},
+                ),
+            ),
+        ]
+
+        adapter = TextualUIAdapter(
+            mount_message=mount_message,
+            update_status=_noop_status,
+            request_approval=request_approval,
+        )
+        agent = _ScriptedAgent([initial_pass, resumed_pass])
+
+        await execute_task_textual(
+            user_input="hello",
+            agent=agent,
+            assistant_id="assistant",
+            session_state=SimpleNamespace(thread_id="thread-1", auto_approve=False),
+            adapter=adapter,
+        )
+
+        assert len(agent.inputs) == 2
+        assert isinstance(agent.inputs[1], Command)
+        assert len(_FakeToolCallMessage.instances) == 1
+        tool_widget = _FakeToolCallMessage.instances[0]
+        assert tool_widget.running_calls == 1
+        assert tool_widget.success_calls == ["done"]
+        assert tool_widget.rejected_calls == 0
+        assert not any(isinstance(widget, AppMessage) for widget in mounted_widgets)
+
+    async def test_reject_stops_without_resume(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A rejected interrupt should not resume.
+
+        The rejection guidance message should still be mounted for the user.
+        """
+        _FakeToolCallMessage.instances.clear()
+        monkeypatch.setattr(
+            "deepagents_cli.textual_adapter.ToolCallMessage",
+            _FakeToolCallMessage,
+        )
+
+        mounted_widgets: list[object] = []
+
+        async def mount_message(widget: object) -> None:
+            await asyncio.sleep(0)
+            mounted_widgets.append(widget)
+
+        async def request_approval(*_: object) -> Future[object]:
+            await asyncio.sleep(0)
+            future: Future[object] = Future()
+            future.set_result({"type": "reject"})
+            return future
+
+        initial_pass = [
+            (
+                (),
+                "messages",
+                (
+                    SimpleNamespace(
+                        content_blocks=[
+                            {
+                                "type": "tool_call",
+                                "name": "execute",
+                                "args": {"command": "dir"},
+                                "id": "call-1",
+                            }
+                        ],
+                        chunk_position="last",
+                    ),
+                    {},
+                ),
+            ),
+            (
+                (),
+                "updates",
+                {
+                    "__interrupt__": [
+                        SimpleNamespace(id="interrupt-1", value=_make_hitl_request())
+                    ]
+                },
+            ),
+        ]
+
+        adapter = TextualUIAdapter(
+            mount_message=mount_message,
+            update_status=_noop_status,
+            request_approval=request_approval,
+        )
+        agent = _ScriptedAgent([initial_pass])
+
+        await execute_task_textual(
+            user_input="hello",
+            agent=agent,
+            assistant_id="assistant",
+            session_state=SimpleNamespace(thread_id="thread-1", auto_approve=False),
+            adapter=adapter,
+        )
+
+        assert len(agent.inputs) == 1
+        assert len(_FakeToolCallMessage.instances) == 1
+        tool_widget = _FakeToolCallMessage.instances[0]
+        assert tool_widget.rejected_calls == 1
+        assert tool_widget.running_calls == 0
+        assert any(
+            isinstance(widget, AppMessage)
+            and widget._content
+            == "Command rejected. Tell the agent what you'd like instead."
+            for widget in mounted_widgets
         )
 
 

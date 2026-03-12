@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-import os
-import shlex
-import string
 from contextlib import contextmanager
-from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
+
+from deepagents_runtime.sandboxes import (
+    SandboxLifecycleHooks,
+    SandboxProvider as RuntimeSandboxProvider,
+    SandboxSetupError,
+    create_sandbox as create_runtime_sandbox,
+    get_default_working_dir,
+)
 
 from deepagents_cli.config import console, get_glyphs
 
@@ -19,49 +23,12 @@ if TYPE_CHECKING:
     from deepagents_cli.integrations.sandbox_provider import SandboxProvider
 
 
-def _run_sandbox_setup(backend: SandboxBackendProtocol, setup_script_path: str) -> None:
-    """Run users setup script in sandbox with env var expansion.
-
-    Args:
-        backend: Sandbox backend instance
-        setup_script_path: Path to setup script file
-
-    Raises:
-        FileNotFoundError: If the setup script does not exist.
-        RuntimeError: If the setup script fails to execute.
-    """
-    script_path = Path(setup_script_path)
-    if not script_path.exists():
-        msg = f"Setup script not found: {setup_script_path}"
-        raise FileNotFoundError(msg)
-
-    console.print(f"[dim]Running setup script: {setup_script_path}...[/dim]")
-
-    # Read script content
-    script_content = script_path.read_text(encoding="utf-8")
-
-    # Expand ${VAR} syntax using local environment
-    template = string.Template(script_content)
-    expanded_script = template.safe_substitute(os.environ)
-
-    # Execute in sandbox with 5-minute timeout
-    result = backend.execute(f"bash -c {shlex.quote(expanded_script)}")
-
-    if result.exit_code != 0:
-        console.print(f"[red]Setup script failed (exit {result.exit_code}):[/red]")
-        console.print(f"[dim]{result.output}[/dim]")
-        msg = "Setup failed - aborting"
-        raise RuntimeError(msg)
-
-    console.print(f"[green]{get_glyphs().checkmark} Setup complete[/green]")
-
-
-_PROVIDER_TO_WORKING_DIR = {
-    "daytona": "/home/daytona",
-    "langsmith": "/tmp",  # noqa: S108  # LangSmith sandbox working directory
-    "modal": "/workspace",
-    "runloop": "/home/user",
-}
+_AVAILABLE_SANDBOX_PROVIDERS: tuple[str, ...] = (
+    "daytona",
+    "langsmith",
+    "modal",
+    "runloop",
+)
 
 
 @contextmanager
@@ -82,46 +49,76 @@ def create_sandbox(
 
     Yields:
         SandboxBackendProtocol instance
+
+    Raises:
+        RuntimeError: If the setup script is missing or fails to execute.
     """
-    # Get provider instance
-    provider_obj = _get_provider(provider)
+    def on_start(name: str, _existing_id: str | None) -> None:
+        console.print(f"[yellow]Starting {name} sandbox...[/yellow]")
 
-    # Determine if we should cleanup (only cleanup if we created it)
-    should_cleanup = sandbox_id is None
+    def on_ready(name: str, backend_id: str) -> None:
+        glyphs = get_glyphs()
+        console.print(
+            f"[green]{glyphs.checkmark} {name.capitalize()} sandbox ready: "
+            f"{backend_id}[/green]"
+        )
 
-    # Create or connect to sandbox
-    console.print(f"[yellow]Starting {provider} sandbox...[/yellow]")
-    backend = provider_obj.get_or_create(sandbox_id=sandbox_id)
-    glyphs = get_glyphs()
-    console.print(
-        f"[green]{glyphs.checkmark} {provider.capitalize()} sandbox ready: "
-        f"{backend.id}[/green]"
+    def on_setup_start(_name: str, script_path: str) -> None:
+        console.print(f"[dim]Running setup script: {script_path}...[/dim]")
+
+    def on_setup_complete(_name: str, _script_path: str) -> None:
+        console.print(f"[green]{get_glyphs().checkmark} Setup complete[/green]")
+
+    def on_setup_failed(_name: str, _script_path: str, exc: BaseException) -> None:
+        if isinstance(exc, SandboxSetupError):
+            console.print(f"[red]Setup script failed (exit {exc.exit_code}):[/red]")
+            if exc.output:
+                console.print(f"[dim]{exc.output}[/dim]")
+        else:
+            console.print(f"[red]Setup script failed: {exc}[/red]")
+
+    def on_cleanup_start(name: str, backend_id: str) -> None:
+        console.print(f"[dim]Terminating {name} sandbox {backend_id}...[/dim]")
+
+    def on_cleanup_complete(name: str, backend_id: str) -> None:
+        glyphs = get_glyphs()
+        console.print(
+            f"[dim]{glyphs.checkmark} {name.capitalize()} sandbox "
+            f"{backend_id} terminated[/dim]"
+        )
+
+    def on_cleanup_failed(name: str, backend_id: str, exc: BaseException) -> None:
+        warning = get_glyphs().warning
+        console.print(
+            f"[yellow]{warning} Cleanup failed for {name} sandbox "
+            f"{backend_id}: {exc}[/yellow]"
+        )
+
+    hooks = SandboxLifecycleHooks(
+        on_start=on_start,
+        on_ready=on_ready,
+        on_setup_start=on_setup_start,
+        on_setup_complete=on_setup_complete,
+        on_setup_failed=on_setup_failed,
+        on_cleanup_start=on_cleanup_start,
+        on_cleanup_complete=on_cleanup_complete,
+        on_cleanup_failed=on_cleanup_failed,
     )
 
-    # Run setup script if provided
-    if setup_script_path:
-        _run_sandbox_setup(backend, setup_script_path)
-
     try:
-        yield backend
-    finally:
-        if should_cleanup:
-            try:
-                console.print(
-                    f"[dim]Terminating {provider} sandbox {backend.id}...[/dim]"
-                )
-                provider_obj.delete(sandbox_id=backend.id)
-                glyphs = get_glyphs()
-                console.print(
-                    f"[dim]{glyphs.checkmark} {provider.capitalize()} sandbox "
-                    f"{backend.id} terminated[/dim]"
-                )
-            except Exception as e:  # noqa: BLE001  # Cleanup errors should not mask the original sandbox failure
-                warning = get_glyphs().warning
-                console.print(
-                    f"[yellow]{warning} Cleanup failed for {provider} sandbox "
-                    f"{backend.id}: {e}[/yellow]"
-                )
+        with create_runtime_sandbox(
+            provider,
+            provider_resolver=_resolve_provider,
+            sandbox_id=sandbox_id,
+            setup_script_path=setup_script_path,
+            hooks=hooks,
+        ) as backend:
+            yield backend
+    except (FileNotFoundError, SandboxSetupError) as exc:
+        msg = str(exc)
+        if isinstance(exc, SandboxSetupError):
+            msg = "Setup failed - aborting"
+        raise RuntimeError(msg) from exc
 
 
 def _get_available_sandbox_types() -> list[str]:
@@ -130,25 +127,11 @@ def _get_available_sandbox_types() -> list[str]:
     Returns:
         List of available sandbox provider type names
     """
-    return sorted(_PROVIDER_TO_WORKING_DIR.keys())
+    return sorted(_AVAILABLE_SANDBOX_PROVIDERS)
 
 
-def get_default_working_dir(provider: str) -> str:
-    """Get the default working directory for a given sandbox provider.
-
-    Args:
-        provider: Sandbox provider name ("daytona", "langsmith", "modal", "runloop")
-
-    Returns:
-        Default working directory path as string
-
-    Raises:
-        ValueError: If provider is unknown
-    """
-    if provider in _PROVIDER_TO_WORKING_DIR:
-        return _PROVIDER_TO_WORKING_DIR[provider]
-    msg = f"Unknown sandbox provider: {provider}"
-    raise ValueError(msg)
+def _resolve_provider(provider_name: str) -> RuntimeSandboxProvider:
+    return cast("RuntimeSandboxProvider", _get_provider(provider_name))
 
 
 def _get_provider(provider_name: str) -> SandboxProvider:

@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import signal
 import sys
 import uuid
 import webbrowser
@@ -15,6 +14,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
+from deepagents_runtime.commands import (
+    REMEMBER_PROMPT as _RUNTIME_REMEMBER_PROMPT,
+    parse_slash_command,
+)
+from deepagents_runtime.inputs import InputEnvelope
+from deepagents_runtime.run_service import CommandRunConfig, stream_run_events
+from deepagents_runtime.runs import SessionStats, format_token_count
+from deepagents_runtime.shell import terminate_shell_process
+from deepagents_runtime.tracing import build_langsmith_thread_url
 from rich.text import Text
 from textual.app import App
 from textual.binding import Binding, BindingType
@@ -29,7 +37,6 @@ from deepagents_cli.config import (
     SHELL_TOOL_NAMES,
     CharsetMode,
     _detect_charset_mode,
-    build_langsmith_thread_url,
     create_model,
     detect_provider,
     is_shell_command_allowed,
@@ -37,10 +44,8 @@ from deepagents_cli.config import (
 )
 from deepagents_cli.model_config import ModelSpec, save_recent_model
 from deepagents_cli.textual_adapter import (
-    SessionStats,
     TextualUIAdapter,
     execute_task_textual,
-    format_token_count,
 )
 from deepagents_cli.widgets.approval import ApprovalMenu
 from deepagents_cli.widgets.chat_input import ChatInput
@@ -260,126 +265,8 @@ class TextualSessionState:
         return self.thread_id
 
 
-_COMMAND_URLS: dict[str, str] = {
-    "/changelog": "https://github.com/langchain-ai/deepagents/blob/main/libs/cli/CHANGELOG.md",
-    "/docs": DOCS_URL,
-    "/feedback": "https://github.com/langchain-ai/deepagents/issues/new/choose",
-}
-
-# Prompt for /remember command - triggers agent to review conversation and update
-# memory/skills
-REMEMBER_PROMPT = """Review our conversation and capture valuable knowledge. Focus especially on **best practices** we discussed or discovered—these are the most important things to preserve.
-
-## Step 1: Identify Best Practices and Key Learnings
-
-Scan the conversation for:
-
-### Best Practices (highest priority)
-- **Patterns that worked well** - approaches, techniques, or solutions we found effective
-- **Anti-patterns to avoid** - mistakes, gotchas, or approaches that caused problems
-- **Quality standards** - criteria we established for good code, documentation, or processes
-- **Decision rationale** - why we chose one approach over another
-
-### Other Valuable Knowledge
-- Coding conventions and style preferences
-- Project architecture decisions
-- Workflows and processes we developed
-- Tools, libraries, or techniques worth remembering
-- Feedback I gave about your behavior or outputs
-
-## Step 2: Decide Where to Store Each Learning
-
-For each best practice or learning, choose the right destination:
-
-### -> Memory (AGENTS.md) for preferences and guidelines
-Use memory when the knowledge is:
-- A preference or guideline (not a multi-step process)
-- Something to always keep in mind
-- A simple rule or pattern
-
-**Global** (`~/.deepagents/agent/AGENTS.md`): Universal preferences across all projects
-**Project** (`.deepagents/AGENTS.md`): Project-specific conventions and decisions
-
-### -> Skill for reusable workflows and methodologies
-**Create a skill when** we developed:
-- A multi-step process worth reusing
-- A methodology for a specific type of task
-- A workflow with best practices baked in
-- A procedure that should be followed consistently
-
-Skills are more powerful than memory entries because they can encode **how** to do something well, not just **what** to remember.
-
-## Step 3: Create Skills for Significant Best Practices
-
-If we established best practices around a workflow or process, capture them in a skill.
-
-**Example:** If we discussed best practices for code review, create a `code-review` skill that encodes those practices into a reusable workflow.
-
-### Skill Location
-`~/.deepagents/agent/skills/<skill-name>/SKILL.md`
-
-### Skill Structure
-```
-skill-name/
-├── SKILL.md          (required - main instructions with best practices)
-├── scripts/          (optional - executable code)
-├── references/       (optional - detailed documentation)
-└── assets/           (optional - templates, examples)
-```
-
-### SKILL.md Format
-```markdown
----
-name: skill-name
-description: "What this skill does AND when to use it. Include triggers like 'when the user asks to X' or 'when working with Y'. This description determines when the skill activates."
----
-
-# Skill Name
-
-## Overview
-Brief explanation of what this skill accomplishes.
-
-## Best Practices
-Capture the key best practices upfront:
-- Best practice 1: explanation
-- Best practice 2: explanation
-
-## Process
-Step-by-step instructions (imperative form):
-1. First, do X
-2. Then, do Y
-3. Finally, do Z
-
-## Common Pitfalls
-- Pitfall to avoid and why
-- Another anti-pattern we discovered
-```
-
-### Key Principles
-1. **Encode best practices prominently** - Put them near the top so they guide the entire workflow
-2. **Concise is key** - Only include non-obvious knowledge. Every paragraph should justify its token cost.
-3. **Clear triggers** - The description determines when the skill activates. Be specific.
-4. **Imperative form** - Write as commands: "Create a file" not "You should create a file"
-5. **Include anti-patterns** - What NOT to do is often as valuable as what to do
-
-## Step 4: Update Memory for Simpler Learnings
-
-For preferences, guidelines, and simple rules that don't warrant a full skill:
-
-```markdown
-## Best Practices
-- When doing X, always Y because Z
-- Avoid A because it leads to B
-```
-
-Use `edit_file` to update existing files or `write_file` to create new ones.
-
-## Step 5: Summarize Changes
-
-List what you captured and where you stored it:
-- Skills created (with key best practices encoded)
-- Memory entries added (with location)
-"""  # noqa: E501
+# Keep the CLI module constant in sync with the shared runtime value.
+REMEMBER_PROMPT = _RUNTIME_REMEMBER_PROMPT
 
 
 class DeepAgentsApp(App):
@@ -558,6 +445,7 @@ class DeepAgentsApp(App):
                 set_spinner=self._set_spinner,
                 set_active_message=self._set_active_message,
                 sync_message_content=self._sync_message_content,
+                sync_tool_args=self._sync_tool_args,
             )
             self._ui_adapter.set_token_tracker(self._token_tracker)
 
@@ -1087,56 +975,60 @@ class DeepAgentsApp(App):
 
         This mirrors `_run_agent_task`: running in a worker keeps the event
         loop free so Esc/Ctrl+C can cancel the worker -> raise
-        `CancelledError` -> kill the process.
+        `CancelledError`.
 
         Args:
             command: The shell command to execute.
-
-        Raises:
-            CancelledError: If the command is interrupted by the user.
         """
         try:
-            proc = await asyncio.create_subprocess_shell(
-                command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=self._cwd,
-                start_new_session=(sys.platform != "win32"),
+            from deepagents_runtime.inputs import InputEnvelope
+            from deepagents_runtime.run_service import BashRunConfig, stream_run_events
+
+            thread_id = (
+                self._session_state.thread_id
+                if self._session_state is not None
+                else uuid.uuid4().hex[:8]
             )
-            self._bash_process = proc
+            envelope = InputEnvelope(thread_id=thread_id, mode="bash", text=command)
+            bash_config = BashRunConfig(cwd=Path(self._cwd), timeout_seconds=60.0)
 
-            try:
-                stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                    proc.communicate(), timeout=60
-                )
-            except TimeoutError:
-                await self._kill_bash_process()
-                await self._mount_message(ErrorMessage("Command timed out (60s limit)"))
-                return
-            except asyncio.CancelledError:
-                await self._kill_bash_process()
-                raise
+            saw_output = False
+            run_failed = False
 
-            output = (stdout_bytes or b"").decode(errors="replace").strip()
-            stderr_text = (stderr_bytes or b"").decode(errors="replace").strip()
-            if stderr_text:
-                output += f"\n[stderr]\n{stderr_text}"
+            async for event in stream_run_events(
+                envelope,
+                bash_config=bash_config,
+            ):
+                payload = event.payload
+                if event.type == "bash.output":
+                    output = str(payload.get("output", ""))
+                    if output:
+                        saw_output = True
+                        msg = AssistantMessage(f"```\n{output}\n```")
+                        await self._mount_message(msg)
+                        await msg.write_initial_content()
+                    continue
 
-            if output:
-                msg = AssistantMessage(f"```\n{output}\n```")
-                await self._mount_message(msg)
-                await msg.write_initial_content()
-            else:
+                if event.type == "run.failed":
+                    run_failed = True
+                    error_type = str(payload.get("error_type", "") or "") or "RunFailed"
+                    message = str(payload.get("message", "") or "")
+                    if message:
+                        await self._mount_message(ErrorMessage(message))
+                    else:
+                        await self._mount_message(
+                            ErrorMessage(f"Command failed ({error_type})")
+                        )
+                    continue
+
+            if not run_failed and not saw_output:
                 await self._mount_message(AppMessage("Command completed (no output)"))
-
-            if proc.returncode and proc.returncode != 0:
-                await self._mount_message(ErrorMessage(f"Exit code: {proc.returncode}"))
 
             # Scroll to show the output (user-initiated command, so scroll is expected)
             chat = self.query_one("#chat", VerticalScroll)
             chat.scroll_end(animate=False)
 
-        except OSError as e:
+        except Exception as e:  # Defensive error handling for UI resiliency
             logger.exception("Failed to execute bash command: %s", command)
             err_msg = f"Failed to run command: {e}"
             await self._mount_message(ErrorMessage(err_msg))
@@ -1145,8 +1037,9 @@ class DeepAgentsApp(App):
 
     async def _cleanup_bash_task(self) -> None:
         """Clean up after bash task completes or is cancelled."""
-        was_interrupted = self._bash_process is not None and (
-            self._bash_worker is not None and self._bash_worker.is_cancelled
+        was_interrupted = (
+            (self._bash_worker is not None and self._bash_worker.is_cancelled)
+            or self._bash_process is not None
         )
         self._bash_process = None
         self._bash_running = False
@@ -1166,52 +1059,9 @@ class DeepAgentsApp(App):
         to SIGKILL.
         """
         proc = self._bash_process
-        if proc is None or proc.returncode is not None:
+        if proc is None:
             return
-
-        try:
-            if sys.platform != "win32":
-                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-            else:
-                proc.terminate()
-        except ProcessLookupError:
-            return
-        except OSError:
-            logger.warning(
-                "Failed to terminate bash process (pid=%s)", proc.pid, exc_info=True
-            )
-            return
-
-        try:
-            await asyncio.wait_for(proc.wait(), timeout=5)
-        except TimeoutError:
-            logger.warning(
-                "Bash process (pid=%s) did not exit after SIGTERM; sending SIGKILL",
-                proc.pid,
-            )
-            with suppress(ProcessLookupError, OSError):
-                if sys.platform != "win32":
-                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-                else:
-                    proc.kill()
-            with suppress(ProcessLookupError, OSError):
-                await proc.wait()
-        except (ProcessLookupError, OSError):
-            pass
-
-    async def _open_url_command(self, command: str, cmd: str) -> None:
-        """Open a URL in the browser and display a clickable link.
-
-        Args:
-            command: The raw command text (displayed as user message).
-            cmd: The normalized slash command used to look up the URL.
-        """
-        url = _COMMAND_URLS[cmd]
-        await self._mount_message(UserMessage(command))
-        webbrowser.open(url)
-        link = Text(url, style="dim italic")
-        link.stylize(f"link {url}", 0)
-        await self._mount_message(AppMessage(link))
+        await terminate_shell_process(proc, platform=sys.platform)
 
     @staticmethod
     async def _build_thread_message(prefix: str, thread_id: str) -> str | Text:
@@ -1243,221 +1093,183 @@ class DeepAgentsApp(App):
             )
         return f"{prefix}: {thread_id}"
 
-    async def _handle_trace_command(self, command: str) -> None:
-        """Open the current thread in LangSmith.
-
-        Shows a hint if no conversation has been started yet or if LangSmith
-        tracing is not configured. Otherwise, opens the thread URL in the
-        default browser and displays a clickable link.
-
-        Args:
-            command: The raw command text (displayed as user message).
-        """
-        await self._mount_message(UserMessage(command))
-        if not self._session_state:
-            await self._mount_message(AppMessage("No active session."))
-            return
-        thread_id = self._session_state.thread_id
-        try:
-            url = await asyncio.to_thread(build_langsmith_thread_url, thread_id)
-        except Exception:
-            logger.exception("Failed to build LangSmith thread URL for %s", thread_id)
-            await self._mount_message(
-                AppMessage("Failed to resolve LangSmith thread URL.")
-            )
-            return
-        if not url:
-            await self._mount_message(
-                AppMessage(
-                    "LangSmith tracing is not configured. "
-                    "Set LANGSMITH_API_KEY and LANGSMITH_TRACING=true to enable."
-                )
-            )
-            return
-        try:
-            webbrowser.open(url)
-        except Exception:
-            logger.debug("Could not open browser for URL: %s", url, exc_info=True)
-        link = Text(url, style="dim italic")
-        link.stylize(f"link {url}", 0)
-        await self._mount_message(AppMessage(link))
-
     async def _handle_command(self, command: str) -> None:
         """Handle a slash command.
 
         Args:
             command: The slash command (including /)
         """
-        cmd = command.lower().strip()
+        parsed = parse_slash_command(command)
 
-        if cmd in {"/quit", "/q"}:
-            self.exit()
-        elif cmd == "/help":
-            await self._mount_message(UserMessage(command))
-            help_text = Text(
-                "Commands: /quit, /clear, /compact, /model [--default], /remember, "
-                "/tokens, /threads, /trace, /changelog, /docs, /feedback, /help\n\n"
-                "Interactive Features:\n"
-                "  Enter           Submit your message\n"
-                "  Ctrl+J          Insert newline\n"
-                "  Shift+Tab       Toggle auto-approve mode\n"
-                "  @filename       Auto-complete files and inject content\n"
-                "  /command        Slash commands (/help, /clear, /quit)\n"
-                "  !command        Run bash commands directly\n\n"
-                f"Docs: {DOCS_URL}",
-                style="dim italic",
-            )
-            help_text.stylize(f"link {DOCS_URL}", help_text.plain.index(DOCS_URL))
-            await self._mount_message(AppMessage(help_text))
+        envelope_thread_id = (
+            self._session_state.thread_id if self._session_state else ""
+        )
 
-        elif cmd in {"/changelog", "/docs", "/feedback"}:
-            await self._open_url_command(command, cmd)
-        elif cmd == "/version":
-            await self._mount_message(UserMessage(command))
-            # Show CLI and SDK package versions
+        current_context = (
+            self._token_tracker.current_context if self._token_tracker else 0
+        )
+        conversation_line: str | None = None
+
+        client_version: str | None = None
+        if parsed.kind == "version":
             try:
-                from deepagents_cli._version import (
-                    __version__ as cli_version,
-                )
+                from deepagents_cli._version import __version__ as cli_version
 
-                cli_line = f"deepagents-cli version: {cli_version}"
+                client_version = cli_version
             except ImportError:
                 logger.debug("deepagents_cli._version module not found")
-                cli_line = "deepagents-cli version: unknown"
             except Exception:
                 logger.warning("Unexpected error looking up CLI version", exc_info=True)
-                cli_line = "deepagents-cli version: unknown"
-            try:
-                from importlib.metadata import (
-                    PackageNotFoundError,
-                    version as _pkg_version,
-                )
 
-                sdk_version = _pkg_version("deepagents")
-                sdk_line = f"deepagents (SDK) version: {sdk_version}"
-            except PackageNotFoundError:
-                logger.debug("deepagents SDK package not found in environment")
-                sdk_line = "deepagents (SDK) version: unknown"
-            except Exception:
-                logger.warning("Unexpected error looking up SDK version", exc_info=True)
-                sdk_line = "deepagents (SDK) version: unknown"
-            await self._mount_message(AppMessage(f"{cli_line}\n{sdk_line}"))
-        elif cmd == "/clear":
-            self._pending_messages.clear()
-            self._queued_widgets.clear()
-            await self._clear_messages()
-            if self._token_tracker:
-                self._token_tracker.reset()
-            # Clear status message (e.g., "Interrupted" from previous session)
-            self._update_status("")
-            # Reset thread to start fresh conversation
-            if self._session_state:
-                new_thread_id = self._session_state.reset_thread()
-                try:
-                    banner = self.query_one("#welcome-banner", WelcomeBanner)
-                    banner.update_thread_id(new_thread_id)
-                except NoMatches:
-                    pass
+        command_config = CommandRunConfig(
+            docs_url=DOCS_URL,
+            client_version=client_version,
+        )
+
+        if parsed.kind == "tokens":
+            if current_context > 0:
+                conversation_line = await self._get_conversation_token_line()
+            command_config = CommandRunConfig(
+                docs_url=DOCS_URL,
+                client_version=client_version,
+                current_context=current_context,
+                model_name=settings.model_name,
+                context_limit=settings.model_context_limit,
+                conversation_line=conversation_line,
+            )
+
+        envelope = InputEnvelope(
+            thread_id=envelope_thread_id,
+            mode="command",
+            text=command,
+        )
+
+        async for event in stream_run_events(
+            envelope,
+            command_config=command_config,
+        ):
+            payload = event.payload
+
+            if event.type == "run.failed":
+                error_type = str(payload.get("error_type", "") or "") or "RunFailed"
+                message = str(payload.get("message", "") or "")
+                detail = f": {message}" if message else ""
                 await self._mount_message(
-                    AppMessage(f"Started new thread: {new_thread_id}")
+                    ErrorMessage(f"Run failed ({error_type}){detail}")
                 )
-        elif cmd == "/compact":
-            await self._mount_message(UserMessage(command))
-            await self._handle_compact()
-        elif cmd == "/threads":
-            await self._show_thread_selector()
-        elif cmd == "/trace":
-            await self._handle_trace_command(command)
-        elif cmd == "/tokens":
-            await self._mount_message(UserMessage(command))
-            if self._token_tracker and self._token_tracker.current_context > 0:
-                count = self._token_tracker.current_context
-                formatted = format_token_count(count)
+                break
 
-                model_name = settings.model_name
-                context_limit = settings.model_context_limit
+            if event.type == "run.completed":
+                if payload.get("exit"):
+                    self.exit()
+                    return
+                continue
 
-                if context_limit is not None:
-                    limit_str = format_token_count(context_limit)
-                    pct = count / context_limit * 100
-                    usage = (
-                        f"{formatted} / {limit_str} tokens "
-                        f"({pct:.0f}%, includes system prompt + tools)"
-                    )
-                else:
-                    usage = f"{formatted} tokens used (includes system prompt + tools)"
+            if event.type == "message.user.created":
+                text = str(payload.get("text", "") or "")
+                if text:
+                    await self._mount_message(UserMessage(text))
+                continue
 
-                msg = f"{usage} · {model_name}" if model_name else usage
+            if event.type == "thread.updated":
+                if payload.get("cleared"):
+                    self._pending_messages.clear()
+                    self._queued_widgets.clear()
+                    await self._clear_messages()
+                    if self._token_tracker:
+                        self._token_tracker.reset()
+                    self._update_status("")
+                continue
 
-                # Append conversation-only token count when available
-                conv_line = await self._get_conversation_token_line()
-                if conv_line:
-                    msg = f"{msg}\n{conv_line}"
-
-                await self._mount_message(AppMessage(msg))
-            else:
-                model_name = settings.model_name
-                context_limit = settings.model_context_limit
-
-                parts: list[str] = ["No token usage yet"]
-                if context_limit is not None:
-                    limit_str = format_token_count(context_limit)
-                    parts.append(f"{limit_str} context window")
-                if model_name:
-                    parts.append(model_name)
-
-                await self._mount_message(AppMessage(" · ".join(parts)))
-        elif cmd == "/remember" or cmd.startswith("/remember "):
-            # Extract any additional context after /remember
-            additional_context = ""
-            if cmd.startswith("/remember "):
-                additional_context = command.strip()[len("/remember ") :].strip()
-
-            # Build the final prompt
-            if additional_context:
-                final_prompt = (
-                    f"{REMEMBER_PROMPT}\n\n"
-                    f"**Additional context from user:** {additional_context}"
+            if event.type == "thread.switched":
+                next_thread_id = (
+                    str(payload.get("thread_id", "") or "") or event.thread_id
                 )
-            else:
-                final_prompt = REMEMBER_PROMPT
-
-            # Send as a user message to the agent
-            await self._handle_user_message(final_prompt)
-            return  # _handle_user_message already mounts the message
-        elif cmd == "/model" or cmd.startswith("/model "):
-            model_arg = None
-            set_default = False
-            if cmd.startswith("/model "):
-                raw_arg = command.strip()[len("/model ") :].strip()
-                if raw_arg.startswith("--default"):
-                    set_default = True
-                    model_arg = raw_arg[len("--default") :].strip() or None
-                else:
-                    model_arg = raw_arg
-
-            if set_default:
-                await self._mount_message(UserMessage(command))
-                if model_arg == "--clear":
-                    await self._clear_default_model()
-                elif model_arg:
-                    await self._set_default_model(model_arg)
-                else:
-                    await self._mount_message(
-                        AppMessage(
-                            "Usage: /model --default provider:model\n"
-                            "       /model --default --clear"
+                if next_thread_id:
+                    if self._session_state is None:
+                        self._session_state = TextualSessionState(
+                            auto_approve=self._auto_approve,
+                            thread_id=next_thread_id,
                         )
+                    else:
+                        self._session_state.thread_id = next_thread_id
+                    self._lc_thread_id = next_thread_id
+                    self._update_welcome_banner(
+                        next_thread_id,
+                        missing_message=(
+                            "Welcome banner not found during thread reset to %s"
+                        ),
+                        warn_if_missing=False,
                     )
-            elif model_arg:
-                # Direct switch: /model claude-sonnet-4-5
-                await self._mount_message(UserMessage(command))
-                await self._switch_model(model_arg)
-            else:
-                await self._show_model_selector()
-        else:
-            await self._mount_message(UserMessage(command))
-            await self._mount_message(AppMessage(f"Unknown command: {cmd}"))
+                continue
+
+            if event.type == "command.open_url":
+                url = str(payload.get("url", "") or "")
+                if not url:
+                    continue
+
+                try:
+                    webbrowser.open(url)
+                except Exception:
+                    logger.debug(
+                        "Could not open browser for URL: %s",
+                        url,
+                        exc_info=True,
+                    )
+
+                link = Text(url, style="dim italic")
+                link.stylize(f"link {url}", 0)
+                await self._mount_message(AppMessage(link))
+                continue
+
+            if event.type == "command.result":
+                action = payload.get("action")
+                if action == "show_thread_selector":
+                    await self._show_thread_selector()
+                    return
+                if action == "show_model_selector":
+                    await self._show_model_selector()
+                    return
+                if action == "compact_thread":
+                    await self._handle_compact()
+                    continue
+                if action == "switch_model":
+                    model_spec = str(payload.get("model_spec", "") or "")
+                    if model_spec:
+                        await self._switch_model(model_spec)
+                    continue
+                if action == "set_default_model":
+                    model_spec = str(payload.get("model_spec", "") or "")
+                    if model_spec:
+                        await self._set_default_model(model_spec)
+                    continue
+                if action == "clear_default_model":
+                    await self._clear_default_model()
+                    continue
+                if action == "submit_user_message":
+                    message = str(payload.get("message", "") or "")
+                    if message:
+                        await self._handle_user_message(message)
+                    return
+
+                message: str | Text = str(payload.get("message", "") or "")
+                style = payload.get("style")
+                if style:
+                    styled = Text(message, style=str(style))
+                    link_url = payload.get("link_url")
+                    if link_url and link_url in styled.plain:
+                        styled.stylize(
+                            f"link {link_url}",
+                            styled.plain.index(link_url),
+                        )
+                    message = styled
+                await self._mount_message(AppMessage(message))
+                continue
+
+            if event.type in {"run.started", "thread.created"}:
+                continue
+
+            logger.debug("Unhandled command-mode event: %s (%s)", event.type, payload)
 
         # Scroll to bottom after command output is rendered.
         # Use call_after_refresh so the layout pass completes first;
@@ -2016,14 +1828,16 @@ class DeepAgentsApp(App):
                     if isinstance(msg.content, str):
                         content = msg.content
                     elif isinstance(msg.content, list):
-                        # Handle content_blocks format: [{'type': 'text', 'text': '...'}]
+                        # Handle content blocks format (list of dict blocks).
                         text_parts = []
                         for block in msg.content:
                             if isinstance(block, dict) and block.get("type") == "text":
-                              text_parts.append(block.get("text", ""))
+                                text_parts.append(block.get("text", ""))
                             elif isinstance(block, str):
-                              text_parts.append(block)
-                        content = "\n".join(text_parts) if text_parts else str(msg.content)
+                                text_parts.append(block)
+                        content = (
+                            "\n".join(text_parts) if text_parts else str(msg.content)
+                        )
                     else:
                         content = str(msg.content)
                     if status == "success":
@@ -2059,15 +1873,9 @@ class DeepAgentsApp(App):
         Returns:
             Converted message data ready for bulk loading.
         """
-        if not self._agent:
-            return []
+        from deepagents_cli.sessions import get_thread_history
 
-        config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
-        state = await self._agent.aget_state(config)
-        if not state or not state.values:
-            return []
-
-        messages = state.values.get("messages", [])
+        messages = await get_thread_history(thread_id)
         if not messages:
             return []
 
@@ -2144,9 +1952,10 @@ class DeepAgentsApp(App):
         """Load and render message history when resuming a thread.
 
         When `preloaded_data` is provided (e.g., from `_resume_thread`), this
-        reuses that payload. Otherwise, it fetches checkpoint state from the
-        agent and converts stored messages into lightweight `MessageData`
-        objects. The method then bulk-loads into the `MessageStore` and mounts
+         reuses that payload. Otherwise, it fetches checkpoint state from the
+        sessions store and converts stored messages into lightweight
+        `MessageData` objects. The method then bulk-loads into the
+        `MessageStore` and mounts
         only the last `WINDOW_SIZE` widgets to reduce DOM operations on large
         threads.
 
@@ -2159,12 +1968,6 @@ class DeepAgentsApp(App):
         history_thread_id = thread_id or self._lc_thread_id
         if not history_thread_id:
             logger.debug("Skipping history load: no thread ID available")
-            return
-        if preloaded_data is None and not self._agent:
-            logger.debug(
-                "Skipping history load for %s: no active agent and no preloaded data",
-                history_thread_id,
-            )
             return
 
         try:
@@ -2338,6 +2141,18 @@ class DeepAgentsApp(App):
             message_id,
             content=content,
             is_streaming=False,
+        )
+
+    def _sync_tool_args(self, message_id: str, tool_args: dict[str, Any]) -> None:
+        """Sync late-arriving tool arguments back to the store.
+
+        Args:
+            message_id: The ID of the tool message to update.
+            tool_args: The latest parsed tool arguments.
+        """
+        self._message_store.update_message(
+            message_id,
+            tool_args=tool_args,
         )
 
     async def _clear_messages(self) -> None:

@@ -4,29 +4,34 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import time
 import uuid
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
+    from deepagents_runtime.events import RuntimeEvent
+    from langchain.agents.middleware.human_in_the_loop import HITLRequest
     from rich.console import Console
 
-from langchain.agents.middleware.human_in_the_loop import (
-    ApproveDecision,
-    EditDecision,
-    HITLRequest,
-    HITLResponse,
-    RejectDecision,
+from deepagents_runtime.approvals import (
+    HITLDecisionPayload,
+    normalize_batch_approval_choice,
+    resolve_batch_approval_choice,
 )
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from langgraph.types import Command, Interrupt
-from pydantic import TypeAdapter, ValidationError
+from deepagents_runtime.inputs import InputEnvelope
+from deepagents_runtime.run_service import AgentRunConfig, stream_run_events
+from deepagents_runtime.runs import (
+    ModelStats as _ModelStats,
+    SessionStats,
+    build_stream_config,
+    format_token_count,
+    is_summarization_chunk,
+)
+from langchain_core.messages import AIMessage, HumanMessage
 
 from deepagents_cli.config import settings
 from deepagents_cli.file_ops import FileOpTracker
@@ -37,110 +42,15 @@ from deepagents_cli.widgets.messages import (
     AppMessage,
     AssistantMessage,
     DiffMessage,
+    ErrorMessage,
     SummarizationMessage,
     ToolCallMessage,
 )
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class ModelStats:
-    """Token stats for a single model within a session.
-
-    Attributes:
-        request_count: Number of LLM API requests made to this model.
-        input_tokens: Cumulative input tokens sent to this model.
-        output_tokens: Cumulative output tokens received from this model.
-    """
-
-    request_count: int = 0
-    input_tokens: int = 0
-    output_tokens: int = 0
-
-
-@dataclass
-class SessionStats:
-    """Stats accumulated over a single agent turn (or full session).
-
-    Attributes:
-        request_count: Total LLM API requests made (each chunk with
-            usage_metadata counts as one completed request).
-        input_tokens: Cumulative input tokens across all LLM requests.
-        output_tokens: Cumulative output tokens across all LLM requests.
-        wall_time_seconds: Wall-clock duration from stream start to end.
-        per_model: Per-model breakdown keyed by model name.
-            Populated only when `record_request` receives a non-empty
-            `model_name`. Empty dict means no named-model requests were
-            recorded; `print_usage_table` omits the model table in that case and
-            shows only the wall-time line (if applicable).
-    """
-
-    request_count: int = 0
-    input_tokens: int = 0
-    output_tokens: int = 0
-    wall_time_seconds: float = 0.0
-    per_model: dict[str, ModelStats] = field(default_factory=dict)
-
-    def record_request(
-        self,
-        model_name: str,
-        input_toks: int,
-        output_toks: int,
-    ) -> None:
-        """Accumulate token counts for one completed LLM request.
-
-        Updates both the session totals and the per-model breakdown.
-
-        Args:
-            model_name: The model that served this request (used as the
-                per-model key). Pass an empty string to skip the per-model
-                breakdown for this request.
-            input_toks: Input tokens for this request.
-            output_toks: Output tokens for this request.
-        """
-        self.request_count += 1
-        self.input_tokens += input_toks
-        self.output_tokens += output_toks
-        if model_name:
-            entry = self.per_model.setdefault(model_name, ModelStats())
-            entry.request_count += 1
-            entry.input_tokens += input_toks
-            entry.output_tokens += output_toks
-
-    def merge(self, other: SessionStats) -> None:
-        """Merge another `SessionStats` into this one (mutates *self*).
-
-        Used to accumulate per-turn stats into a session-level total.
-
-        Args:
-            other: The stats to fold in.
-        """
-        self.request_count += other.request_count
-        self.input_tokens += other.input_tokens
-        self.output_tokens += other.output_tokens
-        self.wall_time_seconds += other.wall_time_seconds
-        for model, ms in other.per_model.items():
-            entry = self.per_model.setdefault(model, ModelStats())
-            entry.request_count += ms.request_count
-            entry.input_tokens += ms.input_tokens
-            entry.output_tokens += ms.output_tokens
-
-
-def format_token_count(count: int) -> str:
-    """Format a token count into a human-readable short string.
-
-    Args:
-        count: Number of tokens.
-
-    Returns:
-        Formatted string like `"12.5K"`, `"1.2M"`, or `"500"`.
-    """
-    if count >= 1_000_000:  # noqa: PLR2004
-        return f"{count / 1_000_000:.1f}M"
-    if count >= 1000:  # noqa: PLR2004
-        return f"{count / 1000:.1f}K"
-    return str(count)
+ModelStats = _ModelStats
+_build_stream_config = build_stream_config
+_is_summarization_chunk = is_summarization_chunk
 
 
 def print_usage_table(
@@ -210,61 +120,8 @@ def print_usage_table(
         console.print(f"[dim]Agent active  {wall_time:.1f}s[/dim]")
 
 
-# Type alias matching HITLResponse["decisions"] element type
-HITLDecision = ApproveDecision | EditDecision | RejectDecision
-
-_HITL_REQUEST_ADAPTER = TypeAdapter(HITLRequest)
-
-
-def _build_stream_config(
-    thread_id: str,
-    assistant_id: str | None,
-) -> dict[str, Any]:
-    """Build the LangGraph stream config dict.
-
-    The `thread_id` in `configurable` is automatically propagated as run
-    metadata by LangGraph, so it can be used for LangSmith filtering without
-    a separate metadata key.
-
-    Args:
-        thread_id: The CLI session thread identifier.
-        assistant_id: The agent/assistant identifier, if any.
-
-    Returns:
-        Config dict with `configurable` and `metadata` keys.
-    """
-    metadata: dict[str, str] = {}
-    if assistant_id:
-        metadata.update(
-            {
-                "assistant_id": assistant_id,
-                "agent_name": assistant_id,
-                "updated_at": datetime.now(UTC).isoformat(),
-            }
-        )
-    return {
-        "configurable": {"thread_id": thread_id},
-        "metadata": metadata,
-    }
-
-
-def _is_summarization_chunk(metadata: dict | None) -> bool:
-    """Check if a message chunk is from summarization middleware.
-
-    The summarization model is invoked with
-    `config={"metadata": {"lc_source": "summarization"}}`
-    (see `langchain.agents.middleware.summarization`), which
-    LangChain's callback system merges into the stream metadata dict.
-
-    Args:
-        metadata: The metadata dict from the stream chunk.
-
-    Returns:
-        Whether the chunk is from summarization and should be filtered.
-    """
-    if metadata is None:
-        return False
-    return metadata.get("lc_source") == "summarization"
+# Type alias matching LangGraph resume payload decision elements.
+HITLDecision = HITLDecisionPayload
 
 
 class TextualUIAdapter:
@@ -305,6 +162,9 @@ class TextualUIAdapter:
     _sync_message_content: Callable[[str, str], None] | None
     """Callback to sync final message content back to the store after streaming."""
 
+    _sync_tool_args: Callable[[str, dict[str, Any]], None] | None
+    """Callback to sync tool arguments back to the store after hydration."""
+
     _current_tool_messages: dict[str, ToolCallMessage]
     """Map of tool call IDs to their message widgets."""
 
@@ -321,6 +181,7 @@ class TextualUIAdapter:
         set_spinner: Callable[[str | None], Awaitable[None]] | None = None,
         set_active_message: Callable[[str | None], None] | None = None,
         sync_message_content: Callable[[str, str], None] | None = None,
+        sync_tool_args: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> None:
         """Initialize the adapter.
 
@@ -337,6 +198,8 @@ class TextualUIAdapter:
             set_active_message: Callback to set the active streaming message ID.
             sync_message_content: Callback to sync final content back to the
                 message store after streaming completes.
+            sync_tool_args: Callback to sync late-arriving tool arguments back
+                to the message store after the widget is mounted.
         """
         self._mount_message = mount_message
         self._update_status = update_status
@@ -346,6 +209,7 @@ class TextualUIAdapter:
         self._set_spinner = set_spinner
         self._set_active_message = set_active_message
         self._sync_message_content = sync_message_content
+        self._sync_tool_args = sync_tool_args
 
         # State tracking
         self._current_tool_messages: dict[str, ToolCallMessage] = {}
@@ -409,6 +273,109 @@ def _build_interrupted_ai_message(
     )
 
 
+def _set_pending_tools_running(adapter: TextualUIAdapter) -> None:
+    """Mark all currently displayed tool widgets as running."""
+    for tool_msg in list(adapter._current_tool_messages.values()):
+        tool_msg.set_running()
+
+
+def _reject_pending_tools(adapter: TextualUIAdapter) -> None:
+    """Reject and clear all currently displayed tool widgets."""
+    for tool_msg in list(adapter._current_tool_messages.values()):
+        tool_msg.set_rejected()
+    adapter._current_tool_messages.clear()
+
+
+def _mark_hitl_approved_file_ops(
+    file_op_tracker: FileOpTracker,
+    action_requests: list[dict[str, Any]],
+) -> None:
+    """Record HITL approval for file-writing actions."""
+    for action_request in action_requests:
+        tool_name = action_request.get("name")
+        if tool_name not in {"write_file", "edit_file"}:
+            continue
+        args = action_request.get("args", {})
+        if isinstance(args, dict):
+            file_op_tracker.mark_hitl_approved(tool_name, args)
+
+
+async def _resolve_textual_hitl_responses(
+    pending_interrupts: dict[str, HITLRequest],
+    *,
+    adapter: TextualUIAdapter,
+    assistant_id: str | None,
+    session_state: Any,  # noqa: ANN401  # Session state carries dynamic auto_approve flag
+    file_op_tracker: FileOpTracker,
+) -> tuple[dict[str, dict[str, list[HITLDecision]]], bool]:
+    """Resolve Textual batch approvals for one interrupt round.
+
+    Args:
+        pending_interrupts: Pending interrupt requests keyed by interrupt ID.
+        adapter: Textual adapter used to request approval and update widgets.
+        assistant_id: Agent identifier for the approval dialog.
+        session_state: Session state carrying the `auto_approve` flag.
+        file_op_tracker: File operation tracker to mark approved writes.
+
+    Returns:
+        Tuple of `(hitl_response, suppressed_output)` where `suppressed_output`
+        indicates the run should stop after showing the rejection message.
+    """
+    hitl_response: dict[str, dict[str, list[HITLDecision]]] = {}
+    any_rejected = False
+
+    for interrupt_id, hitl_request in list(pending_interrupts.items()):
+        action_requests = hitl_request["action_requests"]
+
+        if session_state.auto_approve:
+            resolution = resolve_batch_approval_choice(
+                len(action_requests),
+                None,
+                auto_approve=True,
+            )
+            _set_pending_tools_running(adapter)
+        else:
+            future = await adapter._request_approval(action_requests, assistant_id)
+            decision = await future
+
+            choice = normalize_batch_approval_choice(decision)
+            if choice is None:
+                if isinstance(decision, dict):
+                    logger.warning(
+                        "Unexpected HITL decision type: %s",
+                        decision.get("type"),
+                    )
+                else:
+                    logger.warning(
+                        "HITL decision was not a dict: %s",
+                        type(decision).__name__,
+                    )
+
+            resolution = resolve_batch_approval_choice(
+                len(action_requests),
+                choice,
+            )
+
+            if resolution.enable_auto_approve:
+                session_state.auto_approve = True
+                if adapter._on_auto_approve_enabled:
+                    adapter._on_auto_approve_enabled()
+
+            if resolution.rejected:
+                _reject_pending_tools(adapter)
+                any_rejected = True
+            else:
+                _set_pending_tools_running(adapter)
+                _mark_hitl_approved_file_ops(file_op_tracker, action_requests)
+
+        hitl_response[interrupt_id] = {"decisions": resolution.decisions}
+
+        if any_rejected:
+            break
+
+    return hitl_response, any_rejected
+
+
 async def execute_task_textual(
     user_input: str,
     agent: Any,  # noqa: ANN401  # Dynamic agent graph type
@@ -436,8 +403,6 @@ async def execute_task_textual(
         Stats accumulated over this turn (request count, token counts,
             wall-clock time).
 
-    Raises:
-        ValidationError: If HITL request validation fails (re-raised).
     """
     # Parse file mentions and inject content if any
     prompt_text, mentioned_files = parse_file_mentions(user_input)
@@ -474,21 +439,32 @@ async def execute_task_textual(
     else:
         final_input = prompt_text
 
-    # Include images and videos in the message content
+    # Include images as runtime attachments; keep the content override only for
+    # videos until the runtime schema supports them.
+    attachments: tuple[dict[str, object], ...] = ()
+    message_content_override: object | None = None
+
     images_to_send = []
     videos_to_send = []
     if image_tracker:
         images_to_send = image_tracker.get_images()
         videos_to_send = image_tracker.get_videos()
-    if images_to_send or videos_to_send:
-        message_content = create_multimodal_content(
+
+    if videos_to_send:
+        message_content_override = create_multimodal_content(
             final_input, images_to_send, videos_to_send
         )
-    else:
-        message_content = final_input
+    elif images_to_send:
+        attachments = tuple(
+            {
+                "kind": "image",
+                "data_url": f"data:image/{image.format};base64,{image.base64_data}",
+            }
+            for image in images_to_send
+        )
 
     thread_id = session_state.thread_id
-    config = _build_stream_config(thread_id, assistant_id)
+    config = build_stream_config(thread_id, assistant_id)
 
     captured_input_tokens = 0
     captured_output_tokens = 0
@@ -505,7 +481,7 @@ async def execute_task_textual(
 
     file_op_tracker = FileOpTracker(assistant_id=assistant_id, backend=backend)
     displayed_tool_ids: set[str] = set()
-    tool_call_buffers: dict[str | int, dict] = {}
+    tracked_tool_ids: set[str] = set()
 
     # Track pending text and assistant messages PER NAMESPACE to avoid interleaving
     # when multiple subagents stream in parallel
@@ -516,345 +492,119 @@ async def execute_task_textual(
     if image_tracker:
         image_tracker.clear()
 
-    stream_input: dict | Command = {
-        "messages": [{"role": "user", "content": message_content}]
-    }
-
-    # Track summarization lifecycle so spinner status and notification stay in sync.
-    summarization_in_progress = False
+    suppress_resumed_output = False
 
     try:
-        while True:
-            interrupt_occurred = False
-            hitl_response: dict[str, HITLResponse] = {}
-            suppress_resumed_output = False
-            pending_interrupts: dict[str, HITLRequest] = {}
 
-            async for chunk in agent.astream(
-                stream_input,
-                stream_mode=["messages", "updates"],
-                subgraphs=True,
-                config=config,
-                durability="exit",
-            ):
-                if not isinstance(chunk, tuple) or len(chunk) != 3:  # noqa: PLR2004  # Retry count threshold
-                    continue
+        async def _flush_namespace(ns_key: tuple[Any, ...]) -> None:
+            pending_text = pending_text_by_namespace.get(ns_key, "")
+            if pending_text:
+                await _flush_assistant_text_ns(
+                    adapter,
+                    pending_text,
+                    ns_key,
+                    assistant_message_by_namespace,
+                )
+                pending_text_by_namespace[ns_key] = ""
+            assistant_message_by_namespace.pop(ns_key, None)
 
-                namespace, current_stream_mode, data = chunk
+        async def _mount_tool_widget(
+            tool_name: str,
+            tool_call_id: str | None,
+            args: object,
+        ) -> None:
+            if tool_call_id is None:
+                return
 
-                # Convert namespace to hashable tuple for dict keys
-                ns_key = tuple(namespace) if namespace else ()
+            parsed_args = args if isinstance(args, dict) else {}
+            tool_msg = adapter._current_tool_messages.get(tool_call_id)
+            if tool_msg is not None:
+                if parsed_args and parsed_args != tool_msg._args:
+                    tool_msg.update_args(parsed_args)
+                    if adapter._sync_tool_args and tool_msg.id:
+                        adapter._sync_tool_args(tool_msg.id, parsed_args)
+                if parsed_args and tool_call_id not in tracked_tool_ids:
+                    file_op_tracker.start_operation(
+                        tool_name,
+                        parsed_args,
+                        tool_call_id,
+                    )
+                    tracked_tool_ids.add(tool_call_id)
+                return
 
-                # Filter out subagent outputs - only show main agent (empty
-                # namespace). Subagents run via Task tool and should only
-                # report back to the main agent
-                is_main_agent = ns_key == ()
+            displayed_tool_ids.add(tool_call_id)
+            if parsed_args:
+                file_op_tracker.start_operation(tool_name, parsed_args, tool_call_id)
+                tracked_tool_ids.add(tool_call_id)
 
-                # Handle UPDATES stream - for interrupts and todos
-                if current_stream_mode == "updates":
-                    if not isinstance(data, dict):
-                        continue
+            if adapter._set_spinner:
+                await adapter._set_spinner(None)
 
-                    # Check for interrupts
-                    if "__interrupt__" in data:
-                        interrupts: list[Interrupt] = data["__interrupt__"]
-                        if interrupts:
-                            for interrupt_obj in interrupts:
-                                try:
-                                    validated_request = (
-                                        _HITL_REQUEST_ADAPTER.validate_python(
-                                            interrupt_obj.value
-                                        )
-                                    )
-                                    pending_interrupts[interrupt_obj.id] = (
-                                        validated_request
-                                    )
-                                    interrupt_occurred = True
-                                except ValidationError:  # noqa: TRY203  # Re-raise preserves exception context in handler
-                                    raise
+            tool_msg = ToolCallMessage(
+                tool_name,
+                parsed_args,
+                id=f"tool-{uuid.uuid4().hex[:8]}",
+            )
+            await adapter._mount_message(tool_msg)
+            adapter._current_tool_messages[tool_call_id] = tool_msg
 
-                    # Check for todo updates (not yet implemented in Textual UI)
-                    chunk_data = next(iter(data.values())) if data else None
-                    if (
-                        chunk_data
-                        and isinstance(chunk_data, dict)
-                        and "todos" in chunk_data
-                    ):
-                        pass  # Future: render todo list widget
+            if adapter._scroll_to_bottom:
+                adapter._scroll_to_bottom()
 
-                # Handle MESSAGES stream - for content and tool calls
-                elif current_stream_mode == "messages":
-                    # Skip subagent outputs - only render main agent content in chat
-                    if not is_main_agent:
-                        continue
+        async def _consume_runtime_event(event: RuntimeEvent) -> None:
+            nonlocal captured_input_tokens, captured_output_tokens
 
-                    if not isinstance(data, tuple) or len(data) != 2:  # noqa: PLR2004  # Tool call part index
-                        continue
+            payload = event.payload
+            ns_key = tuple(payload.get("namespace", []))
 
-                    message, metadata = data
+            if event.type == "run.failed":
+                error_type = str(payload.get("error_type", "") or "") or "RunFailed"
+                message = str(payload.get("message", "") or "")
+                adapter.finalize_pending_tools_with_error(
+                    f"Run failed ({error_type}): {message}".strip()
+                )
+                detail = f": {message}" if message else ""
+                await adapter._mount_message(
+                    ErrorMessage(f"Run failed ({error_type}){detail}")
+                )
+                return
 
-                    # Filter out summarization model output, but keep UI feedback.
-                    # The summarization model streams AIMessage chunks tagged
-                    # with lc_source="summarization" in the callback metadata.
-                    # These are hidden from the user; only the spinner and a
-                    # notification widget provide feedback.
-                    if _is_summarization_chunk(metadata):
-                        if not summarization_in_progress:
-                            summarization_in_progress = True
-                            if adapter._set_spinner:
-                                await adapter._set_spinner("Summarizing")
-                        continue
+            if event.type == "message.assistant.delta":
+                text = str(payload.get("text", ""))
+                if not text:
+                    return
 
-                    # Regular (non-summarization) chunks resumed — summarization
-                    # has finished. Mount the notification and reset the spinner.
-                    if summarization_in_progress:
-                        summarization_in_progress = False
-                        try:
-                            await adapter._mount_message(SummarizationMessage())
-                        except Exception:
-                            logger.debug(
-                                "Failed to mount summarization notification",
-                                exc_info=True,
-                            )
-                        if adapter._set_spinner:
-                            await adapter._set_spinner("Thinking")
+                pending_text = pending_text_by_namespace.get(ns_key, "")
+                pending_text += text
+                pending_text_by_namespace[ns_key] = pending_text
 
-                    if isinstance(message, HumanMessage):
-                        content = message.text
-                        # Flush pending text for this namespace
-                        pending_text = pending_text_by_namespace.get(ns_key, "")
-                        if content and pending_text:
-                            await _flush_assistant_text_ns(
-                                adapter,
-                                pending_text,
-                                ns_key,
-                                assistant_message_by_namespace,
-                            )
-                            pending_text_by_namespace[ns_key] = ""
-                        continue
+                current_msg = assistant_message_by_namespace.get(ns_key)
+                if current_msg is None:
+                    if adapter._set_spinner:
+                        await adapter._set_spinner(None)
+                    msg_id = f"asst-{uuid.uuid4().hex[:8]}"
+                    if adapter._set_active_message:
+                        adapter._set_active_message(msg_id)
+                    current_msg = AssistantMessage(id=msg_id)
+                    await adapter._mount_message(current_msg)
+                    assistant_message_by_namespace[ns_key] = current_msg
 
-                    if isinstance(message, ToolMessage):
-                        tool_name = getattr(message, "name", "")
-                        tool_status = getattr(message, "status", "success")
-                        tool_content = format_tool_message_content(message.content)
-                        record = file_op_tracker.complete_with_message(message)
+                await current_msg.append_content(text)
 
-                        # Reshow spinner after tool result
-                        if adapter._set_spinner:
-                            await adapter._set_spinner("Thinking")
+                if adapter._scroll_to_bottom:
+                    adapter._scroll_to_bottom()
+                return
 
-                        # Update tool call status with output
-                        tool_id = getattr(message, "tool_call_id", None)
-                        if tool_id and tool_id in adapter._current_tool_messages:
-                            tool_msg = adapter._current_tool_messages[tool_id]
-                            output_str = str(tool_content) if tool_content else ""
-                            if tool_status == "success":
-                                tool_msg.set_success(output_str)
-                            else:
-                                tool_msg.set_error(output_str or "Error")
-                            # Clean up - remove from tracking dict after status update
-                            adapter._current_tool_messages.pop(tool_id, None)
+            if event.type == "message.assistant.completed":
+                await _flush_namespace(ns_key)
+                return
 
-                        # Show file operation results - always show diffs in chat
-                        if record:
-                            pending_text = pending_text_by_namespace.get(ns_key, "")
-                            if pending_text:
-                                await _flush_assistant_text_ns(
-                                    adapter,
-                                    pending_text,
-                                    ns_key,
-                                    assistant_message_by_namespace,
-                                )
-                                pending_text_by_namespace[ns_key] = ""
-                            if record.diff:
-                                await adapter._mount_message(
-                                    DiffMessage(record.diff, record.display_path)
-                                )
-                        continue
+            if event.type == "run.summarization.started":
+                if adapter._set_spinner:
+                    await adapter._set_spinner("Summarizing")
+                return
 
-                    # Extract token usage (before content_blocks check
-                    # - usage may be on any chunk)
-                    if hasattr(message, "usage_metadata"):
-                        usage = message.usage_metadata
-                        if usage:
-                            input_toks = usage.get("input_tokens", 0)
-                            output_toks = usage.get("output_tokens", 0)
-                            total_toks = usage.get("total_tokens", 0)
-                            active_model = settings.model_name or ""
-                            if input_toks or output_toks:
-                                # Model gives split counts — preferred path
-                                turn_stats.record_request(
-                                    active_model, input_toks, output_toks
-                                )
-                                captured_input_tokens = max(
-                                    captured_input_tokens, input_toks + output_toks
-                                )
-                            elif total_toks:
-                                # Fallback: model gives only total (no split)
-                                turn_stats.record_request(active_model, total_toks, 0)
-                                captured_input_tokens = max(
-                                    captured_input_tokens, total_toks
-                                )
-
-                    # Check if this is an AIMessageChunk with content
-                    if not hasattr(message, "content_blocks"):
-                        continue
-
-                    # Process content blocks
-                    for block in message.content_blocks:
-                        block_type = block.get("type")
-
-                        if block_type == "text":
-                            text = block.get("text", "")
-                            if text:
-                                # Track accumulated text for reference
-                                pending_text = pending_text_by_namespace.get(ns_key, "")
-                                pending_text += text
-                                pending_text_by_namespace[ns_key] = pending_text
-
-                                # Get or create assistant message for this namespace
-                                current_msg = assistant_message_by_namespace.get(ns_key)
-                                if current_msg is None:
-                                    # Hide spinner when assistant starts responding
-                                    if adapter._set_spinner:
-                                        await adapter._set_spinner(None)
-                                    msg_id = f"asst-{uuid.uuid4().hex[:8]}"
-                                    # Mark active BEFORE mounting so pruning
-                                    # (triggered by mount) won't remove it
-                                    # (_mount_message can trigger
-                                    # _prune_old_messages if the window exceeds
-                                    # WINDOW_SIZE.)
-                                    if adapter._set_active_message:
-                                        adapter._set_active_message(msg_id)
-                                    current_msg = AssistantMessage(id=msg_id)
-                                    await adapter._mount_message(current_msg)
-                                    assistant_message_by_namespace[ns_key] = current_msg
-
-                                # Append just the new text chunk for smoother
-                                # streaming (uses MarkdownStream internally for
-                                # better performance)
-                                await current_msg.append_content(text)
-
-                                # Sticky scroll: scroll to bottom only if user is
-                                # near bottom. This lets users scroll away and
-                                # stay where they are
-                                if adapter._scroll_to_bottom:
-                                    adapter._scroll_to_bottom()
-
-                        elif block_type in {"tool_call_chunk", "tool_call"}:
-                            chunk_name = block.get("name")
-                            chunk_args = block.get("args")
-                            chunk_id = block.get("id")
-                            chunk_index = block.get("index")
-
-                            buffer_key: str | int
-                            if chunk_index is not None:
-                                buffer_key = chunk_index
-                            elif chunk_id is not None:
-                                buffer_key = chunk_id
-                            else:
-                                buffer_key = f"unknown-{len(tool_call_buffers)}"
-
-                            buffer = tool_call_buffers.setdefault(
-                                buffer_key,
-                                {
-                                    "name": None,
-                                    "id": None,
-                                    "args": None,
-                                    "args_parts": [],
-                                },
-                            )
-
-                            if chunk_name:
-                                buffer["name"] = chunk_name
-                            if chunk_id:
-                                buffer["id"] = chunk_id
-
-                            if isinstance(chunk_args, dict):
-                                buffer["args"] = chunk_args
-                                buffer["args_parts"] = []
-                            elif isinstance(chunk_args, str):
-                                if chunk_args:
-                                    parts: list[str] = buffer.setdefault(
-                                        "args_parts", []
-                                    )
-                                    if not parts or chunk_args != parts[-1]:
-                                        parts.append(chunk_args)
-                                    buffer["args"] = "".join(parts)
-                            elif chunk_args is not None:
-                                buffer["args"] = chunk_args
-
-                            buffer_name = buffer.get("name")
-                            buffer_id = buffer.get("id")
-                            if buffer_name is None:
-                                continue
-
-                            parsed_args = buffer.get("args")
-                            if isinstance(parsed_args, str):
-                                if not parsed_args:
-                                    continue
-                                try:
-                                    parsed_args = json.loads(parsed_args)
-                                except json.JSONDecodeError:
-                                    continue
-                            elif parsed_args is None:
-                                continue
-
-                            if not isinstance(parsed_args, dict):
-                                parsed_args = {"value": parsed_args}
-
-                            # Flush pending text before tool call
-                            pending_text = pending_text_by_namespace.get(ns_key, "")
-                            if pending_text:
-                                await _flush_assistant_text_ns(
-                                    adapter,
-                                    pending_text,
-                                    ns_key,
-                                    assistant_message_by_namespace,
-                                )
-                                pending_text_by_namespace[ns_key] = ""
-                                assistant_message_by_namespace.pop(ns_key, None)
-
-                            if (
-                                buffer_id is not None
-                                and buffer_id not in displayed_tool_ids
-                            ):
-                                displayed_tool_ids.add(buffer_id)
-                                file_op_tracker.start_operation(
-                                    buffer_name, parsed_args, buffer_id
-                                )
-
-                                # Hide spinner before showing tool call
-                                if adapter._set_spinner:
-                                    await adapter._set_spinner(None)
-
-                                # Mount tool call message
-                                tool_msg = ToolCallMessage(buffer_name, parsed_args)
-                                await adapter._mount_message(tool_msg)
-                                adapter._current_tool_messages[buffer_id] = tool_msg
-
-                                # Sticky scroll after tool call is shown
-                                if adapter._scroll_to_bottom:
-                                    adapter._scroll_to_bottom()
-
-                            tool_call_buffers.pop(buffer_key, None)
-
-                    if getattr(message, "chunk_position", None) == "last":
-                        pending_text = pending_text_by_namespace.get(ns_key, "")
-                        if pending_text:
-                            await _flush_assistant_text_ns(
-                                adapter,
-                                pending_text,
-                                ns_key,
-                                assistant_message_by_namespace,
-                            )
-                            pending_text_by_namespace[ns_key] = ""
-                            assistant_message_by_namespace.pop(ns_key, None)
-
-            # Reset summarization state if stream ended mid-summarization
-            # (e.g. middleware error, stream exhausted before regular chunks).
-            if summarization_in_progress:
-                summarization_in_progress = False
+            if event.type == "run.summarization.completed":
                 try:
                     await adapter._mount_message(SummarizationMessage())
                 except Exception:
@@ -864,152 +614,113 @@ async def execute_task_textual(
                     )
                 if adapter._set_spinner:
                     await adapter._set_spinner("Thinking")
+                return
 
-            # Flush any remaining text from all namespaces
-            for ns_key, pending_text in list(pending_text_by_namespace.items()):
-                if pending_text:
-                    await _flush_assistant_text_ns(
-                        adapter, pending_text, ns_key, assistant_message_by_namespace
-                    )
-            pending_text_by_namespace.clear()
-            assistant_message_by_namespace.clear()
+            if event.type == "run.usage":
+                total_toks = int(payload.get("total_tokens", 0) or 0)
+                output_toks = int(payload.get("output_tokens", 0) or 0)
+                if total_toks:
+                    captured_input_tokens = max(captured_input_tokens, total_toks)
+                    captured_output_tokens = max(captured_output_tokens, output_toks)
+                return
 
-            # Handle HITL after stream completes
-            if interrupt_occurred:
-                any_rejected = False
+            if event.type == "usage.updated":
+                model_name = str(payload.get("model_name", ""))
+                input_tokens = int(payload.get("input_tokens", 0) or 0)
+                output_tokens = int(payload.get("output_tokens", 0) or 0)
+                total_tokens = int(payload.get("total_tokens", 0) or 0)
+                if input_tokens or output_tokens:
+                    turn_stats.record_request(model_name, input_tokens, output_tokens)
+                elif total_tokens:
+                    turn_stats.record_request(model_name, total_tokens, 0)
+                return
 
-                for interrupt_id, hitl_request in list(pending_interrupts.items()):
-                    action_requests = hitl_request["action_requests"]
+            if event.type in {"tool.call.started", "tool.call.arguments"}:
+                await _mount_tool_widget(
+                    str(payload.get("tool_name", "")),
+                    (
+                        str(payload["tool_call_id"])
+                        if payload.get("tool_call_id") is not None
+                        else None
+                    ),
+                    payload.get("args", {}),
+                )
+                return
 
-                    if session_state.auto_approve:
-                        # Auto-approve silently - start running animation
-                        decisions: list[HITLDecision] = [
-                            ApproveDecision(type="approve") for _ in action_requests
-                        ]
-                        hitl_response[interrupt_id] = {"decisions": decisions}
-                        # Mark all tools as running
-                        for tool_msg in list(adapter._current_tool_messages.values()):
-                            tool_msg.set_running()
-                    else:
-                        # Batch approval - one dialog for all parallel tool calls
-                        future = await adapter._request_approval(
-                            action_requests, assistant_id
-                        )
-                        decision = await future
+            if event.type != "tool.call.completed":
+                return
 
-                        # Handle the batch decision
-                        if isinstance(decision, dict):
-                            decision_type = decision.get("type")
+            tool_message = SimpleNamespace(
+                tool_call_id=payload.get("tool_call_id"),
+                content=payload.get("content"),
+                status=payload.get("status", "success"),
+                name=payload.get("tool_name"),
+            )
+            tool_status = getattr(tool_message, "status", "success")
+            tool_content = format_tool_message_content(tool_message.content)
+            record = file_op_tracker.complete_with_message(tool_message)
 
-                            if decision_type == "auto_approve_all":
-                                # Enable auto-approve for session
-                                session_state.auto_approve = True
-                                if adapter._on_auto_approve_enabled:
-                                    adapter._on_auto_approve_enabled()
-                                # Approve all
-                                decisions = [
-                                    ApproveDecision(type="approve")
-                                    for _ in action_requests
-                                ]
-                                tool_msgs = list(
-                                    adapter._current_tool_messages.values()
-                                )
-                                for tool_msg in tool_msgs:
-                                    tool_msg.set_running()
-                                # Mark file ops as approved
-                                for action_request in action_requests:
-                                    tool_name = action_request.get("name")
-                                    if tool_name in {"write_file", "edit_file"}:
-                                        args = action_request.get("args", {})
-                                        if isinstance(args, dict):
-                                            file_op_tracker.mark_hitl_approved(
-                                                tool_name, args
-                                            )
+            if adapter._set_spinner:
+                await adapter._set_spinner("Thinking")
 
-                            elif decision_type == "approve":
-                                # Approve all
-                                decisions = [
-                                    ApproveDecision(type="approve")
-                                    for _ in action_requests
-                                ]
-                                tool_msgs = list(
-                                    adapter._current_tool_messages.values()
-                                )
-                                for tool_msg in tool_msgs:
-                                    tool_msg.set_running()
-                                # Mark file ops as approved
-                                for action_request in action_requests:
-                                    tool_name = action_request.get("name")
-                                    if tool_name in {"write_file", "edit_file"}:
-                                        args = action_request.get("args", {})
-                                        if isinstance(args, dict):
-                                            file_op_tracker.mark_hitl_approved(
-                                                tool_name, args
-                                            )
+            tool_id = getattr(tool_message, "tool_call_id", None)
+            if tool_id and tool_id in adapter._current_tool_messages:
+                tool_msg = adapter._current_tool_messages[tool_id]
+                output_str = str(tool_content) if tool_content else ""
+                if tool_status == "success":
+                    tool_msg.set_success(output_str)
+                else:
+                    tool_msg.set_error(output_str or "Error")
+                adapter._current_tool_messages.pop(tool_id, None)
 
-                            elif decision_type == "reject":
-                                # Reject all
-                                decisions = [
-                                    RejectDecision(type="reject")
-                                    for _ in action_requests
-                                ]
-                                tool_msgs = list(
-                                    adapter._current_tool_messages.values()
-                                )
-                                for tool_msg in tool_msgs:
-                                    tool_msg.set_rejected()
-                                adapter._current_tool_messages.clear()
-                                any_rejected = True
-                            else:
-                                logger.warning(
-                                    "Unexpected HITL decision type: %s",
-                                    decision_type,
-                                )
-                                decisions = [
-                                    RejectDecision(type="reject")
-                                    for _ in action_requests
-                                ]
-                                for tool_msg in list(
-                                    adapter._current_tool_messages.values()
-                                ):
-                                    tool_msg.set_rejected()
-                                adapter._current_tool_messages.clear()
-                                any_rejected = True
-                        else:
-                            logger.warning(
-                                "HITL decision was not a dict: %s",
-                                type(decision).__name__,
-                            )
-                            decisions = [
-                                RejectDecision(type="reject") for _ in action_requests
-                            ]
-                            for tool_msg in list(
-                                adapter._current_tool_messages.values()
-                            ):
-                                tool_msg.set_rejected()
-                            adapter._current_tool_messages.clear()
-                            any_rejected = True
-
-                        hitl_response[interrupt_id] = {"decisions": decisions}
-
-                        if any_rejected:
-                            break
-
-                suppress_resumed_output = any_rejected
-
-            if interrupt_occurred and hitl_response:
-                if suppress_resumed_output:
+            if record:
+                await _flush_namespace(ns_key)
+                if record.diff:
                     await adapter._mount_message(
-                        AppMessage(
-                            "Command rejected. Tell the agent what you'd like instead."
-                        )
+                        DiffMessage(record.diff, record.display_path)
                     )
-                    turn_stats.wall_time_seconds = time.monotonic() - start_time
-                    return turn_stats
 
-                stream_input = Command(resume=hitl_response)
-            else:
-                break
+        async def _resolve_approvals(
+            pending_interrupts: dict[str, HITLRequest],
+        ) -> dict[str, object]:
+            nonlocal suppress_resumed_output
+
+            hitl_response, any_rejected = await _resolve_textual_hitl_responses(
+                pending_interrupts,
+                adapter=adapter,
+                assistant_id=assistant_id,
+                session_state=session_state,
+                file_op_tracker=file_op_tracker,
+            )
+            if any_rejected:
+                suppress_resumed_output = True
+                return {}
+            return hitl_response
+
+        envelope = InputEnvelope(
+            thread_id=thread_id,
+            mode="normal",
+            text=final_input,
+            attachments=attachments,
+        )
+        agent_run_config = AgentRunConfig(
+            assistant_id=assistant_id,
+            model_name=settings.model_name or "",
+            resolve_approvals=_resolve_approvals,
+        )
+
+        async for event in stream_run_events(
+            envelope,
+            agent=agent,
+            agent_config=agent_run_config,
+            user_message_content=message_content_override,
+        ):
+            await _consume_runtime_event(event)
+
+        if suppress_resumed_output:
+            await adapter._mount_message(
+                AppMessage("Command rejected. Tell the agent what you'd like instead.")
+            )
 
     except asyncio.CancelledError:
         # Clear active message immediately so it won't block pruning

@@ -707,7 +707,9 @@ def _print_session_stats(stats: Any, console: Any) -> None:  # noqa: ANN401
         stats: The cumulative session stats from the Textual app.
         console: Rich console for output.
     """
-    from deepagents_cli.textual_adapter import SessionStats, print_usage_table
+    from deepagents_runtime.runs import SessionStats
+
+    from deepagents_cli.textual_adapter import print_usage_table
 
     if not isinstance(stats, SessionStats):
         return

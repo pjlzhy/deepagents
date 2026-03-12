@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 from rich.markup import escape as escape_markup
 from rich.text import Text
 from textual.containers import Vertical
+from textual.css.query import NoMatches
 from textual.widgets import Markdown, Static
 
 from deepagents_cli.config import (
@@ -432,6 +433,8 @@ class ToolCallMessage(Vertical):
         self._expanded: bool = False
         # Widget references (set in on_mount)
         self._status_widget: Static | None = None
+        self._header_widget: Static | None = None
+        self._args_widget: Static | None = None
         self._preview_widget: Static | None = None
         self._hint_widget: Static | None = None
         self._full_widget: Static | None = None
@@ -454,6 +457,7 @@ class ToolCallMessage(Vertical):
         yield Static(
             f"[bold #f59e0b]{tool_label}[/bold #f59e0b]",
             classes="tool-header",
+            id="tool-header",
         )
         # Only show args for tools where header doesn't capture the key info
         if self._tool_name not in _TOOLS_WITH_HEADER_INFO:
@@ -467,6 +471,7 @@ class ToolCallMessage(Vertical):
                 yield Static(
                     f"[dim]({escape_markup(args_str)})[/dim]",
                     classes="tool-args",
+                    id="tool-args",
                 )
         # Status - shows running animation while pending, then final status
         yield Static("", classes="tool-status", id="status")
@@ -480,7 +485,12 @@ class ToolCallMessage(Vertical):
         if _detect_charset_mode() == CharsetMode.ASCII:
             self.styles.border_left = ("ascii", "#3b3b3b")
 
+        self._header_widget = self.query_one("#tool-header", Static)
         self._status_widget = self.query_one("#status", Static)
+        try:
+            self._args_widget = self.query_one("#tool-args", Static)
+        except NoMatches:
+            self._args_widget = None
         self._preview_widget = self.query_one("#output-preview", Static)
         self._hint_widget = self.query_one("#output-hint", Static)
         self._full_widget = self.query_one("#output-full", Static)
@@ -544,6 +554,35 @@ class ToolCallMessage(Vertical):
             case _:
                 # pending or unknown - leave as default
                 pass
+
+    def update_args(self, args: dict[str, Any] | None) -> None:
+        """Update tool arguments after the widget has already been mounted.
+
+        Args:
+            args: Latest tool arguments to display.
+        """
+        self._args = args or {}
+
+        if self._header_widget is not None:
+            tool_label = escape_markup(format_tool_display(self._tool_name, self._args))
+            self._header_widget.update(f"[bold #f59e0b]{tool_label}[/bold #f59e0b]")
+
+        if self._args_widget is None:
+            return
+
+        filtered_args = self._filtered_args()
+        if not filtered_args:
+            self._args_widget.display = False
+            return
+
+        args_str = ", ".join(
+            f"{key}={value!r}"
+            for key, value in list(filtered_args.items())[:_MAX_INLINE_ARGS]
+        )
+        if len(filtered_args) > _MAX_INLINE_ARGS:
+            args_str += ", ..."
+        self._args_widget.update(f"[dim]({escape_markup(args_str)})[/dim]")
+        self._args_widget.display = True
 
     def set_running(self) -> None:
         """Mark the tool as running (approved and executing).

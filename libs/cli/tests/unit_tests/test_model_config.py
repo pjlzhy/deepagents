@@ -212,23 +212,26 @@ models = ["llama3"]
         assert config.providers == {}
         assert any("invalid TOML syntax" in r.message for r in caplog.records)
 
-    def test_unreadable_file_returns_empty_config(self, tmp_path, caplog):
+    def test_unreadable_file_returns_empty_config(self, tmp_path, caplog, monkeypatch):
         """Unreadable config file returns empty config and logs a warning."""
         config_path = tmp_path / "config.toml"
         config_path.write_text("[models]\ndefault = 'test'")
-        config_path.chmod(0o000)
 
-        try:
-            with caplog.at_level(logging.WARNING):
-                config = ModelConfig.load(config_path)
+        original_open = Path.open
 
-            assert config.default_model is None
-            assert config.providers == {}
-            assert any(
-                "Could not read config file" in r.message for r in caplog.records
-            )
-        finally:
-            config_path.chmod(0o644)
+        def _deny_open(self: Path, *args: object, **kwargs: object) -> object:
+            if self == config_path:
+                raise PermissionError
+            return original_open(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "open", _deny_open)
+
+        with caplog.at_level(logging.WARNING):
+            config = ModelConfig.load(config_path)
+
+        assert config.default_model is None
+        assert config.providers == {}
+        assert any("Could not read config file" in r.message for r in caplog.records)
 
 
 class TestModelConfigGetAllModels:

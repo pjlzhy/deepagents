@@ -171,3 +171,14 @@ def list_subagents(
         all_subagents.update(_load_subagents_from_dir(project_agents_dir, "project"))
 
     return list(all_subagents.values())
+
+
+# NOTE: This module has been migrated to `deepagents_runtime.subagents`.
+# The assignments below make the runtime implementation the source of truth
+# while keeping `deepagents_cli.subagents` import paths stable.
+from deepagents_runtime import subagents as _runtime_subagents  # noqa: E402
+
+SubagentMetadata = _runtime_subagents.SubagentMetadata  # noqa: F811
+_load_subagents_from_dir = _runtime_subagents._load_subagents_from_dir
+_parse_subagent_file = _runtime_subagents._parse_subagent_file
+list_subagents = _runtime_subagents.list_subagents  # noqa: F811

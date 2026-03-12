@@ -905,6 +905,7 @@ dependencies = [
     { name = "aiosqlite" },
     { name = "daytona" },
     { name = "deepagents" },
+    { name = "deepagents-runtime" },
     { name = "langchain" },
     { name = "langchain-openai" },
     { name = "langgraph-checkpoint-sqlite" },
@@ -1020,6 +1021,7 @@ requires-dist = [
     { name = "daytona", specifier = ">=0.113.0,<1.0.0" },
     { name = "deepagents", editable = "../deepagents" },
     { name = "deepagents-cli", extras = ["anthropic", "bedrock", "cohere", "deepseek", "fireworks", "google-genai", "groq", "huggingface", "ibm", "mistralai", "nvidia", "ollama", "openai", "openrouter", "perplexity", "vertexai", "xai"], marker = "extra == 'all-providers'" },
+    { name = "deepagents-runtime", editable = "../runtime" },
     { name = "langchain", specifier = ">=1.2.10,<2.0.0" },
     { name = "langchain-anthropic", marker = "extra == 'anthropic'", specifier = ">=1.0.0,<2.0.0" },
     { name = "langchain-aws", marker = "extra == 'bedrock'", specifier = ">=1.0.0,<2.0.0" },
@@ -1072,6 +1074,40 @@ test = [
     { name = "responses", specifier = ">=0.25.0,<1.0.0" },
     { name = "ruff", specifier = ">=0.14.0,<1.0.0" },
     { name = "twine", specifier = ">=6.0.0,<7.0.0" },
+    { name = "ty", specifier = ">=0.0.1,<1.0.0" },
+]
+
+[[package]]
+name = "deepagents-runtime"
+version = "0.0.1"
+source = { editable = "../runtime" }
+dependencies = [
+    { name = "aiosqlite" },
+    { name = "deepagents" },
+    { name = "langchain" },
+    { name = "langgraph-checkpoint-sqlite" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiosqlite", specifier = ">=0.19.0,<1.0.0" },
+    { name = "deepagents", editable = "../deepagents" },
+    { name = "langchain", specifier = ">=1.2.10,<2.0.0" },
+    { name = "langgraph-checkpoint-sqlite", specifier = ">=3.0.0,<4.0.0" },
+    { name = "pydantic", specifier = ">=2.11.0,<3.0.0" },
+    { name = "pyyaml", specifier = ">=6.0.0,<7.0.0" },
+]
+
+[package.metadata.requires-dev]
+test = [
+    { name = "pytest", specifier = ">=8.3.4,<10.0.0" },
+    { name = "pytest-asyncio", specifier = ">=0.25.3,<2.0.0" },
+    { name = "pytest-cov", specifier = ">=6.0.0,<8.0.0" },
+    { name = "pytest-socket", specifier = ">=0.7.0,<1.0.0" },
+    { name = "pytest-timeout", specifier = ">=2.3.1,<3.0.0" },
+    { name = "ruff", specifier = ">=0.14.0,<1.0.0" },
     { name = "ty", specifier = ">=0.0.1,<1.0.0" },
 ]
 

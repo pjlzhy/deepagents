@@ -177,13 +177,14 @@ class CompletionPopup(VerticalScroll):
             return
 
         self._selected_index = selected_index
-        # Store pending update and schedule async rebuild
+        # Store pending update and schedule rebuild on the next tick so `hide()`
+        # can cancel stale updates.
         self._pending_suggestions = suggestions
         self._pending_selected = selected_index
-        self.call_after_refresh(self._rebuild_options)
+        self.call_later(self._rebuild_options)
         self.show()
 
-    async def _rebuild_options(self) -> None:
+    def _rebuild_options(self) -> None:
         """Rebuild option widgets from pending suggestions."""
         suggestions = getattr(self, "_pending_suggestions", [])
         selected_index = getattr(self, "_pending_selected", 0)
@@ -192,7 +193,7 @@ class CompletionPopup(VerticalScroll):
             return
 
         # Remove existing options
-        await self.remove_children()
+        self.remove_children()
         self._options.clear()
 
         # Create new options
@@ -204,7 +205,7 @@ class CompletionPopup(VerticalScroll):
                 is_selected=(idx == selected_index),
             )
             self._options.append(option)
-            await self.mount(option)
+            self.mount(option)
 
         # Scroll selected option into view
         if 0 <= selected_index < len(self._options):
@@ -1187,6 +1188,10 @@ class ChatInput(Vertical):
         if not attached or replacement == text:
             return False
 
+        if self.mode == "command":
+            # A dropped path should never leave the widget in slash-command mode.
+            self.mode = "normal"
+
         self._applying_inline_path_replacement = True
         self._text_area.text = replacement
         lines = replacement.split("\n")
@@ -1307,6 +1312,8 @@ class ChatInput(Vertical):
                 candidate, parsed.paths, add_trailing_space=False
             )
             if attached:
+                if self.mode == "command":
+                    self.mode = "normal"
                 return replacement.strip()
             # Even when full-payload parsing resolves, still retry explicit
             # leading-token extraction before giving up.
@@ -1324,6 +1331,8 @@ class ChatInput(Vertical):
             str(leading_path), [leading_path], add_trailing_space=False
         )
         if attached:
+            if self.mode == "command":
+                self.mode = "normal"
             suffix = candidate[token_end:].lstrip()
             if suffix:
                 return f"{replacement.strip()} {suffix}".strip()

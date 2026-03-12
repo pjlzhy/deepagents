@@ -26,13 +26,13 @@ import sys
 import threading
 import time
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, cast
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any
 
-from langchain.agents.middleware.human_in_the_loop import ActionRequest, HITLRequest
-from langchain_core.messages import AIMessage, ToolMessage
-from langgraph.types import Command, Interrupt
-from pydantic import TypeAdapter, ValidationError
+from deepagents_runtime.inputs import InputEnvelope
+from deepagents_runtime.orchestration import build_hitl_response
+from deepagents_runtime.run_service import AgentRunConfig, stream_run_events
+from deepagents_runtime.runs import SessionStats
 from rich.console import Console
 from rich.style import Style
 from rich.text import Text
@@ -48,30 +48,16 @@ from deepagents_cli.config import (
 from deepagents_cli.file_ops import FileOpTracker
 from deepagents_cli.model_config import ModelConfigError
 from deepagents_cli.sessions import generate_thread_id, get_checkpointer
-from deepagents_cli.textual_adapter import SessionStats, print_usage_table
+from deepagents_cli.textual_adapter import print_usage_table
 from deepagents_cli.tools import fetch_url, http_request, web_search
 
 if TYPE_CHECKING:
-    from langchain_core.runnables import RunnableConfig
+    from deepagents_runtime.events import RuntimeEvent
+    from langchain.agents.middleware.human_in_the_loop import ActionRequest, HITLRequest
     from langgraph.pregel import Pregel
 
 logger = logging.getLogger(__name__)
 
-
-class HITLIterationLimitError(RuntimeError):
-    """Raised when the HITL interrupt loop exceeds `_MAX_HITL_ITERATIONS` rounds."""
-
-
-_HITL_REQUEST_ADAPTER = TypeAdapter(HITLRequest)
-
-_STREAM_CHUNK_LENGTH = 3
-"""Expected element counts for the tuples emitted by agent.astream.
-
-Stream chunks are 3-tuples: (namespace, stream_mode, data).
-"""
-
-_MESSAGE_DATA_LENGTH = 2
-"""Message-mode data is a 2-tuple: (message_obj, metadata)."""
 
 _MAX_HITL_ITERATIONS = 50
 """Safety cap on the number of HITL interrupt round-trips to prevent infinite
@@ -100,7 +86,7 @@ def _write_newline() -> None:
 
 @dataclass
 class StreamState:
-    """Mutable state accumulated while iterating over the agent stream."""
+    """Mutable state accumulated while iterating over runtime events."""
 
     quiet: bool = False
     """When `True`, diagnostic formatting that would otherwise go to stdout
@@ -117,31 +103,13 @@ class StreamState:
     full_response: list[str] = field(default_factory=list)
     """Accumulated text fragments from the AI message stream."""
 
-    tool_call_buffers: dict[int | str, dict[str, str | None]] = field(
-        default_factory=dict
-    )
-    """Maps a tool-call index or ID to its name/ID metadata for in-progress
-    tool calls."""
-
-    pending_interrupts: dict[str, HITLRequest] = field(default_factory=dict)
-    """Maps interrupt IDs to their validated HITL requests that are awaiting
-    decisions."""
-
-    hitl_response: dict[str, dict[str, list[dict[str, str]]]] = field(
-        default_factory=dict
-    )
-    """Maps interrupt IDs to dicts containing a `'decisions'` key with a list of
-    decision dicts (each having a `'type'` key of `'approve'` or `'reject'`).
-
-    Used to resume the agent after HITL processing.
-    """
-
-    interrupt_occurred: bool = False
-    """Flag indicating whether any HITL interrupt was received during the
-    current stream pass."""
-
     stats: SessionStats = field(default_factory=SessionStats)
-    """Accumulated model usage stats for this stream."""
+    """Usage stats accumulated from runtime `usage.updated` events."""
+
+    run_failed: bool = False
+    run_cancelled: bool = False
+    error_type: str | None = None
+    error_message: str | None = None
 
 
 @dataclass
@@ -183,189 +151,77 @@ def _start_langsmith_thread_url_lookup(thread_id: str) -> ThreadUrlLookupState:
     return state
 
 
-def _process_interrupts(
-    data: dict[str, list[Interrupt]],
-    state: StreamState,
-    console: Console,
-) -> None:
-    """Extract HITL interrupts from an `updates` chunk and record them.
-
-    Args:
-        data: The `updates` dict that contains an `__interrupt__` key.
-        state: Stream state to update with new pending interrupts.
-        console: Rich console for user-visible warnings.
-    """
-    interrupts = data["__interrupt__"]
-    if interrupts:
-        for interrupt_obj in interrupts:
-            try:
-                validated_request = _HITL_REQUEST_ADAPTER.validate_python(
-                    interrupt_obj.value
-                )
-            except ValidationError:
-                logger.warning(
-                    "Rejecting malformed HITL interrupt %s (raw value: %r)",
-                    interrupt_obj.id,
-                    interrupt_obj.value,
-                )
-                console.print(
-                    f"[yellow]Warning: Received malformed tool approval "
-                    f"request (interrupt {interrupt_obj.id}). Rejecting.[/yellow]"
-                )
-                # Fail-closed: record a reject decision for malformed interrupts
-
-                state.hitl_response[interrupt_obj.id] = {
-                    "decisions": [{"type": "reject", "message": "Malformed interrupt"}]
-                }
-                continue
-            state.pending_interrupts[interrupt_obj.id] = validated_request
-            state.interrupt_occurred = True
-
-
-def _process_ai_message(
-    message_obj: AIMessage,
-    state: StreamState,
-    console: Console,
-) -> None:
-    """Extract text and tool-call blocks from an AI message and render them.
-
-    When streaming is enabled, text blocks are written to stdout immediately;
-    otherwise they are accumulated in `state.full_response` for deferred
-    output. Tool-call blocks are buffered and their names are printed to the
-    console.
-
-    Args:
-        message_obj: The `AIMessage` received from the stream.
-        state: Stream state for accumulating response text and tool-call buffers.
-        console: Rich console for formatted output.
-    """
-    # Extract token usage for stats accumulation
-    usage = getattr(message_obj, "usage_metadata", None)
-    if usage:
-        input_toks = usage.get("input_tokens", 0)
-        output_toks = usage.get("output_tokens", 0)
-        total_toks = usage.get("total_tokens", 0)
-        active_model = settings.model_name or ""
-        if input_toks or output_toks:
-            state.stats.record_request(active_model, input_toks, output_toks)
-        elif total_toks:
-            state.stats.record_request(active_model, total_toks, 0)
-
-    if not hasattr(message_obj, "content_blocks"):
-        logger.debug("AIMessage missing content_blocks attribute, skipping")
-        return
-    for block in message_obj.content_blocks:
-        if not isinstance(block, dict):
-            continue
-        block_type = block.get("type")
-        if block_type == "text":
-            text = block.get("text", "")
-            if text:
-                if state.stream:
-                    _write_text(text)
-                state.full_response.append(text)
-        elif block_type in {"tool_call_chunk", "tool_call"}:
-            chunk_name = block.get("name")
-            chunk_id = block.get("id")
-            chunk_index = block.get("index")
-
-            if chunk_index is not None:
-                buffer_key: int | str = chunk_index
-            elif chunk_id is not None:
-                buffer_key = chunk_id
-            else:
-                buffer_key = f"unknown-{len(state.tool_call_buffers)}"
-
-            if buffer_key not in state.tool_call_buffers:
-                state.tool_call_buffers[buffer_key] = {"name": None, "id": None}
-            if chunk_name:
-                state.tool_call_buffers[buffer_key]["name"] = chunk_name
-                if state.full_response and not state.quiet:
-                    _write_newline()
-                console.print(f"[dim]🔧 Calling tool: {chunk_name}[/dim]")
-
-
-def _process_message_chunk(
-    data: tuple[AIMessage | ToolMessage, dict[str, str]],
+def _consume_runtime_event(
+    event: RuntimeEvent,
     state: StreamState,
     console: Console,
     file_op_tracker: FileOpTracker,
 ) -> None:
-    """Handle a `messages`-mode chunk from the stream.
+    """Render one runtime event for the non-interactive CLI."""
+    payload = event.payload
 
-    Dispatches to AI-message or tool-message processing depending on the
-    message type.
-
-    Args:
-        data: A 2-tuple of `(message_obj, metadata)` from the messages
-            stream mode.
-        state: Shared stream state.
-        console: Rich console for formatted output.
-        file_op_tracker: Tracker for file-operation diffs.
-    """
-    if not isinstance(data, tuple) or len(data) != _MESSAGE_DATA_LENGTH:
-        logger.debug(
-            "Unexpected message-mode data (type=%s), skipping", type(data).__name__
-        )
+    if event.type == "message.assistant.delta":
+        text = str(payload.get("text", ""))
+        if not text:
+            return
+        if state.stream:
+            _write_text(text)
+        state.full_response.append(text)
         return
 
-    message_obj, metadata = data
-
-    # The summarization middleware injects synthetic messages to compress
-    # conversation history for the LLM. These are internal bookkeeping and
-    # should not be rendered to the user.
-    if metadata and metadata.get("lc_source") == "summarization":
+    if event.type == "usage.updated":
+        model_name = str(payload.get("model_name", ""))
+        input_tokens = int(payload.get("input_tokens", 0) or 0)
+        output_tokens = int(payload.get("output_tokens", 0) or 0)
+        state.stats.record_request(model_name, input_tokens, output_tokens)
         return
 
-    if isinstance(message_obj, AIMessage):
-        _process_ai_message(message_obj, state, console)
-    elif isinstance(message_obj, ToolMessage):
-        record = file_op_tracker.complete_with_message(message_obj)
-        if record and record.diff:
-            console.print(f"[dim]📝 {record.display_path}[/dim]")
-
-
-def _process_stream_chunk(
-    chunk: object,
-    state: StreamState,
-    console: Console,
-    file_op_tracker: FileOpTracker,
-) -> None:
-    """Route a single raw stream chunk to the appropriate handler.
-
-    Only main-agent chunks are processed; sub-agent output is ignored so
-    that only top-level content is rendered.
-
-    Args:
-        chunk: A raw element yielded by `agent.astream`.
-
-            Expected to be a 3-tuple `(namespace, stream_mode, data)` for
-            main-agent output.
-        state: Shared stream state.
-        console: Rich console for formatted output.
-        file_op_tracker: Tracker for file-operation diffs.
-    """
-    if not isinstance(chunk, tuple) or len(chunk) != _STREAM_CHUNK_LENGTH:
-        logger.debug(
-            "Unexpected stream chunk (type=%s), skipping", type(chunk).__name__
-        )
+    if event.type == "run.failed":
+        state.run_failed = True
+        state.error_type = str(payload.get("error_type", "") or "") or "RunFailed"
+        state.error_message = str(payload.get("message", "") or "") or None
         return
 
-    namespace, stream_mode, data = chunk
-    is_main_agent = not namespace
-
-    if not is_main_agent:
+    if event.type == "run.cancelled":
+        state.run_cancelled = True
         return
 
-    if stream_mode == "updates" and isinstance(data, dict) and "__interrupt__" in data:
-        _process_interrupts(cast("dict[str, list[Interrupt]]", data), state, console)
-    elif stream_mode == "messages":
-        _process_message_chunk(
-            cast("tuple[AIMessage | ToolMessage, dict[str, str]]", data),
-            state,
-            console,
-            file_op_tracker,
-        )
+    if event.type == "tool.call.started":
+        tool_name = str(payload.get("tool_name", ""))
+        if state.full_response and not state.quiet:
+            _write_newline()
+        console.print(f"[dim]🔧 Calling tool: {tool_name}[/dim]")
+        args = payload.get("args", {})
+        tool_call_id = payload.get("tool_call_id")
+        if isinstance(args, dict) and args and tool_call_id is not None:
+            file_op_tracker.start_operation(tool_name, args, str(tool_call_id))
+        return
+
+    if event.type == "tool.call.arguments":
+        tool_name = str(payload.get("tool_name", ""))
+        tool_call_id = payload.get("tool_call_id")
+        args = payload.get("args", {})
+
+        if isinstance(args, dict) and args:
+            file_op_tracker.start_operation(
+                tool_name,
+                args,
+                str(tool_call_id) if tool_call_id is not None else None,
+            )
+        return
+
+    if event.type != "tool.call.completed":
+        return
+
+    tool_message = SimpleNamespace(
+        tool_call_id=payload.get("tool_call_id"),
+        content=payload.get("content"),
+        status=payload.get("status", "success"),
+        name=payload.get("tool_name"),
+    )
+    record = file_op_tracker.complete_with_message(tool_message)
+    if record and record.diff:
+        console.print(f"[dim]📝 {record.display_path}[/dim]")
 
 
 def _make_hitl_decision(
@@ -429,78 +285,27 @@ def _make_hitl_decision(
     return {"type": "approve"}
 
 
-def _process_hitl_interrupts(state: StreamState, console: Console) -> None:
-    """Iterate over pending HITL interrupts and build approval/rejection responses.
-
-    After processing, `state.pending_interrupts` is cleared and decisions
-    are written into `state.hitl_response` so the agent can be resumed.
-
-    Args:
-        state: Stream state containing the pending interrupts to process.
-        console: Rich console for status output.
-    """
-    current_interrupts = dict(state.pending_interrupts)
-    state.pending_interrupts.clear()
-
-    for interrupt_id, hitl_request in current_interrupts.items():
-        decisions = [
-            _make_hitl_decision(action_request, console)
-            for action_request in hitl_request["action_requests"]
-        ]
-        state.hitl_response[interrupt_id] = {"decisions": decisions}
-
-
-async def _stream_agent(
-    agent: Pregel,
-    stream_input: dict[str, Any] | Command,
-    config: RunnableConfig,
-    state: StreamState,
-    console: Console,
-    file_op_tracker: FileOpTracker,
-) -> None:
-    """Consume the full agent stream and update *state* with results.
-
-    Args:
-        agent: The compiled LangGraph agent.
-        stream_input: Either the initial user message dict or a
-            `Command(resume=...)` for HITL continuation.
-        config: LangGraph runnable config (thread ID, metadata, etc.).
-        state: Shared stream state.
-        console: Rich console for formatted output.
-        file_op_tracker: Tracker for file-operation diffs.
-    """
-    async for chunk in agent.astream(
-        stream_input,
-        stream_mode=["messages", "updates"],
-        subgraphs=True,
-        config=config,
-        durability="exit",
-    ):
-        _process_stream_chunk(chunk, state, console, file_op_tracker)
-
-
 async def _run_agent_loop(
     agent: Pregel,
     message: str,
-    config: RunnableConfig,
     console: Console,
     file_op_tracker: FileOpTracker,
     *,
+    assistant_id: str,
+    thread_id: str,
     quiet: bool = False,
     stream: bool = True,
     thread_url_lookup: ThreadUrlLookupState | None = None,
-) -> None:
+) -> int:
     """Run the agent and handle HITL interrupts until the task completes.
-
-    The loop processes at most `_MAX_HITL_ITERATIONS` rounds to prevent
-    runaway retries (e.g. the agent repeatedly attempting rejected commands).
 
     Args:
         agent: The compiled LangGraph agent.
         message: The user's task message.
-        config: LangGraph runnable config.
         console: Rich console for formatted output.
         file_op_tracker: Tracker for file-operation diffs.
+        assistant_id: Agent identifier used for run metadata.
+        thread_id: Thread identifier used for session storage.
         quiet: Suppress diagnostic formatting on stdout.
         stream: When `True`, text is written to stdout as it arrives.
 
@@ -509,36 +314,39 @@ async def _run_agent_loop(
         thread_url_lookup: Optional non-blocking lookup state for rendering
             a fast-follow LangSmith thread link.
 
-    Raises:
-        HITLIterationLimitError: If the HITL iteration limit is exceeded.
+    Returns:
+        Exit code: 0 for success, 1 for error/cancellation.
+
     """
     state = StreamState(quiet=quiet, stream=stream)
-    stream_input: dict[str, Any] | Command = {
-        "messages": [{"role": "user", "content": message}]
-    }
-
     start_time = time.monotonic()
 
-    # Initial stream
-    await _stream_agent(agent, stream_input, config, state, console, file_op_tracker)
+    envelope = InputEnvelope(thread_id=thread_id, mode="normal", text=message)
 
-    # Handle HITL interrupts
-    iterations = 0
-    while state.interrupt_occurred:
-        iterations += 1
-        if iterations > _MAX_HITL_ITERATIONS:
-            msg = (
-                f"Exceeded {_MAX_HITL_ITERATIONS} HITL interrupt rounds. "
-                "The agent may be stuck retrying rejected commands."
-            )
-            raise HITLIterationLimitError(msg)
-        state.interrupt_occurred = False
-        state.hitl_response.clear()
-        _process_hitl_interrupts(state, console)
-        stream_input = Command(resume=state.hitl_response)
-        await _stream_agent(
-            agent, stream_input, config, state, console, file_op_tracker
+    def _resolve_approvals(
+        pending_interrupts: dict[str, HITLRequest],
+    ) -> dict[str, dict[str, list[dict[str, str]]]]:
+        return build_hitl_response(
+            pending_interrupts,
+            lambda _interrupt_id, hitl_request: [
+                _make_hitl_decision(action_request, console)
+                for action_request in hitl_request["action_requests"]
+            ],
         )
+
+    agent_config = AgentRunConfig(
+        assistant_id=assistant_id,
+        model_name=settings.model_name or "",
+        resolve_approvals=_resolve_approvals,
+        max_hitl_iterations=_MAX_HITL_ITERATIONS,
+    )
+
+    async for event in stream_run_events(
+        envelope,
+        agent=agent,
+        agent_config=agent_config,
+    ):
+        _consume_runtime_event(event, state, console, file_op_tracker)
 
     wall_time = time.monotonic() - start_time
 
@@ -547,21 +355,39 @@ async def _run_agent_loop(
             _write_text("".join(state.full_response))
         _write_newline()
 
+    if state.run_failed:
+        error_type = state.error_type or "RunFailed"
+        error_message = state.error_message or "The agent run failed."
+        console.print(f"\n[red]Error ({error_type}): {error_message}[/red]")
+        if error_type == "HITLIterationLimitError":
+            console.print(
+                "[yellow]Hint: The agent may be repeatedly attempting commands "
+                "that are not in the allow-list. Consider expanding the "
+                "--shell-allow-list or adjusting the task.[/yellow]"
+            )
+        return 1
+
+    if state.run_cancelled:
+        console.print("\n[yellow]Run cancelled[/yellow]")
+        return 1
+
     if not quiet:
         console.print()
-        if (
-            thread_url_lookup is not None
-            and thread_url_lookup.done.is_set()
-            and thread_url_lookup.url
-        ):
+        if thread_url_lookup is not None and thread_url_lookup.done.is_set():
+            thread_url = thread_url_lookup.url
+        else:
+            thread_url = None
+
+        if thread_url:
             link_text = Text("View in LangSmith: ", style="dim")
             link_text.append(
-                thread_url_lookup.url,
-                style=Style(dim=True, link=thread_url_lookup.url),
+                thread_url,
+                style=Style(dim=True, link=thread_url),
             )
             console.print(link_text)
         console.print("[green]✓ Task completed[/green]")
         print_usage_table(state.stats, wall_time, console)
+    return 0
 
 
 def _build_non_interactive_header(
@@ -677,15 +503,6 @@ async def run_non_interactive(
     result.apply_to_settings()
     thread_id = generate_thread_id()
 
-    config: RunnableConfig = {
-        "configurable": {"thread_id": thread_id},
-        "metadata": {
-            "assistant_id": assistant_id,
-            "agent_name": assistant_id,
-            "updated_at": datetime.now(UTC).isoformat(),
-        },
-    }
-
     thread_url_lookup: ThreadUrlLookupState | None = None
     if not quiet:
         thread_url_lookup = _start_langsmith_thread_url_lookup(thread_id)
@@ -753,29 +570,21 @@ async def run_non_interactive(
                 assistant_id=assistant_id, backend=composite_backend
             )
 
-            await _run_agent_loop(
+            return await _run_agent_loop(
                 agent,
                 message,
-                config,
                 console,
                 file_op_tracker,
+                assistant_id=assistant_id,
+                thread_id=thread_id,
                 quiet=quiet,
                 stream=stream,
                 thread_url_lookup=thread_url_lookup,
             )
-            return 0
 
     except KeyboardInterrupt:
         console.print("\n[yellow]Interrupted[/yellow]")
         return 130
-    except HITLIterationLimitError as e:
-        console.print(f"\n[red]{e}[/red]")
-        console.print(
-            "[yellow]Hint: The agent may be repeatedly attempting commands "
-            "that are not in the allow-list. Consider expanding the "
-            "--shell-allow-list or adjusting the task.[/yellow]"
-        )
-        return 1
     except (ValueError, OSError) as e:
         logger.exception("Error during non-interactive execution")
         console.print(f"\n[red]Error: {e}[/red]")

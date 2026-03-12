@@ -408,18 +408,19 @@ class TestListThreadsWithMessageCount:
         """Second call should reuse cached count for unchanged checkpoint."""
         sessions._message_count_cache.clear()
         try:
+            store = sessions._get_session_store()
             with (
                 patch.object(
                     sessions, "get_db_path", return_value=temp_db_with_messages
                 ),
                 patch.object(
-                    sessions,
+                    store,
                     "_get_jsonplus_serializer",
                     new_callable=AsyncMock,
                     return_value=object(),
                 ),
                 patch.object(
-                    sessions,
+                    store,
                     "_count_messages_from_checkpoint",
                     new_callable=AsyncMock,
                     return_value=3,
@@ -440,18 +441,19 @@ class TestListThreadsWithMessageCount:
         """A newer checkpoint should invalidate cached message count."""
         sessions._message_count_cache.clear()
         try:
+            store = sessions._get_session_store()
             with (
                 patch.object(
                     sessions, "get_db_path", return_value=temp_db_with_messages
                 ),
                 patch.object(
-                    sessions,
+                    store,
                     "_get_jsonplus_serializer",
                     new_callable=AsyncMock,
                     return_value=object(),
                 ),
                 patch.object(
-                    sessions,
+                    store,
                     "_count_messages_from_checkpoint",
                     new_callable=AsyncMock,
                     side_effect=[3, 4],
@@ -613,13 +615,15 @@ class TestPrewarmThreadMessageCounts:
 
     async def test_unexpected_errors_log_warning(self) -> None:
         """Unexpected prewarm failures should be visible at warning level."""
+        store = sessions._get_session_store()
         with (
-            patch(
-                "deepagents_cli.sessions.list_threads",
+            patch.object(
+                store,
+                "list_threads",
                 new_callable=AsyncMock,
                 side_effect=RuntimeError("unexpected type mismatch"),
             ),
-            patch.object(sessions.logger, "warning") as mock_warning,
+            patch("deepagents_runtime.sessions.logger.warning") as mock_warning,
         ):
             await sessions.prewarm_thread_message_counts(limit=3)
 

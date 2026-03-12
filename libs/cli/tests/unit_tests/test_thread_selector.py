@@ -1320,60 +1320,44 @@ class TestResumeThread:
 class TestFetchThreadHistoryData:
     """Tests for DeepAgentsApp._fetch_thread_history_data."""
 
-    async def test_returns_empty_when_agent_missing(self) -> None:
-        """No active agent should return an empty history payload."""
+    async def test_returns_empty_when_no_stored_messages(self) -> None:
+        """Empty session-store history should return an empty payload."""
         app = DeepAgentsApp()
-        app._agent = None
 
-        result = await app._fetch_thread_history_data("tid-1")
+        with patch(
+            "deepagents_cli.sessions.get_thread_history",
+            new_callable=AsyncMock,
+            return_value=[],
+        ) as get_history_mock:
+            result = await app._fetch_thread_history_data("tid-1")
 
         assert result == []
-
-    async def test_returns_empty_when_state_missing(self) -> None:
-        """Missing checkpoint state should return an empty history payload."""
-        app = DeepAgentsApp()
-        app._agent = MagicMock()
-        app._agent.aget_state = AsyncMock(return_value=None)
-
-        result = await app._fetch_thread_history_data("tid-1")
-
-        assert result == []
-        app._agent.aget_state.assert_awaited_once_with(
-            {"configurable": {"thread_id": "tid-1"}}
-        )
-
-    async def test_returns_empty_when_messages_missing(self) -> None:
-        """State with no messages should return an empty history payload."""
-        app = DeepAgentsApp()
-        app._agent = MagicMock()
-        state = MagicMock()
-        state.values = {}
-        app._agent.aget_state = AsyncMock(return_value=state)
-
-        result = await app._fetch_thread_history_data("tid-1")
-
-        assert result == []
+        get_history_mock.assert_awaited_once_with("tid-1")
 
     async def test_offloads_conversion_to_thread(self) -> None:
         """Message conversion should be offloaded via `asyncio.to_thread`."""
         from deepagents_cli.widgets.message_store import MessageData, MessageType
 
         app = DeepAgentsApp()
-        app._agent = MagicMock()
         raw_messages = [object()]
-        state = MagicMock()
-        state.values = {"messages": raw_messages}
-        app._agent.aget_state = AsyncMock(return_value=state)
         converted = [MessageData(type=MessageType.USER, content="hello")]
 
-        with patch(
-            "deepagents_cli.app.asyncio.to_thread",
-            new_callable=AsyncMock,
-            return_value=converted,
-        ) as to_thread_mock:
+        with (
+            patch(
+                "deepagents_cli.sessions.get_thread_history",
+                new_callable=AsyncMock,
+                return_value=raw_messages,
+            ) as get_history_mock,
+            patch(
+                "deepagents_cli.app.asyncio.to_thread",
+                new_callable=AsyncMock,
+                return_value=converted,
+            ) as to_thread_mock,
+        ):
             result = await app._fetch_thread_history_data("tid-1")
 
         assert result == converted
+        get_history_mock.assert_awaited_once_with("tid-1")
         to_thread_mock.assert_awaited_once()
         await_args = to_thread_mock.await_args
         assert await_args is not None
@@ -1481,7 +1465,6 @@ class TestLoadThreadHistory:
         """Missing thread ID should early-return with a debug log entry."""
         app = DeepAgentsApp()
         app._lc_thread_id = None
-        app._agent = MagicMock()
 
         with patch("deepagents_cli.app.logger.debug") as debug_mock:
             await app._load_thread_history()
@@ -1490,18 +1473,16 @@ class TestLoadThreadHistory:
             "Skipping history load: no thread ID available"
         )
 
-    async def test_early_return_without_agent_logs_debug(self) -> None:
-        """No agent and no preloaded payload should early-return with debug log."""
+    async def test_load_thread_history_without_agent_still_fetches(self) -> None:
+        """History load should no longer depend on an in-memory agent instance."""
         app = DeepAgentsApp(thread_id="tid-1")
         app._agent = None
+        fetch_history_mock = AsyncMock(return_value=[])
+        app._fetch_thread_history_data = fetch_history_mock  # type: ignore[assignment]
 
-        with patch("deepagents_cli.app.logger.debug") as debug_mock:
-            await app._load_thread_history(thread_id="tid-1")
+        await app._load_thread_history(thread_id="tid-1")
 
-        debug_mock.assert_called_once_with(
-            "Skipping history load for %s: no active agent and no preloaded data",
-            "tid-1",
-        )
+        fetch_history_mock.assert_awaited_once_with("tid-1")
 
 
 class TestUpgradeThreadMessageLink:
@@ -1597,14 +1578,22 @@ class TestBuildThreadMessage:
     async def test_fallback_on_timeout(self) -> None:
         """Returns plain string when URL resolution times out."""
         app = DeepAgentsApp()
-        with patch(
-            "deepagents_cli.app.asyncio.wait_for",
-            side_effect=TimeoutError,
+        with (
+            patch(
+                "deepagents_cli.app.asyncio.to_thread",
+                new_callable=MagicMock,
+                return_value=object(),
+            ) as to_thread_mock,
+            patch(
+                "deepagents_cli.app.asyncio.wait_for",
+                side_effect=TimeoutError,
+            ),
         ):
             result = await app._build_thread_message("Resumed thread", "t-1")
 
         assert isinstance(result, str)
         assert result == "Resumed thread: t-1"
+        to_thread_mock.assert_called_once()
 
     async def test_fallback_on_exception(self) -> None:
         """Returns plain string when URL resolution raises an exception."""

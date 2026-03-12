@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, Mock
@@ -10,6 +11,12 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 import pytest
+
+if shutil.which("bash") is None:
+    pytest.skip(
+        "`bash` is required to execute the local context detection script.",
+        allow_module_level=True,
+    )
 
 from deepagents_cli.local_context import (
     DETECT_CONTEXT_SCRIPT,

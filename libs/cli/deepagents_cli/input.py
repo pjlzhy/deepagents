@@ -524,6 +524,24 @@ def _split_paste_line(line: str) -> list[str]:
     Returns:
         Parsed shell-like tokens, or an empty list when parsing fails.
     """
+    stripped = line.strip()
+    if not stripped:
+        return []
+
+    # Special-case Windows-style dropped paths (drive-letter / UNC) and file URLs
+    # before invoking POSIX `shlex.split`. In POSIX mode, shlex treats backslashes
+    # as escape characters, which corrupts unquoted Windows paths like
+    # `C:\Users\Alice\file.png` -> `C:UsersAlicefile.png`.
+    candidate = stripped
+    if candidate.startswith("<") and candidate.endswith(">"):
+        inner = candidate[1:-1].strip()
+    else:
+        inner = candidate
+    if inner.startswith(("file://", "\\\\")) or _WINDOWS_DRIVE_PATH_PATTERN.match(
+        inner
+    ):
+        return [candidate]
+
     try:
         return shlex.split(line, posix=True)
     except ValueError:
@@ -551,9 +569,24 @@ def _token_to_path(token: str) -> Path | None:
 
     if value.startswith("file://"):
         parsed = urlparse(value)
-        path_text = unquote(parsed.path or "")
-        if parsed.netloc and parsed.netloc != "localhost":
-            path_text = f"//{parsed.netloc}{path_text}"
+        netloc_text = unquote(parsed.netloc or "")
+        parsed_path = unquote(parsed.path or "")
+
+        if netloc_text and netloc_text != "localhost":
+            # Some terminals generate file URLs like `file://C:/Users/...` or
+            # even `file://C:\Users\...` where the drive path ends up in the
+            # URL netloc. Treat drive-letter netlocs as local paths rather than
+            # UNC hosts.
+            is_drive_netloc = netloc_text[:1].isalpha() and netloc_text[1:2] == ":"
+            if is_drive_netloc:
+                if parsed_path:
+                    path_text = f"{netloc_text}{parsed_path}"
+                else:
+                    path_text = netloc_text
+            else:
+                path_text = f"//{netloc_text}{parsed_path}"
+        else:
+            path_text = parsed_path
         if (
             path_text.startswith("/")
             and len(path_text) > 2  # noqa: PLR2004  # '/C:' minimum for Windows file URI
@@ -608,9 +641,9 @@ def _leading_token_end(text: str) -> int | None:
 def _extract_unquoted_leading_path_with_spaces(text: str) -> tuple[Path, int] | None:
     """Extract a leading unquoted path that may contain spaces.
 
-    This fallback is intentionally POSIX-oriented (`/` and `~/`) because the
-    slash-command conflict it addresses is specific to inputs that begin with
-    `/`.
+    Some terminals paste dropped absolute paths with spaces as raw text without
+    quoting/escaping. In that case shell tokenization splits on spaces even
+    though the full payload is intended to be a single path.
 
     Args:
         text: Input text beginning with a potential path.
@@ -621,7 +654,10 @@ def _extract_unquoted_leading_path_with_spaces(text: str) -> tuple[Path, int] | 
     """
     if not text or ("\n" in text or "\r" in text):
         return None
-    if not text.startswith(("/", "~/")):
+    if not (
+        text.startswith(("/", "~/", "\\\\"))
+        or _WINDOWS_DRIVE_PATH_PATTERN.match(text)
+    ):
         return None
     if " " not in text and "\u00a0" not in text and "\u202f" not in text:
         return None

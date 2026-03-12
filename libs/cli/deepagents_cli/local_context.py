@@ -1,4 +1,4 @@
-"""Middleware for injecting local context into system prompt.
+"""Middleware for injecting local context into the system prompt.
 
 Detects git state, project structure, package managers, runtimes, and
 directory layout by running a bash script via the backend. Because the
@@ -536,3 +536,23 @@ class LocalContextMiddleware(AgentMiddleware):
 
 
 __all__ = ["LocalContextMiddleware"]
+
+# NOTE: This module has been migrated to `deepagents_runtime.local_context`.
+# The assignments below make the runtime implementation the source of truth
+# while keeping `deepagents_cli.local_context` import paths stable.
+from deepagents_runtime import local_context as _runtime_local_context  # noqa: E402
+
+DETECT_CONTEXT_SCRIPT = _runtime_local_context.DETECT_CONTEXT_SCRIPT
+LocalContextMiddleware = _runtime_local_context.LocalContextMiddleware  # noqa: F811
+LocalContextState = _runtime_local_context.LocalContextState
+_ExecutableBackend = _runtime_local_context._ExecutableBackend
+_section_files = _runtime_local_context._section_files
+_section_git = _runtime_local_context._section_git
+_section_header = _runtime_local_context._section_header
+_section_makefile = _runtime_local_context._section_makefile
+_section_package_managers = _runtime_local_context._section_package_managers
+_section_project = _runtime_local_context._section_project
+_section_runtimes = _runtime_local_context._section_runtimes
+_section_test_command = _runtime_local_context._section_test_command
+_section_tree = _runtime_local_context._section_tree
+build_detect_script = _runtime_local_context.build_detect_script

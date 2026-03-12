@@ -354,6 +354,26 @@ class TestMessageStore:
         result = store.update_message("nonexistent", content="fail")
         assert result is False
 
+    def test_update_message_allows_tool_args(self):
+        """Tool args should be updatable for late-hydrated tool widgets."""
+        store = MessageStore()
+        store.append(
+            MessageData(
+                type=MessageType.TOOL,
+                content="",
+                id="tool-1",
+                tool_name="read_file",
+                tool_args={},
+            )
+        )
+
+        result = store.update_message("tool-1", tool_args={"path": "README.md"})
+        assert result is True
+
+        msg = store.get_message("tool-1")
+        assert msg is not None
+        assert msg.tool_args == {"path": "README.md"}
+
     def test_update_message_rejects_unknown_fields(self):
         """Test that updating protected or unknown fields raises ValueError."""
         store = MessageStore()
