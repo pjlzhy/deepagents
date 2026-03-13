@@ -14,7 +14,6 @@ from deepagents import create_deep_agent
 from deepagents.backends import CompositeBackend, LocalShellBackend
 from deepagents.backends.filesystem import FilesystemBackend
 from deepagents.middleware import MemoryMiddleware, SkillsMiddleware
-from langgraph.checkpoint.memory import InMemorySaver
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -31,6 +30,7 @@ if TYPE_CHECKING:
     from langgraph.runtime import Runtime
 
     from deepagents_cli.mcp_tools import MCPServerInfo
+    from deepagents_cli.output import OutputFormat
 
 from deepagents_cli.config import (
     COLORS,
@@ -40,8 +40,10 @@ from deepagents_cli.config import (
     get_glyphs,
     settings,
 )
+from deepagents_cli.configurable_model import ConfigurableModelMiddleware
 from deepagents_cli.integrations.sandbox_factory import get_default_working_dir
 from deepagents_cli.local_context import LocalContextMiddleware, _ExecutableBackend
+from deepagents_cli.project_utils import ProjectContext, get_server_project_context
 from deepagents_cli.subagents import list_subagents
 from deepagents_cli.unicode_security import (
     check_url_safety,
@@ -61,17 +63,44 @@ REQUIRE_COMPACT_TOOL_APPROVAL: bool = True
 """When `True`, `compact_conversation` requires HITL approval like other gated tools."""
 
 
-def list_agents() -> None:
-    """List all available agents."""
+def list_agents(*, output_format: OutputFormat = "text") -> None:
+    """List all available agents.
+
+    Args:
+        output_format: Output format — `'text'` (Rich) or `'json'`.
+    """
     agents_dir = settings.user_deepagents_dir
 
     if not agents_dir.exists() or not any(agents_dir.iterdir()):
+        if output_format == "json":
+            from deepagents_cli.output import write_json
+
+            write_json("list", [])
+            return
         console.print("[yellow]No agents found.[/yellow]")
         console.print(
             "[dim]Agents will be created in ~/.deepagents/ "
             "when you first use them.[/dim]",
             style=COLORS["dim"],
         )
+        return
+
+    if output_format == "json":
+        from deepagents_cli.output import write_json
+
+        agents = []
+        for agent_path in sorted(agents_dir.iterdir()):
+            if agent_path.is_dir():
+                agent_name = agent_path.name
+                agents.append(
+                    {
+                        "name": agent_name,
+                        "path": str(agent_path),
+                        "has_agents_md": (agent_path / "AGENTS.md").exists(),
+                        "is_default": agent_name == DEFAULT_AGENT_NAME,
+                    }
+                )
+        write_json("list", agents)
         return
 
     console.print("\n[bold]Available Agents:[/bold]\n", style=COLORS["primary"])
@@ -101,8 +130,19 @@ def list_agents() -> None:
     console.print()
 
 
-def reset_agent(agent_name: str, source_agent: str | None = None) -> None:
-    """Reset an agent to default or copy from another agent."""
+def reset_agent(
+    agent_name: str,
+    source_agent: str | None = None,
+    *,
+    output_format: OutputFormat = "text",
+) -> None:
+    """Reset an agent to default or copy from another agent.
+
+    Args:
+        agent_name: Name of the agent to reset.
+        source_agent: Copy AGENTS.md from this agent instead of default.
+        output_format: Output format — `'text'` (Rich) or `'json'`.
+    """
     agents_dir = settings.user_deepagents_dir
     agent_dir = agents_dir / agent_name
 
@@ -125,13 +165,27 @@ def reset_agent(agent_name: str, source_agent: str | None = None) -> None:
 
     if agent_dir.exists():
         shutil.rmtree(agent_dir)
-        console.print(
-            f"Removed existing agent directory: {agent_dir}", style=COLORS["tool"]
-        )
+        if output_format != "json":
+            console.print(
+                f"Removed existing agent directory: {agent_dir}", style=COLORS["tool"]
+            )
 
     agent_dir.mkdir(parents=True, exist_ok=True)
     agent_md = agent_dir / "AGENTS.md"
     agent_md.write_text(source_content)
+
+    if output_format == "json":
+        from deepagents_cli.output import write_json
+
+        write_json(
+            "reset",
+            {
+                "agent": agent_name,
+                "reset_to": source_agent or "default",
+                "path": str(agent_dir),
+            },
+        )
+        return
 
     console.print(
         f"{get_glyphs().checkmark} Agent '{agent_name}' reset to {action_desc}",
@@ -145,6 +199,7 @@ def get_system_prompt(
     sandbox_type: str | None = None,
     *,
     interactive: bool = True,
+    cwd: str | Path | None = None,
 ) -> str:
     """Get the base system prompt for the agent.
 
@@ -160,6 +215,7 @@ def get_system_prompt(
             If `None`, agent is operating in local mode.
         interactive: When `False`, the prompt is tailored for headless
             non-interactive execution (no human in the loop).
+        cwd: Override the working directory shown in the prompt.
 
     Returns:
         The system prompt string
@@ -175,7 +231,7 @@ def get_system_prompt(
     """
     template = (Path(__file__).parent / "system_prompt.md").read_text(encoding="utf-8")
 
-    skills_path = f"~/.deepagents/{assistant_id}/skills/"
+    skills_path = f"~/.deepagents/{assistant_id}/skills"
 
     if interactive:
         mode_description = "an interactive CLI on the user's computer"
@@ -241,14 +297,18 @@ def get_system_prompt(
             f"- Use `{working_dir}` as your working directory for all operations\n\n"
         )
     else:
-        try:
-            cwd = Path.cwd()
-        except OSError:
-            logger.warning(
-                "Could not determine working directory for system prompt",
-                exc_info=True,
-            )
-            cwd = Path()
+        if cwd is not None:
+            resolved_cwd = Path(cwd)
+        else:
+            try:
+                resolved_cwd = Path.cwd()
+            except OSError:
+                logger.warning(
+                    "Could not determine working directory for system prompt",
+                    exc_info=True,
+                )
+                resolved_cwd = Path()
+        cwd = resolved_cwd
         working_dir_section = (
             f"### Current Working Directory\n\n"
             f"The filesystem backend is currently operating in: `{cwd}`\n\n"
@@ -408,7 +468,13 @@ def _format_execute_description(
     args = tool_call["args"]
     command_raw = str(args.get("command", "N/A"))
     command = strip_dangerous_unicode(command_raw)
-    lines = [f"Execute Command: {command}", f"Working Directory: {Path.cwd()}"]
+    project_context = get_server_project_context()
+    effective_cwd = (
+        str(project_context.user_cwd)
+        if project_context is not None
+        else str(Path.cwd())
+    )
+    lines = [f"Execute Command: {command}", f"Working Directory: {effective_cwd}"]
 
     issues = detect_dangerous_unicode(command_raw)
     if issues:
@@ -499,9 +565,10 @@ def create_cli_agent(
     enable_memory: bool = True,
     enable_skills: bool = True,
     enable_shell: bool = True,
-    enable_ask_user: bool = False,
     checkpointer: BaseCheckpointSaver | None = None,
     mcp_server_info: list[MCPServerInfo] | None = None,
+    cwd: str | Path | None = None,
+    project_context: ProjectContext | None = None,
 ) -> tuple[Pregel, CompositeBackend]:
     """Create a CLI-configured agent with flexible options.
 
@@ -536,12 +603,14 @@ def create_cli_agent(
         enable_skills: Enable `SkillsMiddleware` for custom agent skills
         enable_shell: Enable shell execution via `LocalShellBackend`
             (only in local mode). When enabled, the `execute` tool is available.
-        enable_ask_user: Enable the `ask_user` tool for interactive questioning.
         checkpointer: Optional checkpointer for session persistence.
-
-            If `None`, uses `InMemorySaver` (no persistence across
-            CLI invocations).
+            When `None`, the graph is compiled without a checkpointer.
         mcp_server_info: MCP server metadata to surface in the system prompt.
+        cwd: Override the working directory for the agent's filesystem backend
+            and system prompt.
+        project_context: Explicit project path context for project-sensitive
+            behavior such as project `AGENTS.md` files, skills, subagents, and
+            MCP trust.
 
     Returns:
         2-tuple of `(agent_graph, backend)`
@@ -551,6 +620,11 @@ def create_cli_agent(
             - `composite_backend`: `CompositeBackend` for file operations
     """
     tools = tools or []
+    effective_cwd = (
+        Path(cwd)
+        if cwd is not None
+        else (project_context.user_cwd if project_context is not None else None)
+    )
 
     # Setup agent directory for persistent memory (if enabled)
     if enable_memory or enable_skills:
@@ -569,13 +643,25 @@ def create_cli_agent(
     if enable_skills:
         skills_dir = settings.ensure_user_skills_dir(assistant_id)
         user_agent_skills_dir = settings.get_user_agent_skills_dir()
-        project_skills_dir = settings.get_project_skills_dir()
-        project_agent_skills_dir = settings.get_project_agent_skills_dir()
+        project_skills_dir = (
+            project_context.project_skills_dir()
+            if project_context is not None
+            else settings.get_project_skills_dir()
+        )
+        project_agent_skills_dir = (
+            project_context.project_agent_skills_dir()
+            if project_context is not None
+            else settings.get_project_agent_skills_dir()
+        )
 
     # Load custom subagents from filesystem
     custom_subagents: list[SubAgent | CompiledSubAgent] = []
     user_agents_dir = settings.get_user_agents_dir(assistant_id)
-    project_agents_dir = settings.get_project_agents_dir()
+    project_agents_dir = (
+        project_context.project_agents_dir()
+        if project_context is not None
+        else settings.get_project_agents_dir()
+    )
 
     for subagent_meta in list_subagents(
         user_agents_dir=user_agents_dir,
@@ -592,17 +678,22 @@ def create_cli_agent(
 
     # Build middleware stack based on enabled features
     agent_middleware = []
+    agent_middleware.append(ConfigurableModelMiddleware())
 
     # Add ask_user middleware (must be early so its tool is available)
-    if enable_ask_user:
-        from deepagents_cli.ask_user import AskUserMiddleware
+    from deepagents_cli.ask_user import AskUserMiddleware
 
-        agent_middleware.append(AskUserMiddleware())
+    agent_middleware.append(AskUserMiddleware())
 
     # Add memory middleware
     if enable_memory:
         memory_sources = [str(settings.get_user_agent_md_path(assistant_id))]
-        memory_sources.extend(str(p) for p in settings.get_project_agent_md_path())
+        project_agent_md_paths = (
+            project_context.project_agent_md_paths()
+            if project_context is not None
+            else settings.get_project_agent_md_path()
+        )
+        memory_sources.extend(str(p) for p in project_agent_md_paths)
 
         agent_middleware.append(
             MemoryMiddleware(
@@ -633,6 +724,7 @@ def create_cli_agent(
     # CONDITIONAL SETUP: Local vs Remote Sandbox
     if sandbox is None:
         # ========== LOCAL MODE ==========
+        root_dir = effective_cwd if effective_cwd is not None else Path.cwd()
         if enable_shell:
             # Create environment for shell commands
             # Restore user's original LANGSMITH_PROJECT so their code traces separately
@@ -644,13 +736,13 @@ def create_cli_agent(
             # The SDK's FilesystemMiddleware exposes per-command timeout
             # on the execute tool natively.
             backend = LocalShellBackend(
-                root_dir=Path.cwd(),
+                root_dir=root_dir,
                 inherit_env=True,
                 env=shell_env,
             )
         else:
             # No shell access - use plain FilesystemBackend
-            backend = FilesystemBackend()
+            backend = FilesystemBackend(root_dir=root_dir)
     else:
         # ========== REMOTE SANDBOX MODE ==========
         backend = sandbox  # Remote sandbox (ModalBackend, etc.)
@@ -671,6 +763,7 @@ def create_cli_agent(
             assistant_id=assistant_id,
             sandbox_type=sandbox_type,
             interactive=interactive,
+            cwd=effective_cwd,
         )
 
     # Configure interrupt_on based on auto_approve setting
@@ -709,10 +802,6 @@ def create_cli_agent(
             routes={},
         )
 
-    from deepagents.graph import resolve_model
-
-    model = resolve_model(model)
-
     from deepagents.middleware.summarization import create_summarization_tool_middleware
 
     agent_middleware.append(
@@ -720,8 +809,6 @@ def create_cli_agent(
     )
 
     # Create the agent
-    # Use provided checkpointer or fallback to InMemorySaver
-    final_checkpointer = checkpointer if checkpointer is not None else InMemorySaver()
     agent = create_deep_agent(
         model=model,
         system_prompt=system_prompt,
@@ -729,7 +816,7 @@ def create_cli_agent(
         backend=composite_backend,
         middleware=agent_middleware,
         interrupt_on=interrupt_on,
-        checkpointer=final_checkpointer,
+        checkpointer=checkpointer,
         subagents=custom_subagents or None,
     ).with_config(config)
     return agent, composite_backend
