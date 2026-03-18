@@ -1,0 +1,31 @@
+[project]
+name = "deepagents-runtime"
+version = "0.1.0"
+description = "Runtime layer for Agent OS: agent lifecycle management, orchestration, and deployment"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "deepagents",
+    "aiosqlite>=0.20.0",
+    "pyyaml>=6.0",
+    "langgraph-checkpoint-sqlite",
+    "pydantic>=2.0",
+    "grpcio>=1.60.0",
+    "grpcio-tools>=1.60.0",
+    "protobuf>=4.25.0",
+    "langchain-mcp-adapters>=0.2.2",
+    "langchain-openai>=1.1.11",
+]
+
+[project.optional-dependencies]
+docker = ["docker>=7.0"]
+
+[project.scripts]
+deepagents = "deepagents_runtime.entry.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+deepagents = { path = "../../deepagents", editable = true }

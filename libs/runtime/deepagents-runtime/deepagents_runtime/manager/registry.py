@@ -1,0 +1,254 @@
+"""File-system-backed resource registry for agent specs.
+
+Stores agent definitions as YAML files under a base directory
+(default ``~/.deepagents/agents/{name}/agent.yaml``).  The registry
+also manages the directory layout for each agent's resources.
+
+Directory layout::
+
+    base_dir/
+    └── agents/
+        └── {agent_name}/
+            ├── agent.yaml        ← full AgentSpec
+            ├── skills/           ← SKILL.md files written from spec
+            │   └── {skill}/
+            │       └── SKILL.md
+            ├── memory/           ← auto-created for MemoryMiddleware
+            └── workspace/        ← agent working directory
+"""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+from deepagents_runtime.spec import (
+    AgentMeta,
+    AgentSpec,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def _default_base_dir() -> Path:
+    """Return the default registry base directory."""
+    return Path.home() / ".deepagents"
+
+
+def _agents_dir(base_dir: Path) -> Path:
+    return base_dir / "agents"
+
+
+def _agent_dir(base_dir: Path, name: str) -> Path:
+    return _agents_dir(base_dir) / name
+
+
+def _agent_yaml(base_dir: Path, name: str) -> Path:
+    return _agent_dir(base_dir, name) / "agent.yaml"
+
+
+def _spec_to_yaml_dict(spec: AgentSpec) -> dict[str, Any]:
+    """Serialize an ``AgentSpec`` to a YAML-friendly dict.
+
+    Mirrors the structure expected by ``AgentSpec.from_yaml()``.
+    """
+    # Serialize MCP servers
+    mcp_servers = []
+    for mcp in spec.mcp_servers:
+        mcp_dict: dict[str, Any] = {
+            "name": mcp.name,
+            "command": mcp.command,
+            "args": mcp.args,
+            "env": mcp.env,
+            "transport": mcp.transport,
+            "description": mcp.description,
+        }
+        mcp_servers.append(mcp_dict)
+
+    # Serialize subagents
+    subagents = []
+    for sa in spec.subagents:
+        sa_dict: dict[str, Any] = {
+            "name": sa["name"],
+            "description": sa["description"],
+            "system_prompt": sa["system_prompt"],
+        }
+        if sa.get("model"):
+            sa_dict["model"] = sa["model"]
+        if sa.get("source"):
+            sa_dict["source"] = sa["source"]
+        if sa.get("path"):
+            sa_dict["path"] = sa["path"]
+        subagents.append(sa_dict)
+
+    # Serialize skills
+    skills = [
+        {"name": s["name"], "content": s["content"]}
+        for s in spec.skills
+    ]
+
+    spec_dict: dict[str, Any] = {
+        "model": spec.model,
+        "prompt": dict(spec.prompt) if spec.prompt else {},
+        "skills": skills,
+        "tools": dict(spec.tools) if spec.tools else {},
+        "subagents": subagents,
+        "mcp_servers": mcp_servers,
+        "sandbox": dict(spec.sandbox) if spec.sandbox else {},
+        "interrupt_on": spec.interrupt_on,
+    }
+    if spec.model_config:
+        spec_dict["model_config"] = dict(spec.model_config)
+
+    return {
+        "metadata": {
+            "name": spec.name,
+            "version": spec.version,
+            "description": spec.description,
+            "tags": spec.tags,
+        },
+        "spec": spec_dict,
+    }
+
+
+class Registry:
+    """File-system registry for agent specs.
+
+    Manages the directory layout for each agent, including skills,
+    memory, and workspace directories.  When an agent spec is added,
+    the registry writes skill content to disk and creates the
+    standard subdirectory structure.
+    """
+
+    def __init__(self, base_dir: Path | None = None) -> None:
+        self._base_dir = base_dir or Path("D:\project\deepagents") ##_default_base_dir() todo
+        self._base_dir.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def base_dir(self) -> Path:
+        return self._base_dir
+
+    # ── Path helpers ──
+
+    def agent_dir(self, name: str) -> Path:
+        """Return the agent's root directory."""
+        return _agent_dir(self._base_dir, name)
+
+    def skills_dir(self, name: str) -> Path:
+        """Return the agent's skills directory."""
+        return _agent_dir(self._base_dir, name) / "skills"
+
+    def memory_dir(self, name: str) -> Path:
+        """Return the agent's memory directory."""
+        return _agent_dir(self._base_dir, name) / "memory" / "AGENTS.md"
+
+    def workspace_dir(self, name: str) -> Path:
+        """Return the agent's workspace directory."""
+        return _agent_dir(self._base_dir, name) / "workspace"
+
+    # ── Agent Specs ──
+
+    async def add_agent_spec(self, spec: AgentSpec) -> None:
+        """Write an agent spec to disk and populate resource directories.
+
+        Creates the standard subdirectory structure and writes each
+        skill's SKILL.md content to ``skills/{name}/SKILL.md``.
+        """
+        agent_dir = _agent_dir(self._base_dir, spec.name)
+        agent_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create standard subdirectories
+        skills_base = agent_dir / "skills"
+        skills_base.mkdir(exist_ok=True)
+        (agent_dir / "memory").mkdir(exist_ok=True)
+        (agent_dir / "workspace").mkdir(exist_ok=True)
+
+        # Write skill content files
+        for skill in spec.skills:
+            if skill.get("content"):
+                skill_dir = skills_base / skill["name"]
+                skill_dir.mkdir(exist_ok=True)
+                skill_md = skill_dir / "SKILL.md"
+                skill_md.write_text(skill["content"], encoding="utf-8")
+                logger.debug(
+                    "Wrote skill '%s' for agent '%s' to %s",
+                    skill["name"], spec.name, skill_md,
+                )
+
+        # 确保AGENTS.md 存在
+        agent_md = agent_dir / "memory" / "AGENTS.md"
+        if not agent_md.exists():
+            # Create empty file for user customizations
+            # Base instructions are loaded fresh from get_system_prompt()
+            agent_md.touch()
+
+        # Write agent YAML
+        yaml_path = _agent_yaml(self._base_dir, spec.name)
+        data = _spec_to_yaml_dict(spec)
+
+        yaml_path.write_text(
+            yaml.dump(data, default_flow_style=False, allow_unicode=True),
+            encoding="utf-8",
+        )
+        logger.debug("Wrote agent spec '%s' to %s", spec.name, yaml_path)
+
+    async def get_agent_spec(self, name: str) -> AgentSpec | None:
+        """Read an agent spec from disk."""
+        yaml_path = _agent_yaml(self._base_dir, name)
+        if not yaml_path.exists():
+            return None
+
+        try:
+            raw = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+            return AgentSpec.from_yaml(raw)
+        except Exception:
+            logger.warning(
+                "Failed to load agent spec '%s' from %s",
+                name, yaml_path, exc_info=True,
+            )
+            return None
+
+    async def list_agent_specs(self) -> list[AgentMeta]:
+        """List metadata for all stored agent specs."""
+        agents_dir = _agents_dir(self._base_dir)
+        if not agents_dir.exists():
+            return []
+
+        results: list[AgentMeta] = []
+        for entry in sorted(agents_dir.iterdir()):
+            if not entry.is_dir():
+                continue
+            yaml_path = entry / "agent.yaml"
+            if not yaml_path.exists():
+                continue
+            try:
+                raw = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+                metadata = raw.get("metadata", {})
+                results.append(
+                    AgentMeta(
+                        name=metadata.get("name", entry.name),
+                        version=metadata.get("version", "1.0.0"),
+                        description=metadata.get("description", ""),
+                        tags=metadata.get("tags", []),
+                    )
+                )
+            except Exception:
+                logger.warning(
+                    "Skipping malformed agent spec at %s", yaml_path, exc_info=True,
+                )
+        return results
+
+    async def delete_agent_spec(self, name: str) -> bool:
+        """Delete an agent spec directory.  Returns True if it existed."""
+        import shutil
+
+        agent_dir = _agent_dir(self._base_dir, name)
+        if not agent_dir.exists():
+            return False
+
+        shutil.rmtree(agent_dir)
+        logger.debug("Deleted agent spec '%s' at %s", name, agent_dir)
+        return True

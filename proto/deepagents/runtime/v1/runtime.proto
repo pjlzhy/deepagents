@@ -1,0 +1,386 @@
+﻿// Agent OS Runtime Protocol
+//
+// Defines the gRPC interface between Control Plane and Data Plane.
+// This is the ONLY communication boundary between the two layers.
+//
+// Two services:
+//   AgentExecutor  - bidirectional streaming for agent execution + HITL
+//   ResourceSync   - unary RPCs for syncing rich AgentSpecs and runtime directives
+
+syntax = "proto3";
+
+package deepagents.runtime.v1;
+
+option java_package = "com.deepagents.runtime.v1";
+option go_package = "deepagents/runtime/v1;runtimev1";
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
+//  Service 1: AgentExecutor
+//
+//  Bidirectional streaming RPC for agent execution.
+//  Client = Control Plane (sends control messages)
+//  Server = Data Plane   (streams agent events)
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
+
+service AgentExecutor {
+  // Run an agent with bidirectional streaming.
+  //
+  // Protocol:
+  //   1. Client sends RunRequest as the first ClientMessage
+  //   2. Server streams AgentEvents (text, tool calls, etc.)
+  //   3. If HITL is triggered, server sends HITLRequest and pauses
+  //   4. Client sends HITLDecision, server resumes
+  //   5. Client may send CancelRequest at any time
+  //   6. Stream ends with RunEnded or ErrorOccurred
+  rpc Run(stream ClientMessage) returns (stream AgentEvent);
+}
+
+
+// 鈹€鈹€ Client 鈫?Server messages 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+
+message ClientMessage {
+  oneof payload {
+    RunRequest    run_request   = 1;
+    HITLDecision  hitl_decision = 2;
+    CancelRequest cancel        = 3;
+  }
+}
+
+// Initial request to start agent execution.
+message RunRequest {
+  // Agent name (must exist in data plane's local registry).
+  string agent_name = 1;
+
+  // User message / prompt.
+  string message = 2;
+
+  // Optional: resume an existing conversation thread.
+  // If empty, a new thread is created.
+  string thread_id = 3;
+
+  // Optional: caller-defined metadata (passed through to events).
+  map<string, string> metadata = 4;
+}
+
+// Client's response to an HITL interrupt.
+message HITLDecision {
+  // Must match the interrupt_id from the corresponding HITLRequest.
+  string interrupt_id = 1;
+
+  // One decision per action_request in the HITLRequest.
+  repeated ToolDecision decisions = 2;
+}
+
+message ToolDecision {
+  // Tool call ID from the original action request.
+  string tool_call_id = 1;
+
+  // Whether to approve this tool call.
+  bool approved = 2;
+
+  // Reason for rejection (only used when approved = false).
+  string reason = 3;
+}
+
+// Request to cancel the current execution.
+message CancelRequest {
+  string reason = 1;
+}
+
+
+// 鈹€鈹€ Server 鈫?Client messages 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+
+message AgentEvent {
+  // Unique identifier for this execution run.
+  string run_id = 1;
+
+  // Agent name that produced this event.
+  string agent_name = 2;
+
+  // When this event was created.
+  google.protobuf.Timestamp timestamp = 3;
+
+  oneof payload {
+    RunStarted    run_started     = 10;
+    TextDelta     text_delta      = 11;
+    TextDone      text_done       = 12;
+    ToolCallStart tool_call_start = 13;
+    ToolCallDone  tool_call_done  = 14;
+    ToolResult    tool_result     = 15;
+    HITLRequest   hitl_request    = 16;
+    RunEnded      run_ended       = 17;
+    ErrorOccurred error           = 18;
+  }
+}
+
+// Agent execution has started.
+message RunStarted {
+  // The thread_id for this run (may be newly generated).
+  string thread_id = 1;
+}
+
+// Incremental text token(s) from the LLM.
+message TextDelta {
+  string text = 1;
+}
+
+// Full assembled text after all deltas.
+// Sent once when the LLM finishes its response.
+message TextDone {
+  string text = 1;
+}
+
+// Agent is initiating a tool call.
+message ToolCallStart {
+  string tool_name    = 1;
+  string tool_call_id = 2;
+  // Tool arguments (may be partial during streaming).
+  google.protobuf.Struct args = 3;
+}
+
+// Tool call execution completed (before result is available).
+message ToolCallDone {
+  string tool_name    = 1;
+  string tool_call_id = 2;
+}
+
+// Result of a tool execution.
+message ToolResult {
+  string tool_call_id = 1;
+  string content      = 2;
+  bool   is_error     = 3;
+}
+
+// Human-in-the-loop approval request.
+// Agent is PAUSED until the client sends a corresponding HITLDecision.
+message HITLRequest {
+  // Unique interrupt identifier.
+  string interrupt_id = 1;
+
+  // Tool calls awaiting approval.
+  repeated ActionRequest action_requests = 2;
+}
+
+// A single tool call that needs human approval.
+message ActionRequest {
+  // Tool name (e.g., "execute", "write_file").
+  string action = 1;
+
+  // Unique tool call ID.
+  string tool_call_id = 2;
+
+  // Proposed arguments.
+  google.protobuf.Struct args = 3;
+}
+
+// Agent execution completed normally.
+message RunEnded {
+  UsageStats stats = 1;
+}
+
+// Token usage and timing statistics.
+message UsageStats {
+  int32 request_count     = 1;
+  int32 input_tokens      = 2;
+  int32 output_tokens     = 3;
+  float wall_time_seconds = 4;
+}
+
+// An error occurred during execution.
+message ErrorOccurred {
+  string message    = 1;
+  string error_type = 2;
+}
+
+
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
+//  Service 2: ResourceSync
+//
+//  Unary RPCs for syncing runtime-ready inputs from Control Plane to Data Plane.
+//  The control plane owns registry CRUD and packaging.
+//  The data plane consumes rich AgentSpecs and runtime directives for
+//  assembly, execution, and local runtime state management.
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
+
+service ResourceSync {
+  // Compatibility RPC for older callers that sync skills separately.
+  rpc SyncSkill(SyncSkillRequest) returns (SyncResponse);
+
+  // Compatibility RPC for older callers that sync MCP configs separately.
+  rpc SyncMcp(SyncMcpRequest) returns (SyncResponse);
+
+  // Push a rich agent spec to the data plane.
+  rpc SyncAgentSpec(SyncAgentSpecRequest) returns (SyncResponse);
+
+  // Trigger agent assembly on the data plane.
+  // Prerequisite: the target AgentSpec must already be synced.
+  rpc Assemble(AssembleRequest) returns (AssembleResponse);
+
+  // Remove a synced runtime resource or cached spec from the data plane.
+  rpc RemoveResource(RemoveResourceRequest) returns (SyncResponse);
+
+  // Health check / readiness probe.
+  rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+
+// 鈹€鈹€ Skill sync 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+
+message SyncSkillRequest {
+  string name        = 1;
+  string content     = 2;  // full skill markdown content
+  string description = 3;
+  repeated string tags = 4;
+}
+
+// 鈹€鈹€ MCP sync 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+
+message SyncMcpRequest {
+  string name    = 1;
+  string command = 2;
+  repeated string args = 3;
+  map<string, string> env = 4;
+  string description = 5;
+}
+
+// 鈹€鈹€ AgentSpec sync 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+
+message SyncAgentSpecRequest {
+  string name        = 1;
+  string version     = 2;
+  string description = 3;
+  repeated string tags = 4;
+
+  // Model specification (provider:model format).
+  string model = 5;
+
+  // Prompt configuration.
+  PromptSpec prompt = 6;
+
+  // Skills with embedded content (full SKILL.md).
+  repeated SkillContent skills = 7;
+
+  // Tools configuration.
+  ToolsSpec tools = 8;
+
+  // Structured subagent definitions.
+  repeated SubagentSpec subagents = 9;
+
+  // Sandbox configuration.
+  SandboxSpec sandbox = 10;
+
+  // Tool names that require HITL approval.
+  repeated string interrupt_on = 11;
+
+  // Fields 12, 13 removed 鈥?meta_dir/workspace are managed by data plane.
+  reserved 12, 13;
+  reserved "meta_dir", "workspace";
+
+  // MCP server configurations.
+  repeated McpServerConfig mcp_servers = 14;
+
+  // Extended model configuration (optional, overrides `model` string).
+  ModelConfig model_config = 16;
+}
+
+// Structured subagent definition.
+message SubagentSpec {
+  string name         = 1;
+  string description  = 2;
+  string system_prompt = 3;
+  string model        = 4;  // optional, provider:model format
+  string source       = 5;  // "user" or "project"
+  string path         = 6;  // path to definition file
+}
+
+// MCP server connection configuration.
+message McpServerConfig {
+  string name      = 1;
+  string command   = 2;
+  repeated string args = 3;
+  map<string, string> env = 4;
+  string transport   = 5;  // "stdio", "sse", "http", "streamable_http"
+  string description = 6;
+}
+
+message PromptSpec {
+  string system = 1;
+  repeated string memory = 2;  // file paths or content references
+}
+
+message ToolsSpec {
+  repeated string builtins = 1;  // built-in middleware tools
+  repeated string mcp      = 2;  // MCP server names
+}
+
+message SandboxSpec {
+  string image = 1;
+  map<string, string> resources = 2;  // e.g., {"cpu": "2", "memory": "2Gi"}
+  repeated string init = 3;           // initialization commands
+}
+
+// Skill content embedded in an agent spec.
+message SkillContent {
+  string name    = 1;  // skill directory name (e.g., "web-research")
+  string content = 2;  // full SKILL.md content (YAML frontmatter + markdown body)
+}
+
+// Extended model configuration.
+message ModelConfig {
+  string provider    = 1;  // e.g., "anthropic", "openai"
+  string model       = 2;  // e.g., "claude-sonnet-4-5", "gpt-4o"
+  string base_url    = 3;  // optional custom API endpoint
+  string api_key     = 4;  // optional direct API key
+  string api_key_env = 5;  // optional env var name containing API key
+  map<string, string> extra_params = 6;  // additional provider-specific params
+}
+
+
+// 鈹€鈹€ Assembly 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+
+message AssembleRequest {
+  // Agent name to assemble (must be synced first).
+  string agent_name = 1;
+}
+
+message AssembleResponse {
+  bool   ok      = 1;
+  string message = 2;
+  string status  = 3;  // "assembled" on success
+}
+
+
+// 鈹€鈹€ Resource removal 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+
+message RemoveResourceRequest {
+  // Resource type: "skill", "mcp", or "agent_spec".
+  string resource_type = 1;
+  string name          = 2;
+}
+
+
+// 鈹€鈹€ Common responses 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+
+message SyncResponse {
+  bool   ok      = 1;
+  string message = 2;
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  // "ok", "degraded", or "unhealthy".
+  string status = 1;
+
+  // Number of assembled agents ready for execution.
+  int32 assembled_agent_count = 2;
+
+  // Data plane uptime in seconds.
+  float uptime_seconds = 3;
+}
+
+
