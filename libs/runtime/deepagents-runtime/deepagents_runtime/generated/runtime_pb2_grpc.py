@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-import runtime_pb2 as deepagents_dot_runtime_dot_v1_dot_runtime__pb2
+import runtime_pb2 as runtime__pb2
 
 GRPC_GENERATED_VERSION = '1.78.0'
 GRPC_VERSION = grpc.__version__
@@ -18,7 +18,7 @@ except ImportError:
 if _version_not_supported:
     raise RuntimeError(
         f'The grpc package installed is at version {GRPC_VERSION},'
-        + ' but the generated code in deepagents/runtime/v1/runtime_pb2_grpc.py depends on'
+        + ' but the generated code in runtime_pb2_grpc.py depends on'
         + f' grpcio>={GRPC_GENERATED_VERSION}.'
         + f' Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}'
         + f' or downgrade your generated code using grpcio-tools<={GRPC_VERSION}.'
@@ -26,13 +26,13 @@ if _version_not_supported:
 
 
 class AgentExecutorStub(object):
-    """═══════════════════════════════════════════════════════════════════
+    """鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
     Service 1: AgentExecutor
 
     Bidirectional streaming RPC for agent execution.
     Client = Control Plane (sends control messages)
     Server = Data Plane   (streams agent events)
-    ═══════════════════════════════════════════════════════════════════
+    鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 
     """
 
@@ -44,19 +44,19 @@ class AgentExecutorStub(object):
         """
         self.Run = channel.stream_stream(
                 '/deepagents.runtime.v1.AgentExecutor/Run',
-                request_serializer=deepagents_dot_runtime_dot_v1_dot_runtime__pb2.ClientMessage.SerializeToString,
-                response_deserializer=deepagents_dot_runtime_dot_v1_dot_runtime__pb2.AgentEvent.FromString,
+                request_serializer=runtime__pb2.ClientMessage.SerializeToString,
+                response_deserializer=runtime__pb2.AgentEvent.FromString,
                 _registered_method=True)
 
 
 class AgentExecutorServicer(object):
-    """═══════════════════════════════════════════════════════════════════
+    """鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
     Service 1: AgentExecutor
 
     Bidirectional streaming RPC for agent execution.
     Client = Control Plane (sends control messages)
     Server = Data Plane   (streams agent events)
-    ═══════════════════════════════════════════════════════════════════
+    鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 
     """
 
@@ -69,7 +69,7 @@ class AgentExecutorServicer(object):
         3. If HITL is triggered, server sends HITLRequest and pauses
         4. Client sends HITLDecision, server resumes
         5. Client may send CancelRequest at any time
-        6. Stream ends with RunEnded or ErrorOccurred
+        6. Stream ends with RunEnded, RunCanceled, or ErrorOccurred
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -80,8 +80,8 @@ def add_AgentExecutorServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'Run': grpc.stream_stream_rpc_method_handler(
                     servicer.Run,
-                    request_deserializer=deepagents_dot_runtime_dot_v1_dot_runtime__pb2.ClientMessage.FromString,
-                    response_serializer=deepagents_dot_runtime_dot_v1_dot_runtime__pb2.AgentEvent.SerializeToString,
+                    request_deserializer=runtime__pb2.ClientMessage.FromString,
+                    response_serializer=runtime__pb2.AgentEvent.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -92,13 +92,13 @@ def add_AgentExecutorServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class AgentExecutor(object):
-    """═══════════════════════════════════════════════════════════════════
+    """鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
     Service 1: AgentExecutor
 
     Bidirectional streaming RPC for agent execution.
     Client = Control Plane (sends control messages)
     Server = Data Plane   (streams agent events)
-    ═══════════════════════════════════════════════════════════════════
+    鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 
     """
 
@@ -117,8 +117,8 @@ class AgentExecutor(object):
             request_iterator,
             target,
             '/deepagents.runtime.v1.AgentExecutor/Run',
-            deepagents_dot_runtime_dot_v1_dot_runtime__pb2.ClientMessage.SerializeToString,
-            deepagents_dot_runtime_dot_v1_dot_runtime__pb2.AgentEvent.FromString,
+            runtime__pb2.ClientMessage.SerializeToString,
+            runtime__pb2.AgentEvent.FromString,
             options,
             channel_credentials,
             insecure,
@@ -131,13 +131,14 @@ class AgentExecutor(object):
 
 
 class ResourceSyncStub(object):
-    """═══════════════════════════════════════════════════════════════════
+    """鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
     Service 2: ResourceSync
 
-    Unary RPCs for pushing resources from Control Plane to Data Plane.
-    The data plane maintains a local file-system registry; these RPCs
-    populate it before agent assembly/execution.
-    ═══════════════════════════════════════════════════════════════════
+    Unary RPCs for syncing runtime-ready inputs from Control Plane to Data Plane.
+    The control plane owns registry CRUD and packaging.
+    The data plane consumes rich AgentSpecs and runtime directives for
+    assembly, execution, and local runtime state management.
+    鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 
     """
 
@@ -149,63 +150,64 @@ class ResourceSyncStub(object):
         """
         self.SyncSkill = channel.unary_unary(
                 '/deepagents.runtime.v1.ResourceSync/SyncSkill',
-                request_serializer=deepagents_dot_runtime_dot_v1_dot_runtime__pb2.SyncSkillRequest.SerializeToString,
-                response_deserializer=deepagents_dot_runtime_dot_v1_dot_runtime__pb2.SyncResponse.FromString,
+                request_serializer=runtime__pb2.SyncSkillRequest.SerializeToString,
+                response_deserializer=runtime__pb2.SyncResponse.FromString,
                 _registered_method=True)
         self.SyncMcp = channel.unary_unary(
                 '/deepagents.runtime.v1.ResourceSync/SyncMcp',
-                request_serializer=deepagents_dot_runtime_dot_v1_dot_runtime__pb2.SyncMcpRequest.SerializeToString,
-                response_deserializer=deepagents_dot_runtime_dot_v1_dot_runtime__pb2.SyncResponse.FromString,
+                request_serializer=runtime__pb2.SyncMcpRequest.SerializeToString,
+                response_deserializer=runtime__pb2.SyncResponse.FromString,
                 _registered_method=True)
         self.SyncAgentSpec = channel.unary_unary(
                 '/deepagents.runtime.v1.ResourceSync/SyncAgentSpec',
-                request_serializer=deepagents_dot_runtime_dot_v1_dot_runtime__pb2.SyncAgentSpecRequest.SerializeToString,
-                response_deserializer=deepagents_dot_runtime_dot_v1_dot_runtime__pb2.SyncResponse.FromString,
+                request_serializer=runtime__pb2.SyncAgentSpecRequest.SerializeToString,
+                response_deserializer=runtime__pb2.SyncResponse.FromString,
                 _registered_method=True)
         self.Assemble = channel.unary_unary(
                 '/deepagents.runtime.v1.ResourceSync/Assemble',
-                request_serializer=deepagents_dot_runtime_dot_v1_dot_runtime__pb2.AssembleRequest.SerializeToString,
-                response_deserializer=deepagents_dot_runtime_dot_v1_dot_runtime__pb2.AssembleResponse.FromString,
+                request_serializer=runtime__pb2.AssembleRequest.SerializeToString,
+                response_deserializer=runtime__pb2.AssembleResponse.FromString,
                 _registered_method=True)
         self.RemoveResource = channel.unary_unary(
                 '/deepagents.runtime.v1.ResourceSync/RemoveResource',
-                request_serializer=deepagents_dot_runtime_dot_v1_dot_runtime__pb2.RemoveResourceRequest.SerializeToString,
-                response_deserializer=deepagents_dot_runtime_dot_v1_dot_runtime__pb2.SyncResponse.FromString,
+                request_serializer=runtime__pb2.RemoveResourceRequest.SerializeToString,
+                response_deserializer=runtime__pb2.SyncResponse.FromString,
                 _registered_method=True)
         self.Health = channel.unary_unary(
                 '/deepagents.runtime.v1.ResourceSync/Health',
-                request_serializer=deepagents_dot_runtime_dot_v1_dot_runtime__pb2.HealthRequest.SerializeToString,
-                response_deserializer=deepagents_dot_runtime_dot_v1_dot_runtime__pb2.HealthResponse.FromString,
+                request_serializer=runtime__pb2.HealthRequest.SerializeToString,
+                response_deserializer=runtime__pb2.HealthResponse.FromString,
                 _registered_method=True)
 
 
 class ResourceSyncServicer(object):
-    """═══════════════════════════════════════════════════════════════════
+    """鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
     Service 2: ResourceSync
 
-    Unary RPCs for pushing resources from Control Plane to Data Plane.
-    The data plane maintains a local file-system registry; these RPCs
-    populate it before agent assembly/execution.
-    ═══════════════════════════════════════════════════════════════════
+    Unary RPCs for syncing runtime-ready inputs from Control Plane to Data Plane.
+    The control plane owns registry CRUD and packaging.
+    The data plane consumes rich AgentSpecs and runtime directives for
+    assembly, execution, and local runtime state management.
+    鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 
     """
 
     def SyncSkill(self, request, context):
-        """Push a skill to the data plane's local registry.
+        """Compatibility RPC for older callers that sync skills separately.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def SyncMcp(self, request, context):
-        """Push an MCP server config to the data plane's local registry.
+        """Compatibility RPC for older callers that sync MCP configs separately.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def SyncAgentSpec(self, request, context):
-        """Push an agent spec to the data plane's local registry.
+        """Push a rich agent spec to the data plane.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -213,14 +215,14 @@ class ResourceSyncServicer(object):
 
     def Assemble(self, request, context):
         """Trigger agent assembly on the data plane.
-        Prerequisite: all referenced skills/mcps/specs must be synced first.
+        Prerequisite: the target AgentSpec must already be synced.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def RemoveResource(self, request, context):
-        """Remove a synced resource from the data plane's local registry.
+        """Remove a synced runtime resource or cached spec from the data plane.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -238,33 +240,33 @@ def add_ResourceSyncServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'SyncSkill': grpc.unary_unary_rpc_method_handler(
                     servicer.SyncSkill,
-                    request_deserializer=deepagents_dot_runtime_dot_v1_dot_runtime__pb2.SyncSkillRequest.FromString,
-                    response_serializer=deepagents_dot_runtime_dot_v1_dot_runtime__pb2.SyncResponse.SerializeToString,
+                    request_deserializer=runtime__pb2.SyncSkillRequest.FromString,
+                    response_serializer=runtime__pb2.SyncResponse.SerializeToString,
             ),
             'SyncMcp': grpc.unary_unary_rpc_method_handler(
                     servicer.SyncMcp,
-                    request_deserializer=deepagents_dot_runtime_dot_v1_dot_runtime__pb2.SyncMcpRequest.FromString,
-                    response_serializer=deepagents_dot_runtime_dot_v1_dot_runtime__pb2.SyncResponse.SerializeToString,
+                    request_deserializer=runtime__pb2.SyncMcpRequest.FromString,
+                    response_serializer=runtime__pb2.SyncResponse.SerializeToString,
             ),
             'SyncAgentSpec': grpc.unary_unary_rpc_method_handler(
                     servicer.SyncAgentSpec,
-                    request_deserializer=deepagents_dot_runtime_dot_v1_dot_runtime__pb2.SyncAgentSpecRequest.FromString,
-                    response_serializer=deepagents_dot_runtime_dot_v1_dot_runtime__pb2.SyncResponse.SerializeToString,
+                    request_deserializer=runtime__pb2.SyncAgentSpecRequest.FromString,
+                    response_serializer=runtime__pb2.SyncResponse.SerializeToString,
             ),
             'Assemble': grpc.unary_unary_rpc_method_handler(
                     servicer.Assemble,
-                    request_deserializer=deepagents_dot_runtime_dot_v1_dot_runtime__pb2.AssembleRequest.FromString,
-                    response_serializer=deepagents_dot_runtime_dot_v1_dot_runtime__pb2.AssembleResponse.SerializeToString,
+                    request_deserializer=runtime__pb2.AssembleRequest.FromString,
+                    response_serializer=runtime__pb2.AssembleResponse.SerializeToString,
             ),
             'RemoveResource': grpc.unary_unary_rpc_method_handler(
                     servicer.RemoveResource,
-                    request_deserializer=deepagents_dot_runtime_dot_v1_dot_runtime__pb2.RemoveResourceRequest.FromString,
-                    response_serializer=deepagents_dot_runtime_dot_v1_dot_runtime__pb2.SyncResponse.SerializeToString,
+                    request_deserializer=runtime__pb2.RemoveResourceRequest.FromString,
+                    response_serializer=runtime__pb2.SyncResponse.SerializeToString,
             ),
             'Health': grpc.unary_unary_rpc_method_handler(
                     servicer.Health,
-                    request_deserializer=deepagents_dot_runtime_dot_v1_dot_runtime__pb2.HealthRequest.FromString,
-                    response_serializer=deepagents_dot_runtime_dot_v1_dot_runtime__pb2.HealthResponse.SerializeToString,
+                    request_deserializer=runtime__pb2.HealthRequest.FromString,
+                    response_serializer=runtime__pb2.HealthResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -275,13 +277,14 @@ def add_ResourceSyncServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class ResourceSync(object):
-    """═══════════════════════════════════════════════════════════════════
+    """鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
     Service 2: ResourceSync
 
-    Unary RPCs for pushing resources from Control Plane to Data Plane.
-    The data plane maintains a local file-system registry; these RPCs
-    populate it before agent assembly/execution.
-    ═══════════════════════════════════════════════════════════════════
+    Unary RPCs for syncing runtime-ready inputs from Control Plane to Data Plane.
+    The control plane owns registry CRUD and packaging.
+    The data plane consumes rich AgentSpecs and runtime directives for
+    assembly, execution, and local runtime state management.
+    鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 
     """
 
@@ -300,8 +303,8 @@ class ResourceSync(object):
             request,
             target,
             '/deepagents.runtime.v1.ResourceSync/SyncSkill',
-            deepagents_dot_runtime_dot_v1_dot_runtime__pb2.SyncSkillRequest.SerializeToString,
-            deepagents_dot_runtime_dot_v1_dot_runtime__pb2.SyncResponse.FromString,
+            runtime__pb2.SyncSkillRequest.SerializeToString,
+            runtime__pb2.SyncResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -327,8 +330,8 @@ class ResourceSync(object):
             request,
             target,
             '/deepagents.runtime.v1.ResourceSync/SyncMcp',
-            deepagents_dot_runtime_dot_v1_dot_runtime__pb2.SyncMcpRequest.SerializeToString,
-            deepagents_dot_runtime_dot_v1_dot_runtime__pb2.SyncResponse.FromString,
+            runtime__pb2.SyncMcpRequest.SerializeToString,
+            runtime__pb2.SyncResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -354,8 +357,8 @@ class ResourceSync(object):
             request,
             target,
             '/deepagents.runtime.v1.ResourceSync/SyncAgentSpec',
-            deepagents_dot_runtime_dot_v1_dot_runtime__pb2.SyncAgentSpecRequest.SerializeToString,
-            deepagents_dot_runtime_dot_v1_dot_runtime__pb2.SyncResponse.FromString,
+            runtime__pb2.SyncAgentSpecRequest.SerializeToString,
+            runtime__pb2.SyncResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -381,8 +384,8 @@ class ResourceSync(object):
             request,
             target,
             '/deepagents.runtime.v1.ResourceSync/Assemble',
-            deepagents_dot_runtime_dot_v1_dot_runtime__pb2.AssembleRequest.SerializeToString,
-            deepagents_dot_runtime_dot_v1_dot_runtime__pb2.AssembleResponse.FromString,
+            runtime__pb2.AssembleRequest.SerializeToString,
+            runtime__pb2.AssembleResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -408,8 +411,8 @@ class ResourceSync(object):
             request,
             target,
             '/deepagents.runtime.v1.ResourceSync/RemoveResource',
-            deepagents_dot_runtime_dot_v1_dot_runtime__pb2.RemoveResourceRequest.SerializeToString,
-            deepagents_dot_runtime_dot_v1_dot_runtime__pb2.SyncResponse.FromString,
+            runtime__pb2.RemoveResourceRequest.SerializeToString,
+            runtime__pb2.SyncResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -435,8 +438,8 @@ class ResourceSync(object):
             request,
             target,
             '/deepagents.runtime.v1.ResourceSync/Health',
-            deepagents_dot_runtime_dot_v1_dot_runtime__pb2.HealthRequest.SerializeToString,
-            deepagents_dot_runtime_dot_v1_dot_runtime__pb2.HealthResponse.FromString,
+            runtime__pb2.HealthRequest.SerializeToString,
+            runtime__pb2.HealthResponse.FromString,
             options,
             channel_credentials,
             insecure,

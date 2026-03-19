@@ -2,9 +2,6 @@
 
 This module provides the serialization boundary between the internal
 RuntimeEvent dataclass and the gRPC AgentEvent / ClientMessage protobufs.
-
-The gRPC layer is purely a transport boundary -- RuntimeEvent and AgentEvent
-carry exactly the same information.
 """
 
 from __future__ import annotations
@@ -22,6 +19,7 @@ from deepagents_runtime.spec import (
     ModelConfigSpec,
     RuntimeEventType,
     SkillContentItem,
+    SkillFileSpec,
     SkillSpec,
     SubagentMetadata,
 )
@@ -36,8 +34,10 @@ def runtime_event_to_agent_event(event: RuntimeEvent) -> pb2.AgentEvent:
     """Convert a RuntimeEvent to a protobuf AgentEvent.
 
     Returns an ``AgentEvent`` message ready to be sent over gRPC.
-    Internal-only events (HITL_RESPONSE, STATS) are mapped to a
-    no-payload AgentEvent (caller should filter these out).
+
+    Raises:
+        ValueError: If the RuntimeEvent type is not part of the public
+            gRPC AgentEvent contract.
     """
     ts = timestamp_pb2.Timestamp()
     ts.FromSeconds(int(event.timestamp))
@@ -100,12 +100,18 @@ def runtime_event_to_agent_event(event: RuntimeEvent) -> pb2.AgentEvent:
                 wall_time_seconds=stats.get("wall_time_seconds", 0.0),
             ),
         )
+    elif event.type == RuntimeEventType.RUN_CANCELED:
+        kwargs["run_canceled"] = pb2.RunCanceled(
+            reason=event.data.get("reason", ""),
+        )
     elif event.type == RuntimeEventType.ERROR:
         kwargs["error"] = pb2.ErrorOccurred(
             message=event.data.get("message", ""),
             error_type=event.data.get("error_type", ""),
         )
-    # HITL_RESPONSE, STATS -- internal events, no proto payload
+    else:
+        msg = f"Unsupported RuntimeEventType for AgentEvent transport: {event.type}"
+        raise ValueError(msg)
 
     return pb2.AgentEvent(**kwargs)
 
@@ -124,6 +130,7 @@ _PROTO_FIELD_TO_EVENT_TYPE: dict[str, RuntimeEventType] = {
     "tool_result": RuntimeEventType.TOOL_RESULT,
     "hitl_request": RuntimeEventType.HITL_REQUEST,
     "run_ended": RuntimeEventType.RUN_END,
+    "run_canceled": RuntimeEventType.RUN_CANCELED,
     "error": RuntimeEventType.ERROR,
 }
 
@@ -218,6 +225,8 @@ def _extract_event_data(
                 }
             }
         return {"stats": {}}
+    elif event_type == RuntimeEventType.RUN_CANCELED:
+        return {"reason": payload.reason}
     elif event_type == RuntimeEventType.ERROR:
         return {
             "message": payload.message,
@@ -236,6 +245,10 @@ def sync_skill_request_to_skill_spec(msg: pb2.SyncSkillRequest) -> SkillSpec:
     return SkillSpec(
         name=msg.name,
         content=msg.content,
+        files=[
+            SkillFileSpec(path=file.path, content=file.content)
+            for file in msg.files
+        ],
         description=msg.description,
         tags=list(msg.tags),
     )
@@ -308,7 +321,16 @@ def sync_agent_spec_request_to_agent_spec(msg: pb2.SyncAgentSpecRequest) -> Agen
     # Parse skills (SkillContent messages → SkillContentItem)
     skills: list[SkillContentItem] = []
     for skill in msg.skills:
-        skills.append({"name": skill.name, "content": skill.content})
+        skill_item: SkillContentItem = {
+            "name": skill.name,
+            "content": skill.content,
+        }
+        if skill.files:
+            skill_item["files"] = [
+                {"path": file.path, "content": file.content}
+                for file in skill.files
+            ]
+        skills.append(skill_item)
 
     # Parse model_config
     model_config: ModelConfigSpec | None = None

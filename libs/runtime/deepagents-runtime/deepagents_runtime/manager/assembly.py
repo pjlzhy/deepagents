@@ -6,6 +6,7 @@ the spec and SDK, then builds a compiled LangGraph agent.
 
 from __future__ import annotations
 
+import importlib
 import logging
 import os
 from pathlib import Path
@@ -18,12 +19,108 @@ from langgraph.runtime import Runtime
 
 from deepagents_runtime.manager.registry import Registry
 from deepagents_runtime.models import ModelResult, create_model
-from deepagents_runtime.spec import AgentSpec, AgentTemplate
+from deepagents_runtime.spec import AgentSpec, AgentTemplate, MCPRuntime
 
 logger = logging.getLogger(__name__)
 
 REQUIRE_COMPACT_TOOL_APPROVAL: bool = True
 """When ``True``, ``compact_conversation`` requires HITL approval."""
+
+_COMMON_RUNTIME_WARMED = False
+_WARMED_MODEL_PROVIDERS: set[str] = set()
+_PROVIDER_IMPORTS = {
+    "anthropic": "langchain_anthropic",
+    "google_genai": "langchain_google_genai",
+    "google_vertexai": "langchain_google_vertexai",
+    "nvidia": "langchain_nvidia_ai_endpoints",
+    "openai": "langchain_openai",
+}
+
+
+def warm_runtime_dependencies(
+    *,
+    model_providers: frozenset[str] = frozenset(),
+) -> None:
+    """Preload heavy runtime dependencies to reduce first-assemble latency.
+
+    This is a best-effort warmup entrypoint used during service startup and
+    agent install. It keeps `assemble()` semantics unchanged while shifting
+    import costs out of the first request path.
+
+    Args:
+        model_providers: Optional provider set whose adapter packages should be
+            imported ahead of the first `create_model()` call.
+    """
+    global _COMMON_RUNTIME_WARMED
+
+    if not _COMMON_RUNTIME_WARMED:
+        from langchain.chat_models import init_chat_model
+
+        from deepagents.backends import CompositeBackend, FilesystemBackend, LocalShellBackend
+        from deepagents.graph import create_deep_agent
+        from deepagents.middleware.memory import MemoryMiddleware
+        from deepagents.middleware.skills import SkillsMiddleware
+        from deepagents.middleware.summarization import (
+            SummarizationToolMiddleware,
+            create_summarization_middleware,
+        )
+
+        _ = (
+            CompositeBackend,
+            FilesystemBackend,
+            LocalShellBackend,
+            MemoryMiddleware,
+            SkillsMiddleware,
+            SummarizationToolMiddleware,
+            create_deep_agent,
+            create_summarization_middleware,
+            init_chat_model,
+        )
+        _COMMON_RUNTIME_WARMED = True
+        logger.info("Runtime dependency warmup completed")
+
+    providers_to_warm = {
+        provider
+        for provider in model_providers
+        if provider and provider not in _WARMED_MODEL_PROVIDERS
+    }
+    for provider in sorted(providers_to_warm):
+        module_name = _PROVIDER_IMPORTS.get(provider)
+        _WARMED_MODEL_PROVIDERS.add(provider)
+        if module_name is None:
+            logger.debug(
+                "Skipping provider warmup for unknown model provider '%s'",
+                provider,
+            )
+            continue
+
+        try:
+            importlib.import_module(module_name)
+            logger.info("Model provider warmup completed for '%s'", provider)
+        except ImportError:
+            logger.debug(
+                "Skipping provider warmup for '%s'; optional package '%s' is not available",
+                provider,
+                module_name,
+                exc_info=True,
+            )
+
+
+def build_model_extra_kwargs(spec: AgentSpec) -> dict[str, Any]:
+    """Resolve model constructor kwargs from an agent spec."""
+    extra_kwargs: dict[str, Any] = {}
+    if spec.model_config:
+        if spec.model_config.get("base_url"):
+            extra_kwargs["base_url"] = spec.model_config["base_url"]
+        if spec.model_config.get("api_key"):
+            extra_kwargs["api_key"] = spec.model_config["api_key"]
+        elif spec.model_config.get("api_key_env"):
+            env_val = os.environ.get(spec.model_config["api_key_env"])
+            if env_val:
+                extra_kwargs["api_key"] = env_val
+        if spec.model_config.get("extra_params"):
+            extra_kwargs.update(spec.model_config["extra_params"])
+    return extra_kwargs
 
 # ---------------------------------------------------------------------------
 # Default system prompt (hardcoded)
@@ -396,7 +493,7 @@ async def assemble(
     *,
     checkpointer: Any = None,
     _assembling: frozenset[str] = frozenset(),
-) -> AgentTemplate:
+) -> tuple[AgentTemplate, MCPRuntime | None]:
     """Assemble an ``AgentSpec`` into an ``AgentTemplate``.
 
     Steps:
@@ -418,7 +515,8 @@ async def assemble(
             pass this parameter.
 
     Returns:
-        ``AgentTemplate`` ready for execution.
+        Tuple of ``(template, mcp_runtime)``. ``mcp_runtime`` is ``None``
+        when the agent has no MCP servers configured.
 
     Raises:
         ValueError: If a circular dependency is detected or a referenced
@@ -432,29 +530,23 @@ async def assemble(
             f"Chain: {' → '.join(_assembling)} → {spec.name}"
         )
         raise ValueError(msg)
-    assembling = _assembling | {spec.name}
-
     # ── 1. Create model ──
-    extra_kwargs: dict[str, Any] = {}
-    if spec.model_config:
-        if spec.model_config.get("base_url"):
-            extra_kwargs["base_url"] = spec.model_config["base_url"]
-        if spec.model_config.get("api_key"):
-            extra_kwargs["api_key"] = spec.model_config["api_key"]
-        elif spec.model_config.get("api_key_env"):
-            env_val = os.environ.get(spec.model_config["api_key_env"])
-            if env_val:
-                extra_kwargs["api_key"] = env_val
-        if spec.model_config.get("extra_params"):
-            extra_kwargs.update(spec.model_config["extra_params"])
+    extra_kwargs = build_model_extra_kwargs(spec)
     result = create_model(spec.model, extra_kwargs=extra_kwargs or None)
 
     # ── 2. Load MCP tools ──
-    from deepagents_runtime.mcp_tool import MCPSessionManager, load_mcp_tools_from_configs
+    from deepagents_runtime.mcp_tool import load_mcp_tools_from_configs
 
     mcp_tools, mcp_session_manager, mcp_server_infos = (
         await load_mcp_tools_from_configs(spec.mcp_servers)
     )
+    mcp_runtime = None
+    if mcp_session_manager is not None:
+        mcp_runtime = MCPRuntime(
+            session_manager=mcp_session_manager,
+            tools=list(mcp_tools),
+            server_infos=list(mcp_server_infos),
+        )
 
     tools: list[Any] = list(mcp_tools)
     if mcp_tools:
@@ -472,15 +564,30 @@ async def assemble(
         create_summarization_middleware,
     )
 
-    backend = LocalShellBackend(
+    fallback_backend = LocalShellBackend(
         root_dir=str(registry.workspace_dir(spec.name)),
         inherit_env=True,
+        virtual_mode=False,
     )
 
-    composite_backend = CompositeBackend(
-        default=backend,
-        routes={},
-    )
+    def runtime_backend_factory(tool_runtime: Any) -> Any:
+        """Resolve the backend for the current tool call.
+
+        When an invocation provides a leased sandbox backend via runtime
+        context, file and execute tools should use that backend. Otherwise
+        the assembled agent falls back to the workspace-local shell backend.
+        """
+        sandbox_backend = None
+        context = getattr(tool_runtime, "context", None)
+        if isinstance(context, dict):
+            sandbox_backend = context.get("sandbox_backend")
+        elif context is not None:
+            sandbox_backend = getattr(context, "sandbox_backend", None)
+
+        backend = sandbox_backend or fallback_backend
+        if isinstance(backend, CompositeBackend):
+            return backend
+        return CompositeBackend(default=backend, routes={})
 
     agent_middleware: list[Any] = []
 
@@ -503,7 +610,7 @@ async def assemble(
     # 手动摘要工具中间件，通过prompt调用工具触发
     agent_middleware.append(
         SummarizationToolMiddleware(
-            create_summarization_middleware(result.model, composite_backend)
+            create_summarization_middleware(result.model, runtime_backend_factory)
         )
     )
 
@@ -549,14 +656,17 @@ async def assemble(
         system_prompt=system_prompt,
         middleware=agent_middleware,
         subagents=custom_subagents if custom_subagents else None,
-        backend=composite_backend,
+        backend=runtime_backend_factory,
         interrupt_on=interrupt_on,
         checkpointer=checkpointer,
     )
 
-    return AgentTemplate(
-        graph=graph,
-        sandbox_spec=spec.sandbox or {},
-        mcp_configs=spec.mcp_servers,
-        resolved_spec=spec,
+    return (
+        AgentTemplate(
+            graph=graph,
+            sandbox_spec=spec.sandbox or {},
+            mcp_configs=spec.mcp_servers,
+            resolved_spec=spec,
+        ),
+        mcp_runtime,
     )

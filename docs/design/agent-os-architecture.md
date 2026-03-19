@@ -14,7 +14,7 @@ Agent OS treats AI agents the way an operating system treats processes. The plat
 | Executable | `AgentSpec` |
 | System calls | Backend and tool interfaces |
 | Shared libraries | Skills and MCP integrations |
-| Process manager | Control plane `AgentManager` |
+| Process manager | Control plane lifecycle manager + data plane `AgentManager` |
 | Kernel | `deepagents` SDK |
 
 ### 1.2 Prompt as Orchestration
@@ -46,8 +46,8 @@ Agent OS uses a unified separated architecture: control plane and data plane are
 | Control Plane             | <----------------> | Data Plane                |
 | deepagents-control        |                    | deepagents-runtime        |
 |                           |                    |                           |
-| Registry / packaging      |                    | Assembly / execution      |
-| Lifecycle / scheduling    |                    | Run-scoped resources      |
+| Registry / packaging      |                    | Compile / execution       |
+| Lifecycle / scheduling    |                    | Agent runtime / run leases|
 | Routing / external API    |                    | Session / checkpoint      |
 +---------------------------+                    +---------------------------+
 ```
@@ -86,6 +86,7 @@ The control plane is responsible for:
 - registry CRUD for skills, MCP configs, and agent definitions
 - workspace and shared-reference resolution
 - packaging runtime-ready agent inputs
+- install / compile / uninstall orchestration
 - lifecycle and status management
 - scheduling and routing
 - future external API exposure
@@ -95,9 +96,10 @@ The control plane is responsible for:
 The data plane is responsible for:
 
 - receiving rich `AgentSpec` inputs over gRPC
-- assembling `AgentTemplate` and executable graphs
+- compiling `AgentSpec` into runnable `AgentTemplate`
 - executing runs through a stable runtime entrypoint
-- managing run-scoped resources such as sandbox, MCP sessions, and checkpoints
+- managing agent-scoped runtime resources such as MCP runtime and sandbox owners
+- managing run-scoped resources such as sandbox leases, checkpoints, and execution context
 - exposing health and runtime status to the control plane
 
 ### 3.3 Communication Protocol
@@ -159,58 +161,51 @@ The exact packaging granularity is a control-plane concern. The data plane treat
 
 ---
 
-## 5. Agent Manager
+## 5. Lifecycle Model
 
-The `AgentManager` lives in the control plane and acts as the process manager for agents.
+The lifecycle is split into two layers: the agent lifecycle and the run lifecycle.
 
-### 5.1 Control Plane API
+### 5.1 Agent Lifecycle
 
-```python
-class AgentManager:
-    registry: Registry
-    grpc_client: RuntimeClient
-    scheduler: AsyncScheduler
-
-    async def define(self, spec: AgentSpec) -> None
-    async def assemble(self, name: str) -> None
-    async def start(self, name: str, config: RunConfig) -> None
-    async def stop(self, name: str) -> None
-    async def invoke(self, name: str, input: str) -> AsyncIterator[RuntimeEvent]
-    async def status(self, name: str) -> AgentStatus
-```
-
-### 5.2 Lifecycle
+The public agent lifecycle is:
 
 ```text
-defined -> assembled -> running -> stopped
+absent -> installed -> compiled(runnable) -> absent
 ```
 
-State meanings:
+Operation mapping:
 
-- `defined`: control plane has an authored or packaged agent definition
-- `assembled`: data plane has built an `AgentTemplate`
-- `running`: the agent is available for invocation
-- `stopped`: runtime resources are released
+- `SyncAgentSpec = install`
+- `Assemble = compile`
+- `Remove/Delete = uninstall`
 
-### 5.3 Runtime Constructs
+The internal runtime may still support an `unload` action that releases compiled resources while keeping the synced spec, but this should not be exposed as a public `stop` concept.
 
-Assembly produces a reusable `AgentTemplate`. Invocation produces a run-scoped `AgentRun`.
+### 5.2 Run Lifecycle
 
-```python
-@dataclass
-class AgentTemplate:
-    graph: CompiledGraph
-    sandbox_spec: SandboxSpec
-    mcp_configs: list[McpConfig]
-    resolved_spec: AgentSpec
+The public run lifecycle is:
 
-@dataclass
-class AgentRun:
-    template: AgentTemplate
-    sandbox: SandboxBackend | None
-    mcp_clients: list[McpClient]
-    session: Session | None
+```text
+created -> running -> ended | canceled | errored
 ```
+
+Operation mapping:
+
+- `Run = execute`
+- `CancelRequest = cancel current run`
+
+`cancel` applies only to the current execution stream. It is not a synonym for uninstalling or unloading an agent.
+
+### 5.3 Runtime Ownership
+
+The control plane owns registry CRUD, packaging, scheduling, and uninstall orchestration.
+
+The data plane `AgentManager` owns runtime resources:
+
+- compiled `AgentTemplate`
+- agent-scoped MCP runtime
+- agent-scoped sandbox owner / pool
+- active runs
 
 ---
 
@@ -240,7 +235,7 @@ Control Plane Registry / Workspace refs
     -> resolve + package
         -> rich AgentSpec
             -> SyncAgentSpec (gRPC)
-                -> Data Plane assemble():
+                -> Data Plane compile():
                     - resolve model
                     - build middleware from prompt / skills / memory / builtins
                     - attach mcp_servers metadata
@@ -277,7 +272,7 @@ High-level flow:
 3. Data plane streams `AgentEvent`
 4. If HITL is triggered, data plane sends `HITLRequest`
 5. Control plane sends `HITLDecision`
-6. Stream completes with `RunEnded` or `ErrorOccurred`
+6. Stream completes with `RunEnded`, `RunCanceled`, or `ErrorOccurred`
 
 ### 8.3 `ResourceSync`
 
@@ -285,13 +280,13 @@ High-level flow:
 
 ```text
 SyncSkill / SyncMcp    -> compatibility RPCs for older callers
-SyncAgentSpec          -> sync rich AgentSpec to data plane
-Assemble(agent_name)   -> build or refresh AgentTemplate
-RemoveResource(...)    -> remove local cached runtime state
+SyncAgentSpec          -> install rich AgentSpec into data plane
+Assemble(agent_name)   -> compile agent into runnable runtime
+RemoveResource(...)    -> uninstall synced resource or cached runtime state
 Health()               -> status / readiness check
 ```
 
-The primary sync path is `SyncAgentSpec` followed by `Assemble`.
+The primary path is `SyncAgentSpec -> Assemble -> Run`.
 
 ---
 
@@ -330,11 +325,11 @@ Workspaces group authored resources and agent entries. They are a control-plane 
 CLI / Caller
   -> Control Plane
       - lookup agent -> data plane endpoint
-      - ensure rich AgentSpec is synced and assembled
+      - ensure rich AgentSpec is installed and compiled
       - open AgentExecutor.Run stream
           -> Data Plane
-              - load assembled AgentTemplate
-              - prepare run-scoped resources
+              - load compiled AgentTemplate
+              - prepare agent-scoped runtime and run-scoped leases
               - execute graph
               - stream AgentEvents
               - cleanup run-scoped resources

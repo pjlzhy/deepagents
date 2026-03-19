@@ -35,7 +35,7 @@ service AgentExecutor {
   //   3. If HITL is triggered, server sends HITLRequest and pauses
   //   4. Client sends HITLDecision, server resumes
   //   5. Client may send CancelRequest at any time
-  //   6. Stream ends with RunEnded or ErrorOccurred
+  //   6. Stream ends with RunEnded, RunCanceled, or ErrorOccurred
   rpc Run(stream ClientMessage) returns (stream AgentEvent);
 }
 
@@ -62,7 +62,8 @@ message RunRequest {
   // If empty, a new thread is created.
   string thread_id = 3;
 
-  // Optional: caller-defined metadata (passed through to events).
+  // Optional: caller-defined metadata for future runtime directives.
+  // Currently accepted by the transport layer but not emitted in AgentEvent.
   map<string, string> metadata = 4;
 }
 
@@ -114,6 +115,7 @@ message AgentEvent {
     HITLRequest   hitl_request    = 16;
     RunEnded      run_ended       = 17;
     ErrorOccurred error           = 18;
+    RunCanceled   run_canceled    = 19;
   }
 }
 
@@ -182,6 +184,11 @@ message RunEnded {
   UsageStats stats = 1;
 }
 
+// Agent execution was canceled by the caller or runtime manager.
+message RunCanceled {
+  string reason = 1;
+}
+
 // Token usage and timing statistics.
 message UsageStats {
   int32 request_count     = 1;
@@ -232,9 +239,10 @@ service ResourceSync {
 
 message SyncSkillRequest {
   string name        = 1;
-  string content     = 2;  // full skill markdown content
+  string content     = 2;  // full SKILL.md content
   string description = 3;
   repeated string tags = 4;
+  repeated SkillFile files = 5;  // optional bundled files under the skill dir
 }
 
 // 鈹€鈹€ MCP sync 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
@@ -261,7 +269,7 @@ message SyncAgentSpecRequest {
   // Prompt configuration.
   PromptSpec prompt = 6;
 
-  // Skills with embedded content (full SKILL.md).
+  // Skills with embedded directory snapshots (SKILL.md + optional files).
   repeated SkillContent skills = 7;
 
   // Tools configuration.
@@ -323,10 +331,17 @@ message SandboxSpec {
   repeated string init = 3;           // initialization commands
 }
 
+// One additional file embedded in a skill directory snapshot.
+message SkillFile {
+  string path    = 1;  // relative path inside the skill dir
+  string content = 2;  // UTF-8 text content
+}
+
 // Skill content embedded in an agent spec.
 message SkillContent {
   string name    = 1;  // skill directory name (e.g., "web-research")
   string content = 2;  // full SKILL.md content (YAML frontmatter + markdown body)
+  repeated SkillFile files = 3;  // optional bundled files such as scripts/references
 }
 
 // Extended model configuration.
@@ -343,21 +358,21 @@ message ModelConfig {
 // 鈹€鈹€ Assembly 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 message AssembleRequest {
-  // Agent name to assemble (must be synced first).
+  // Agent name to compile (must be synced first).
   string agent_name = 1;
 }
 
 message AssembleResponse {
   bool   ok      = 1;
   string message = 2;
-  string status  = 3;  // "assembled" on success
+  string status  = 3;  // "compiled" on success
 }
 
 
 // 鈹€鈹€ Resource removal 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 message RemoveResourceRequest {
-  // Resource type: "skill", "mcp", or "agent_spec".
+  // Resource type: "agent" or "agent_spec".
   string resource_type = 1;
   string name          = 2;
 }
@@ -376,7 +391,7 @@ message HealthResponse {
   // "ok", "degraded", or "unhealthy".
   string status = 1;
 
-  // Number of assembled agents ready for execution.
+  // Number of compiled agents ready for execution.
   int32 assembled_agent_count = 2;
 
   // Data plane uptime in seconds.

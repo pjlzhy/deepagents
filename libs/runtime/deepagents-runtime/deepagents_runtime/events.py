@@ -104,12 +104,17 @@ def tool_result(
     tool_call_id: str,
     content: str,
     *,
+    is_error: bool = False,
     run_id: str = "",
     agent_name: str = "",
 ) -> RuntimeEvent:
     return RuntimeEvent(
         type=RuntimeEventType.TOOL_RESULT,
-        data={"tool_call_id": tool_call_id, "content": content},
+        data={
+            "tool_call_id": tool_call_id,
+            "content": content,
+            "is_error": is_error,
+        },
         run_id=run_id,
         agent_name=agent_name,
     )
@@ -128,21 +133,6 @@ def hitl_request(
             "interrupt_id": interrupt_id,
             "action_requests": action_requests,
         },
-        run_id=run_id,
-        agent_name=agent_name,
-    )
-
-
-def hitl_response(
-    interrupt_id: str,
-    decisions: list[dict[str, Any]],
-    *,
-    run_id: str = "",
-    agent_name: str = "",
-) -> RuntimeEvent:
-    return RuntimeEvent(
-        type=RuntimeEventType.HITL_RESPONSE,
-        data={"interrupt_id": interrupt_id, "decisions": decisions},
         run_id=run_id,
         agent_name=agent_name,
     )
@@ -168,6 +158,20 @@ def run_end(
     return RuntimeEvent(
         type=RuntimeEventType.RUN_END,
         data={"stats": stats or {}},
+        run_id=run_id,
+        agent_name=agent_name,
+    )
+
+
+def run_canceled(
+    reason: str,
+    *,
+    run_id: str = "",
+    agent_name: str = "",
+) -> RuntimeEvent:
+    return RuntimeEvent(
+        type=RuntimeEventType.RUN_CANCELED,
+        data={"reason": reason},
         run_id=run_id,
         agent_name=agent_name,
     )

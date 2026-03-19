@@ -39,7 +39,7 @@ class AgentExecutorServicer(runtime_pb2_grpc.AgentExecutorServicer):
 
     ``Run()`` is a bidirectional streaming RPC:
       - Client sends: ClientMessage (oneof: RunRequest | HITLDecision | CancelRequest)
-      - Server yields: AgentEvent stream (RunStarted → ... → RunEnded)
+      - Server yields: AgentEvent stream with a terminal RunEnded / RunCanceled / ErrorOccurred
     """
 
     def __init__(self, manager: AgentManager) -> None:
@@ -87,6 +87,7 @@ class AgentExecutorServicer(runtime_pb2_grpc.AgentExecutorServicer):
         # HITLDecision message via the bidirectional stream.
         hitl_decision_queue: asyncio.Queue[pb2.HITLDecision] = asyncio.Queue()
         cancel_event = asyncio.Event()
+        cancel_reason = "Run canceled by client"
 
         async def hitl_handler(request: dict[str, Any]) -> list[dict[str, Any]]:
             """HITL callback: await client decision (event already emitted)."""
@@ -110,12 +111,14 @@ class AgentExecutorServicer(runtime_pb2_grpc.AgentExecutorServicer):
         # ── 3. Background: read client messages ──
         async def read_client_messages() -> None:
             """Read HITLDecision and CancelRequest from client stream."""
+            nonlocal cancel_reason
             try:
                 async for msg in request_iterator:
                     msg: pb2.ClientMessage
                     if msg.HasField("hitl_decision"):
                         await hitl_decision_queue.put(msg.hitl_decision)
                     elif msg.HasField("cancel"):
+                        cancel_reason = msg.cancel.reason or "Run canceled by client"
                         cancel_event.set()
                         logger.info("Cancel requested for run %s", run_id)
                         break
@@ -131,36 +134,19 @@ class AgentExecutorServicer(runtime_pb2_grpc.AgentExecutorServicer):
                 run_config=RunConfig(
                     input=message,
                     thread_id=thread_id,
+                    run_id=run_id,
                 ),
                 hitl_handler=hitl_handler,
             ):
-
-
-            # managed = await self._manager._get_managed(agent_name)
-            # if managed.template is None:
-            #     await self._manager.assemble_agent(agent_name)
-            #
-            # assert managed.template is not None
-            # config = {"configurable": {"thread_id": thread_id}}
-            #
-            # async for event in run_agent_loop(
-            #     managed.template.graph,
-            #     message,
-            #     config=config,
-            #     hitl_handler=hitl_handler,
-            #     run_id=run_id,
-            #     agent_name=agent_name,
-            # ):
                 # Check for cancel
                 if cancel_event.is_set():
                     from deepagents_runtime import events as _ev
 
                     yield runtime_event_to_agent_event(
-                        _ev.error_event(
-                            "Run cancelled by client",
+                        _ev.run_canceled(
+                            cancel_reason,
                             run_id=run_id,
                             agent_name=agent_name,
-                            error_type="cancelled",
                         )
                     )
                     break
@@ -237,11 +223,11 @@ class ResourceSyncServicer(runtime_pb2_grpc.ResourceSyncServicer):
         request: pb2.SyncAgentSpecRequest,
         context: grpc.aio.ServicerContext,
     ) -> pb2.SyncResponse:
-        """Push an agent spec to the local registry."""
+        """Install an agent spec into the local runtime registry."""
         try:
             spec = sync_agent_spec_request_to_agent_spec(request)
             await self._manager.define_agent(spec)
-            return pb2.SyncResponse(ok=True, message=f"AgentSpec '{spec.name}' synced")
+            return pb2.SyncResponse(ok=True, message=f"AgentSpec '{spec.name}' installed")
         except Exception as e:
             logger.exception("SyncAgentSpec failed")
             return pb2.SyncResponse(ok=False, message=str(e))
@@ -251,14 +237,14 @@ class ResourceSyncServicer(runtime_pb2_grpc.ResourceSyncServicer):
         request: pb2.AssembleRequest,
         context: grpc.aio.ServicerContext,
     ) -> pb2.AssembleResponse:
-        """Trigger agent assembly on the data plane."""
+        """Compile an installed agent into runnable runtime resources."""
         agent_name = request.agent_name
         try:
             await self._manager.assemble_agent(agent_name)
             return pb2.AssembleResponse(
                 ok=True,
-                message=f"Agent '{agent_name}' assembled",
-                status="assembled",
+                message=f"Agent '{agent_name}' compiled",
+                status="compiled",
             )
         except KeyError as e:
             return pb2.AssembleResponse(
@@ -279,24 +265,25 @@ class ResourceSyncServicer(runtime_pb2_grpc.ResourceSyncServicer):
         request: pb2.RemoveResourceRequest,
         context: grpc.aio.ServicerContext,
     ) -> pb2.SyncResponse:
-        """Remove a synced resource from the local registry."""
+        """Uninstall a synced resource from the local runtime registry."""
         resource_type = request.resource_type
         name = request.name
 
         try:
-            registry = self._manager.registry
-            if resource_type == "agent_spec":
-                ok = await registry.delete_agent_spec(name)
+            if resource_type in {"agent", "agent_spec"}:
+                ok = await self._manager.remove_agent(name)
             else:
                 return pb2.SyncResponse(
                     ok=False,
                     message=(
                         f"Resource type '{resource_type}' is not supported. "
-                        "Only 'agent_spec' is supported."
+                        "Only 'agent' and 'agent_spec' are supported."
                     ),
                 )
-            msg = f"{resource_type} '{name}' removed" if ok else "Not found"
+            msg = f"Agent '{name}' uninstalled" if ok else "Not found"
             return pb2.SyncResponse(ok=ok, message=msg)
+        except RuntimeError as e:
+            return pb2.SyncResponse(ok=False, message=str(e))
         except Exception as e:
             logger.exception("RemoveResource failed")
             return pb2.SyncResponse(ok=False, message=str(e))
@@ -313,7 +300,7 @@ class ResourceSyncServicer(runtime_pb2_grpc.ResourceSyncServicer):
             agents = await self._manager.list_agents()
             assembled_count = sum(
                 1 for a in agents
-                if a.status in (AgentStatus.ASSEMBLED, AgentStatus.RUNNING)
+                if a.status in (AgentStatus.COMPILED, AgentStatus.RUNNING)
             )
             return pb2.HealthResponse(
                 status="ok",

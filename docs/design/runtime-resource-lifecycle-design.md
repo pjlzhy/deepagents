@@ -1,86 +1,111 @@
 # Runtime 资源生命周期设计
 
 > 状态：Draft
-> 最后更新：2026-03-18
+> 最后更新：2026-03-19
 > 范围：Phase 3 / Phase 4
 
 ## 1. 背景
 
-当前 data plane 已经完成了 Phase 3 的关键一步：gRPC `Run` 入口收敛到 `AgentManager.invoke()`，统一了 transport 层和 runtime 层的主调用路径。
+当前 data plane 已经完成了两项关键收敛：
 
-接下来的核心问题是：MCP 和 sandbox 应该由谁持有，它们的生命周期应该和什么对齐。
+- gRPC `Run` 入口统一走 `AgentManager.invoke()` 执行路径
+- `AgentEvent` 公共协议已经收敛为 `run_started / text_delta / text_done / tool_call_* / tool_result / hitl_request / run_ended / run_canceled / error`
 
-当前实现中已经暴露出两个约束：
+接下来的重点不再是单点补功能，而是把 **agent 生命周期** 和 **run 生命周期** 拆开讲清楚，并据此统一 MCP、sandbox、assembly、remove 等语义。
 
-- MCP 工具已经在 assembly 阶段加载，但对应的 session manager 没有被 `AgentManager` 持有
-- sandbox 虽然在 `AgentRun.setup()` 中被获取，但 graph 仍然在 assembly 阶段绑定到固定 backend，导致 sandbox 生命周期讨论尚未真正作用到执行面
+这次设计要解决的核心问题是：
 
-因此，Phase 4 的目标不是单纯“什么时候创建资源”，而是先明确 **owner、生命周期边界和运行时注入方式**。
+- `SyncAgentSpec`、`Assemble`、`Run`、`CancelRequest`、`RemoveResource` 各自到底代表什么动作
+- MCP 和 sandbox 到底跟 agent 对齐，还是跟 run 对齐
+- `stop_agent()` / `STOPPED` 这类中间语义是否应该继续作为 public 概念存在
 
 ## 2. 设计目标
 
 本设计的目标是：
 
-- 让 `AgentManager` 成为 runtime 资源的唯一 owner
+- 把 public 生命周期收敛成 `install / compile / execute / cancel / uninstall`
+- 让 `AgentManager` 成为 data plane runtime 资源的唯一 owner
 - 明确 agent 级资源与 run 级资源的边界
-- 让 `assemble_agent()`、`invoke()`、`stop_agent()`、`shutdown()` 之间的资源行为一致
-- 避免 transport 层直接持有 runtime 资源
-- 为后续 gRPC `stop` / `start` 管理接口预留清晰语义
+- 让 `assemble_agent()`、`invoke()`、`shutdown()`、`RemoveResource` 的资源行为一致
+- 去掉 `stop` 这类容易与 run cancel 混淆的 public 语义
 
 ## 3. 非目标
 
 本设计不处理以下事项：
 
-- control plane 的 registry CRUD 和 packaging 逻辑
+- control plane 的 registry CRUD 和 packaging 实现细节
 - `AgentSpec` 字段扩展本身
-- 外部 API 设计
+- 外部 northbound API 设计
 - K8s / Docker backend 的完整实现细节
 
-## 4. 当前问题
+## 4. 双层生命周期模型
 
-### 4.1 MCP 生命周期分裂
+本设计明确区分两条生命周期：
 
-当前存在两条并存路径：
+- `agent artifact lifecycle`
+- `run instance lifecycle`
 
-- assembly 阶段通过 `load_mcp_tools_from_configs()` 加载 live MCP tools
-- run 阶段通过 `AgentRun.setup()` 尝试创建 per-run MCP client
+两者相关，但不是一条状态机。
 
-问题在于：
+### 4.1 Agent 生命周期
 
-- assembly 阶段的 `MCPSessionManager` 没有被保存，也没有 cleanup
-- run 阶段的 `_start_mcp_client()` 仍然是 placeholder
-- 同一个 MCP 生命周期同时出现在 assembly 和 run 两个层级，owner 不明确
+agent 本体的 public 生命周期定义为：
 
-### 4.2 sandbox 生命周期尚未接入执行面
+```text
+absent -> installed -> compiled(runnable) -> installed -> absent
+```
 
-当前 `AgentRun.setup()` 会获取 sandbox，但 graph 在 assembly 阶段仍绑定到固定 backend。
+动作映射如下：
 
-这意味着：
+- `SyncAgentSpec = install`
+- `Assemble = compile`
+- `Remove/Delete = uninstall`
 
-- sandbox 已经被“创建”
-- 但运行时工具调用未必真正经过它
-- 生命周期模型还不能反映真实执行语义
+其中：
 
-### 4.3 agent 状态机不再适配新模型
+- `installed` 表示 spec 已经被同步到 data plane，可被管理，但尚未保证 runnable
+- `compiled` 表示 data plane 已经把该 agent 编译成可运行 runtime
+- 从 `compiled` 回到 `installed` 不是 public `stop`，而只是内部 `unload` 语义
+- `absent` 表示 data plane 中已不存在该 agent 的 spec 和 runtime
 
-如果 MCP 或 sandbox 变为 agent 级资源，单次 `invoke()` 结束后不应直接把 agent 状态设为 `STOPPED`。
+### 4.2 Run 生命周期
 
-Phase 4 之后更合理的状态语义应为：
+run 的 public 生命周期定义为：
 
-- `DEFINED`：存在 spec，但未装配 runtime 资源
-- `ASSEMBLED`：模板和 agent 级资源已就绪，可复用
-- `RUNNING`：当前存在一个或多个 active runs
-- `STOPPED`：显式 stop 后，agent 级 runtime 资源已释放
+```text
+created -> running -> ended | canceled | errored
+```
 
-## 5. 核心设计结论
+动作映射如下：
 
-### 5.1 `AgentManager` 是唯一资源 owner
+- `Run = execute`
+- `CancelRequest = cancel current run`
+
+这里的关键边界是：
+
+- `cancel` 只作用于当前 run
+- `uninstall` 作用于 agent 本体和其 runtime 资源
+- `cancel` 绝不是 `remove` / `delete` / `stop` 的别名
+
+### 4.3 `running` 是运行态叠加，不是 install 的替代品
+
+如果需要对外展示状态，建议把 `running` 理解为对 `compiled` 的运行态覆盖：
+
+- `installed`：已安装 spec，但当前不可直接执行
+- `compiled`：已编译，可直接执行
+- `running`：当前有一个或多个 active runs
+
+换句话说，`running` 是 runtime overlay，不应取代 `installed / compiled` 这条主生命周期。
+
+## 5. 资源 owner 与边界
+
+### 5.1 `AgentManager` 是唯一 runtime owner
 
 `AgentManager` 应该成为以下资源的唯一 owner：
 
-- assembled agent template
-- agent 级 MCP runtime
-- agent 级 sandbox factory / sandbox pool
+- compiled `AgentTemplate`
+- agent-scoped MCP runtime
+- agent-scoped sandbox owner / pool
 - active runs
 
 gRPC servicer 只负责：
@@ -90,75 +115,81 @@ gRPC servicer 只负责：
 - 调用 `AgentManager.invoke()`
 - 转发事件
 
-`AgentRun` 不再作为长生命周期资源 owner，而只表示一次调用上下文。
+control plane 只负责：
 
-### 5.2 MCP 默认与 assembled agent 生命周期对齐
+- registry CRUD
+- packaging
+- install / compile / uninstall 的调用编排
 
-MCP 建议默认采用 **agent-scoped** 生命周期：
+### 5.2 MCP 默认与 compiled agent 对齐
 
-- `assemble_agent()` 时创建 MCP runtime
+MCP 默认采用 **agent-scoped** 生命周期：
+
+- `Assemble` 时创建 MCP runtime
 - `ManagedAgent` 持有 MCP runtime
-- 每次 `invoke()` 直接复用已装配 agent 的 MCP tools / sessions
-- `stop_agent()` 或 `shutdown()` 时统一 cleanup
+- 每次 `invoke()` 复用同一个 compiled agent 的 MCP tools / sessions
+- `unload`、`uninstall` 或 `shutdown()` 时统一 cleanup
 
-这样做的原因是：
+原因如下：
 
-- 当前 assembly 已经在加载 MCP tools，方向上更接近 agent-scoped
+- 当前 assembly 已经在加载 MCP tools，天然更接近 compiled-agent scope
 - 可以避免每次 run 重启 MCP server
-- owner 明确，cleanup 位置清晰
-- 更适合构建 warm runtime
+- owner 和 cleanup 位置更清晰
+- 更适合 warm runtime
 
-### 5.3 sandbox 由 manager 管理，但默认不是 agent 共享单实例
+### 5.3 sandbox 由 manager 持有 owner，但默认按 run 租用实例
 
-sandbox 也应由 `AgentManager` 管理，但默认不建议与 agent 绑定为一个共享实例。
+sandbox 也由 `AgentManager` 管理，但默认不作为 agent 共享单实例。
 
 推荐模型是：
 
-- `assemble_agent()` 时初始化 sandbox strategy / factory / pool
-- `ManagedAgent` 持有 sandbox pool
+- `Assemble` 时初始化 sandbox factory / strategy / pool
+- `ManagedAgent` 持有 sandbox owner
 - `invoke()` 时按 run 获取 sandbox lease / instance
 - run 结束后释放 lease
-- `stop_agent()` 时销毁该 agent 对应的 sandbox pool 和 warm instances
+- `unload`、`uninstall` 或 `shutdown()` 时回收该 agent 对应的 sandbox owner 和 warm instances
 
 这意味着 sandbox 是：
 
 - **owner 在 agent 层**
 - **具体实例使用在 run 层**
 
-这是本设计推荐的默认模型。
+## 6. Public 语义与 internal 语义
 
-## 6. 为什么 MCP 和 sandbox 不完全对称
+### 6.1 不再引入 public `StopAgent`
 
-MCP 与 sandbox 都是 runtime 资源，但它们的共享语义不同。
+`StopAgent` 不应作为 public 语义继续扩散，原因是它会同时混淆三种不同动作：
 
-### 6.1 MCP 更适合 agent 级复用
+- cancel 当前 run
+- 卸载 compiled runtime
+- 删除 agent 本体
 
-MCP session 的价值在于：
+其中：
 
-- 避免重复启动 server
-- 复用连接和工具元数据
-- 降低装配后首次调用延迟
+- 取消当前 run 已由 `CancelRequest` 覆盖
+- 删除 agent 本体应该走 `Remove/Delete`
+- 仅释放 compiled runtime 如果仍有需要，应保留为内部 `unload_agent()`
 
-因此更适合跟 assembled agent 生命周期对齐。
+### 6.2 `stop_agent()` 只应被视为临时内部实现名
 
-### 6.2 sandbox 更适合 run 级租用
+如果代码里暂时仍保留 `stop_agent()`，它的正确理解也应该是：
 
-sandbox 如果默认作为 agent 单例，会带来以下问题：
+- **不是 cancel**
+- **不是 uninstall**
+- **只是 internal unload**
 
-- 多次 run 共享文件系统状态
-- 并发 run 相互污染
-- cancel / retry 后副作用难以推断
-- 很难保证不同 launch mode 的隔离性一致
+长期目标应是把它改名为更准确的内部能力：
 
-因此默认应该是“agent 级 owner + run 级 lease”，而不是“agent 级共享单实例”。
+- `unload_agent()`
+- 或 `release_agent_runtime()`
 
-## 7. 建议的运行时分层
+## 7. 运行时分层
 
 建议把 runtime 资源分为三层：
 
 ### 7.1 `AgentSpec` 层
 
-纯声明，不持有 live 资源。
+纯声明层，不持有 live 资源。
 
 包含：
 
@@ -166,7 +197,7 @@ sandbox 如果默认作为 agent 单例，会带来以下问题：
 - `mcp_configs`
 - prompt / memory / tools / subagents
 
-### 7.2 `ManagedAgent` / `AssembledAgent` 层
+### 7.2 `ManagedAgent` / compiled runtime 层
 
 长生命周期资源层，由 `AgentManager` 持有。
 
@@ -187,11 +218,10 @@ sandbox 如果默认作为 agent 单例，会带来以下问题：
 - `run_id`
 - `thread_id`
 - `sandbox_lease`
-- cancel token
 - hitl handler
 - run stats
 
-## 8. 建议的数据结构调整
+## 8. 数据结构建议
 
 ### 8.1 `ManagedAgent`
 
@@ -248,9 +278,9 @@ class AgentRun:
 
 `AgentRun` 只负责持有本次 run 的 sandbox lease 和上下文信息。
 
-## 9. 生命周期设计
+## 9. 动作语义
 
-### 9.1 `define_agent(spec)`
+### 9.1 `install = SyncAgentSpec`
 
 行为：
 
@@ -258,11 +288,11 @@ class AgentRun:
 - 创建或更新 `ManagedAgent`
 - 不创建 live runtime 资源
 
-结束状态：
+结束语义：
 
-- `DEFINED`
+- `installed`
 
-### 9.2 `assemble_agent(name)`
+### 9.2 `compile = Assemble`
 
 行为：
 
@@ -272,52 +302,76 @@ class AgentRun:
 4. 初始化 `sandbox_runtime`
 5. 将 runtime 资源挂到 `ManagedAgent`
 
-结束状态：
+结束语义：
 
-- `ASSEMBLED`
+- `compiled`
+- `runnable`
 
-### 9.3 `invoke(name, run_config)`
+### 9.3 `execute = Run`
 
 行为：
 
-1. 若未装配，则先 `assemble_agent()`
+1. 若未 compile，则先 compile
 2. 从 `sandbox_runtime.pool` 获取 sandbox lease
-3. 使用 assembled graph 执行 run
+3. 使用 compiled graph 执行 run
 4. MCP 直接复用 `ManagedAgent.mcp_runtime`
 5. run 结束后释放 sandbox lease
 
-状态变化：
+运行态变化：
 
-- `ASSEMBLED -> RUNNING`
-- 当 `active_run_count` 回到 `0` 时，恢复为 `ASSEMBLED`
+- `compiled -> running`
+- 当 `active_run_count` 回到 `0` 时，恢复为 `compiled`
 
-### 9.4 `stop_agent(name)`
+### 9.4 `cancel = CancelRequest`
 
 行为：
 
-1. 拒绝新的 run 进入
-2. 处理 active runs
-3. cleanup `mcp_runtime`
-4. shutdown `sandbox_runtime`
-5. 清空 `template`
+- 仅取消当前 `Run` 流对应的执行实例
+- 终态事件流结束于 `run_canceled`
+- 不删除 spec
+- 不释放 compiled agent runtime
 
-结束状态：
+### 9.5 `uninstall = Remove/Delete`
 
-- `STOPPED`
+行为：
 
-### 9.5 `shutdown()`
+1. 校验目标 agent 当前没有 active runs
+2. 清理 `mcp_runtime`
+3. 清理 `sandbox_runtime`
+4. 清理 `template`
+5. 删除 synced spec / runtime cache
+
+结束语义：
+
+- `absent`
+
+默认约束：
+
+- 有 active runs 时拒绝 uninstall
+- 后续如果要支持强制删除，再单独引入 `force`
+
+### 9.6 internal `unload`
+
+如仍需要“只释放 compiled runtime，但保留 spec”的能力，应视为内部动作：
+
+- `compiled -> installed`
+- 不暴露为 public `stop`
+- 仅用于 manager 内部资源管理或调试运维
+
+### 9.7 `shutdown()`
 
 行为：
 
 - 遍历所有 `ManagedAgent`
-- 统一关闭 assembled 级 runtime 资源
+- 统一关闭 compiled 级 runtime 资源
+- 清理 active runs
 - 关闭 checkpointer
 
 ## 10. 并发语义
 
 ### 10.1 MCP
 
-默认假设同一个 assembled agent 的 MCP runtime 可被多个 run 复用。
+默认假设同一个 compiled agent 的 MCP runtime 可被多个 run 复用。
 
 如果后续验证发现某些 MCP provider 不支持并发共享，则扩展方案为：
 
@@ -332,55 +386,54 @@ class AgentRun:
 
 不默认允许多个 run 共享同一个 concrete sandbox 实例。
 
-## 11. 与当前实现的收敛方向
+## 11. 与当前实现的映射关系
 
-### 11.1 先做的事
+当前代码中的术语与目标语义建议映射如下：
 
-建议优先顺序：
+| 当前实现 | 建议解释 | 说明 |
+|----------|----------|------|
+| `define_agent()` | `install` | 同步 spec，不创建 live runtime |
+| `assemble_agent()` | `compile` | 构建 runnable runtime |
+| `invoke()` | `execute` | 执行单次 run |
+| `CancelRequest` | `cancel current run` | 只影响当前执行流 |
+| `stop_agent()` | internal `unload` | 不应继续作为 public 语义 |
+| `RemoveResource` | `uninstall/delete` | 最终承担删除语义 |
 
-1. 删除或下线 `AgentRun._start_mcp_client()` 这条 placeholder 路径
-2. 让 `assemble_agent()` 真正持有 `MCPSessionManager`
-3. 在 `ManagedAgent` 上挂 `mcp_runtime` / `sandbox_runtime`
-4. 调整 `invoke()` 结束后的状态回落逻辑
-5. 新增 `stop_agent()`，先做 manager 内部 API，再考虑 gRPC 暴露
+状态枚举建议映射如下：
 
-### 11.2 必须先解决的前置问题
+| 当前状态 | 目标语义 | 备注 |
+|----------|----------|------|
+| `DEFINED` | `installed` | spec 已存在 |
+| `ASSEMBLED` | `compiled` / `runnable` | 已可执行 |
+| `RUNNING` | `running overlay` | active run 覆盖态 |
+| `STOPPED` | internal unloaded | 长期不建议作为 public 状态 |
 
-sandbox 生命周期要真正生效，必须先解决 graph backend 注入问题。
+## 12. 收敛顺序建议
 
-只要 graph 仍在 assembly 阶段绑定固定 `LocalShellBackend`，sandbox runtime 的生命周期设计就无法真实作用到工具执行。
+建议按以下顺序继续推进：
 
-因此，sandbox 部分的落地前提是：
-
-- graph 的 backend 能在 assembled agent 层或 run 层正确注入
-- 或 graph 能消费 manager 提供的 backend router / sandbox adapter
-
-## 12. `stop_agent()` 的语义建议
-
-虽然 gRPC 层暂未支持 stop，但 manager 层可以先定义该能力。
-
-建议语义如下：
-
-- `stop_agent()` 是显式释放 assembled 级资源的操作
-- 它不是“取消当前 run”的别名
-- 它释放的是：
-  - `mcp_runtime`
-  - `sandbox_runtime`
-  - `template`
-- 它保留的是：
-  - `spec`
-  - registry 中的 agent 定义
-
-后续若需要 gRPC 支持，可以再增加显式的 runtime 管理 RPC。
+1. 先统一文档语义，明确 `install / compile / execute / cancel / uninstall`
+2. 把 public 协议和外部术语中的 `stop` 全部收掉
+3. 将代码中的 `stop_agent()` 重命名为 `unload_agent()` 或等价内部名
+4. 让 `RemoveResource` 对 agent 场景明确承接 uninstall/delete 语义
+5. 统一 health / status 输出，不再把 `STOPPED` 当成产品态
 
 ## 13. 结论
 
-本设计的核心结论是：
+本设计的最终结论是：
 
-- `AgentManager` 是 MCP 和 sandbox 的唯一 owner
-- MCP 默认采用 **assembled agent scoped** 生命周期
+- `SyncAgentSpec = install`
+- `Assemble = compile`
+- `Run = execute`
+- `CancelRequest = cancel current run`
+- `Remove/Delete = uninstall`
+
+同时：
+
+- `AgentManager` 是 MCP 和 sandbox 的唯一 runtime owner
+- MCP 默认采用 **agent-scoped / compiled-agent-scoped** 生命周期
 - sandbox 默认采用 **agent-scoped owner + run-scoped lease** 生命周期
-- `AgentRun` 不再持有跨调用的 live 资源，只持有单次调用上下文
-- `stop_agent()` 负责释放 assembled 级 runtime 资源，并为未来的 gRPC 管理接口预留语义
+- `AgentRun` 只持有单次调用上下文，不持有跨 run 的 live 资源
+- `stop` 不再作为 public 生命周期概念继续扩散
 
-这套模型兼顾了 owner 清晰、资源复用、执行隔离和后续扩展性，是当前 runtime 进入 Phase 4 的推荐方向。
+这套模型把 public 语义、runtime owner、资源边界和执行协议统一到了同一条线上，是 Phase 4 后续实现和文档的基准口径。

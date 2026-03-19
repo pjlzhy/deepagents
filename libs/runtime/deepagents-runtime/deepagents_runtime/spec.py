@@ -9,19 +9,38 @@ from __future__ import annotations
 import enum
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Literal, NotRequired, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 
 # ──────────────────────────── Enums ────────────────────────────
 
 
 class AgentStatus(str, enum.Enum):
-    """Lifecycle states for a managed agent."""
+    """Lifecycle states for a managed agent.
 
-    DEFINED = "defined"
-    ASSEMBLED = "assembled"
+    Canonical public states:
+
+    - `INSTALLED`: agent spec exists in the data plane but no compiled runtime
+      is currently loaded
+    - `COMPILED`: agent has runnable runtime resources
+    - `RUNNING`: agent currently has one or more active runs
+
+    Compatibility aliases:
+
+    - `DEFINED` -> `INSTALLED`
+    - `ASSEMBLED` -> `COMPILED`
+    - `STOPPED` -> `INSTALLED`
+    """
+
+    INSTALLED = "installed"
+    COMPILED = "compiled"
     RUNNING = "running"
-    STOPPED = "stopped"
+
+    # Compatibility aliases. Keep these for older callers while the codebase
+    # converges on install/compile terminology.
+    DEFINED = "installed"
+    ASSEMBLED = "compiled"
+    STOPPED = "installed"
 
 
 class LaunchMode(str, enum.Enum):
@@ -41,22 +60,35 @@ class RuntimeEventType(str, enum.Enum):
     TOOL_CALL_DONE = "tool_call_done"
     TOOL_RESULT = "tool_result"
     HITL_REQUEST = "hitl_request"
-    HITL_RESPONSE = "hitl_response"
     RUN_START = "run_start"
     RUN_END = "run_end"
+    RUN_CANCELED = "run_canceled"
     ERROR = "error"
-    STATS = "stats"
 
 
 # ──────────────────── Resource Specs (Registry) ────────────────
 
 
 @dataclass(frozen=True)
+class SkillFileSpec:
+    """One file inside a skill directory snapshot."""
+
+    path: str
+    content: str
+
+
+@dataclass(frozen=True)
 class SkillSpec:
-    """A registered skill resource."""
+    """A registered skill resource.
+
+    `content` always maps to the root `SKILL.md` file.
+    `files` carries additional bundled files such as `scripts/`,
+    `references/`, or `assets/`.
+    """
 
     name: str
     content: str
+    files: list[SkillFileSpec] = field(default_factory=list)
     description: str = ""
     tags: list[str] = field(default_factory=list)
     created_at: datetime | None = None
@@ -119,14 +151,27 @@ class SubagentMetadata(TypedDict):
     """Path to the subagent definition file."""
 
 
+class SkillFileItem(TypedDict):
+    """One embedded file within a skill directory."""
+
+    path: str
+    """Relative path under the skill directory, e.g. `scripts/example.py`."""
+
+    content: str
+    """UTF-8 text content for the file."""
+
+
 class SkillContentItem(TypedDict):
-    """A skill with embedded content for injection into agent spec."""
+    """A skill directory snapshot embedded into an agent spec."""
 
     name: str
     """Skill directory name (e.g., 'web-research')."""
 
     content: str
     """Full SKILL.md content (YAML frontmatter + markdown body)."""
+
+    files: NotRequired[list[SkillFileItem]]
+    """Additional skill files such as `scripts/` or `references/`."""
 
 
 class ModelConfigSpec(TypedDict, total=False):
@@ -201,10 +246,20 @@ class AgentSpec:
         skills: list[SkillContentItem] = []
         for s_raw in spec.get("skills", []):
             if isinstance(s_raw, dict):
-                skills.append({
+                skill_item: SkillContentItem = {
                     "name": s_raw.get("name", ""),
                     "content": s_raw.get("content", ""),
-                })
+                }
+                files: list[SkillFileItem] = []
+                for f_raw in s_raw.get("files", []):
+                    if isinstance(f_raw, dict):
+                        files.append({
+                            "path": f_raw.get("path", ""),
+                            "content": f_raw.get("content", ""),
+                        })
+                if files:
+                    skill_item["files"] = files
+                skills.append(skill_item)
             elif isinstance(s_raw, str):
                 skills.append({"name": s_raw, "content": ""})
 
@@ -255,55 +310,66 @@ class AgentTemplate:
 
 
 @dataclass
+class MCPRuntime:
+    """Assembled agent scoped MCP runtime resources."""
+
+    session_manager: Any
+    tools: list[Any] = field(default_factory=list)
+    server_infos: list[Any] = field(default_factory=list)
+
+
+@dataclass
+class SandboxRuntime:
+    """Agent scoped sandbox runtime that leases backends per run."""
+
+    spec: SandboxSpec
+    pool: Any
+
+
+class AgentRuntimeContext(TypedDict, total=False):
+    """Invocation context propagated into the graph runtime."""
+
+    sandbox_backend: Any
+
+
+@dataclass
 class AgentRun:
-    """Per-invocation runtime context. Owns its own sandbox and MCP connections.
+    """Per-invocation runtime context.
 
     Lifecycle::
 
         run = AgentRun(template=template, run_id="abc", thread_id="t1")
-        await run.setup(sandbox_pool=pool)    # acquire sandbox, start MCPs
+        await run.setup(sandbox_pool=pool)    # acquire sandbox lease
         try:
             # ... execute agent loop ...
             pass
         finally:
-            await run.teardown(sandbox_pool=pool)  # release sandbox, close MCPs
+            await run.teardown(sandbox_pool=pool)  # release sandbox lease
     """
 
     template: AgentTemplate
+    agent_name: str = ""
     run_id: str = ""
     thread_id: str = ""
-    sandbox: Any = None  # SandboxBackendProtocol instance
-    mcp_clients: list[Any] = field(default_factory=list)
+    sandbox: Any = None  # Sandbox backend lease for this run
 
     async def setup(self, sandbox_pool: Any = None) -> None:
-        """Acquire per-run resources (sandbox, MCP clients).
+        """Acquire per-run resources.
 
         Args:
             sandbox_pool: Optional SandboxPool to acquire a sandbox from.
         """
-        # Acquire sandbox if spec requires one and pool is available
-        if sandbox_pool is not None and self.template.sandbox_spec:
+        if sandbox_pool is not None:
             self.sandbox = await sandbox_pool.acquire(self.template.sandbox_spec)
 
-        # Start MCP server processes and create client connections
-        for mcp_config in self.template.mcp_configs:
-            client = await _start_mcp_client(mcp_config)
-            if client is not None:
-                self.mcp_clients.append(client)
+    def runtime_context(self) -> AgentRuntimeContext:
+        """Build the graph runtime context for this run."""
+        if self.sandbox is None:
+            return {}
+        return {"sandbox_backend": self.sandbox}
 
     async def teardown(self, sandbox_pool: Any = None) -> None:
-        """Release per-run resources (sandbox, MCP clients)."""
-        # Close MCP clients
-        for client in self.mcp_clients:
-            try:
-                close = getattr(client, "close", None) or getattr(client, "cleanup", None)
-                if close and callable(close):
-                    await close()
-            except Exception:
-                pass
-        self.mcp_clients.clear()
-
-        # Release sandbox back to pool
+        """Release per-run resources."""
         if self.sandbox is not None:
             if sandbox_pool is not None:
                 await sandbox_pool.release(self.sandbox)
@@ -317,19 +383,6 @@ class AgentRun:
             self.sandbox = None
 
 
-async def _start_mcp_client(mcp_config: McpConfig) -> Any:
-    """Start an MCP server process and return a client connection.
-
-    This is a placeholder that returns *None* until the MCP client
-    SDK integration is implemented.
-    """
-    # TODO: implement MCP client lifecycle
-    # 1. Start MCP server subprocess: mcp_config.command + mcp_config.args
-    # 2. Connect MCP client via stdio/SSE
-    # 3. Return the connected client handle
-    return None
-
-
 @dataclass
 class RunConfig:
     """Runtime configuration for launching an agent (not part of AgentSpec)."""
@@ -338,17 +391,21 @@ class RunConfig:
     schedule: str = ""
     input: str = ""
     thread_id: str | None = None
+    run_id: str | None = None
 
 
 @dataclass
 class ManagedAgent:
-    """Control-plane bookkeeping per agent."""
+    """Manager-owned runtime bookkeeping per agent."""
 
     name: str
     spec: AgentSpec
     template: AgentTemplate | None = None
-    status: AgentStatus = AgentStatus.DEFINED
+    mcp_runtime: MCPRuntime | None = None
+    sandbox_runtime: SandboxRuntime | None = None
+    status: AgentStatus = AgentStatus.INSTALLED
     run_config: RunConfig | None = None
+    active_run_count: int = 0
     last_invoked: datetime | None = None
 
 
@@ -382,7 +439,7 @@ class AgentMeta:
     version: str
     description: str
     tags: list[str]
-    status: AgentStatus = AgentStatus.DEFINED
+    status: AgentStatus = AgentStatus.INSTALLED
 
 
 # ──────────────────── Session / Thread Types ────────────────

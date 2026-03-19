@@ -224,6 +224,7 @@ def _parse_tool_message(
     content = message_obj.content
     if not isinstance(content, str):
         content = str(content)
+    is_error = getattr(message_obj, "status", "") == "error"
 
     # Resolve tool name from buffered tool calls
     tool_name = ""
@@ -242,6 +243,7 @@ def _parse_tool_message(
         events.tool_result(
             tool_call_id=tool_call_id,
             content=content,
+            is_error=is_error,
             run_id=state.run_id,
             agent_name=state.agent_name,
         ),

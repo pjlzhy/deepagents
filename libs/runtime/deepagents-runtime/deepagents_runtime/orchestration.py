@@ -15,7 +15,6 @@ from typing import Any, Awaitable
 
 from deepagents_runtime import events
 from deepagents_runtime.events import RuntimeEvent
-from deepagents_runtime.runs import SessionStats
 from deepagents_runtime.streams import StreamParserState, parse_stream_chunk
 
 logger = logging.getLogger(__name__)
@@ -36,6 +35,8 @@ async def stream_agent(
     stream_input: dict[str, Any] | Any,
     config: dict[str, Any],
     state: StreamParserState,
+    *,
+    context: Any = None,
 ) -> AsyncIterator[RuntimeEvent]:
     """Single pass of ``agent.astream()`` → RuntimeEvent.
 
@@ -47,6 +48,7 @@ async def stream_agent(
         stream_input: Input dict or ``Command(resume=...)``.
         config: ``RunnableConfig`` with ``thread_id`` in ``configurable``.
         state: Mutable parser state (accumulated across HITL rounds).
+        context: Optional runtime context passed through to LangGraph.
 
     Yields:
         RuntimeEvent instances.
@@ -54,6 +56,7 @@ async def stream_agent(
     async for chunk in agent.astream(
         stream_input,
         config=config,
+        context=context,
         stream_mode=["messages", "updates"],
         subgraphs=True,
     ):
@@ -66,6 +69,7 @@ async def run_agent_loop(
     message: str,
     *,
     config: dict[str, Any],
+    context: Any = None,
     hitl_handler: HITLHandler | None = None,
     run_id: str = "",
     agent_name: str = "",
@@ -80,6 +84,7 @@ async def run_agent_loop(
         agent: Compiled LangGraph agent.
         message: User message to send.
         config: ``RunnableConfig`` (must include ``configurable.thread_id``).
+        context: Optional runtime context passed through to LangGraph.
         hitl_handler: Async callback that receives a HITLRequest dict and
             returns a list of decision dicts. If *None*, all interrupts
             are auto-approved.
@@ -109,7 +114,13 @@ async def run_agent_loop(
     wall_start = time.monotonic()
 
     # ── Initial stream pass ──
-    async for evt in stream_agent(agent, stream_input, config, state):
+    async for evt in stream_agent(
+        agent,
+        stream_input,
+        config,
+        state,
+        context=context,
+    ):
         yield evt
 
     # ── HITL interrupt loop ──
@@ -151,12 +162,6 @@ async def run_agent_loop(
                 ]
 
             hitl_response[interrupt_id] = {"decisions": decisions}
-            yield events.hitl_response(
-                interrupt_id=interrupt_id,
-                decisions=decisions,
-                run_id=run_id,
-                agent_name=agent_name,
-            )
 
         # Reset state for next round
         state.pending_interrupts.clear()
@@ -167,7 +172,13 @@ async def run_agent_loop(
 
         stream_input = Command(resume=hitl_response)
 
-        async for evt in stream_agent(agent, stream_input, config, state):
+        async for evt in stream_agent(
+            agent,
+            stream_input,
+            config,
+            state,
+            context=context,
+        ):
             yield evt
 
     # ── Finalize ──

@@ -64,7 +64,7 @@ class CancelRequest(_message.Message):
     def __init__(self, reason: _Optional[str] = ...) -> None: ...
 
 class AgentEvent(_message.Message):
-    __slots__ = ("run_id", "agent_name", "timestamp", "run_started", "text_delta", "text_done", "tool_call_start", "tool_call_done", "tool_result", "hitl_request", "run_ended", "error")
+    __slots__ = ("run_id", "agent_name", "timestamp", "run_started", "text_delta", "text_done", "tool_call_start", "tool_call_done", "tool_result", "hitl_request", "run_ended", "error", "run_canceled")
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
     AGENT_NAME_FIELD_NUMBER: _ClassVar[int]
     TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
@@ -77,6 +77,7 @@ class AgentEvent(_message.Message):
     HITL_REQUEST_FIELD_NUMBER: _ClassVar[int]
     RUN_ENDED_FIELD_NUMBER: _ClassVar[int]
     ERROR_FIELD_NUMBER: _ClassVar[int]
+    RUN_CANCELED_FIELD_NUMBER: _ClassVar[int]
     run_id: str
     agent_name: str
     timestamp: _timestamp_pb2.Timestamp
@@ -89,7 +90,8 @@ class AgentEvent(_message.Message):
     hitl_request: HITLRequest
     run_ended: RunEnded
     error: ErrorOccurred
-    def __init__(self, run_id: _Optional[str] = ..., agent_name: _Optional[str] = ..., timestamp: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., run_started: _Optional[_Union[RunStarted, _Mapping]] = ..., text_delta: _Optional[_Union[TextDelta, _Mapping]] = ..., text_done: _Optional[_Union[TextDone, _Mapping]] = ..., tool_call_start: _Optional[_Union[ToolCallStart, _Mapping]] = ..., tool_call_done: _Optional[_Union[ToolCallDone, _Mapping]] = ..., tool_result: _Optional[_Union[ToolResult, _Mapping]] = ..., hitl_request: _Optional[_Union[HITLRequest, _Mapping]] = ..., run_ended: _Optional[_Union[RunEnded, _Mapping]] = ..., error: _Optional[_Union[ErrorOccurred, _Mapping]] = ...) -> None: ...
+    run_canceled: RunCanceled
+    def __init__(self, run_id: _Optional[str] = ..., agent_name: _Optional[str] = ..., timestamp: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., run_started: _Optional[_Union[RunStarted, _Mapping]] = ..., text_delta: _Optional[_Union[TextDelta, _Mapping]] = ..., text_done: _Optional[_Union[TextDone, _Mapping]] = ..., tool_call_start: _Optional[_Union[ToolCallStart, _Mapping]] = ..., tool_call_done: _Optional[_Union[ToolCallDone, _Mapping]] = ..., tool_result: _Optional[_Union[ToolResult, _Mapping]] = ..., hitl_request: _Optional[_Union[HITLRequest, _Mapping]] = ..., run_ended: _Optional[_Union[RunEnded, _Mapping]] = ..., error: _Optional[_Union[ErrorOccurred, _Mapping]] = ..., run_canceled: _Optional[_Union[RunCanceled, _Mapping]] = ...) -> None: ...
 
 class RunStarted(_message.Message):
     __slots__ = ("thread_id",)
@@ -161,6 +163,12 @@ class RunEnded(_message.Message):
     stats: UsageStats
     def __init__(self, stats: _Optional[_Union[UsageStats, _Mapping]] = ...) -> None: ...
 
+class RunCanceled(_message.Message):
+    __slots__ = ("reason",)
+    REASON_FIELD_NUMBER: _ClassVar[int]
+    reason: str
+    def __init__(self, reason: _Optional[str] = ...) -> None: ...
+
 class UsageStats(_message.Message):
     __slots__ = ("request_count", "input_tokens", "output_tokens", "wall_time_seconds")
     REQUEST_COUNT_FIELD_NUMBER: _ClassVar[int]
@@ -182,16 +190,18 @@ class ErrorOccurred(_message.Message):
     def __init__(self, message: _Optional[str] = ..., error_type: _Optional[str] = ...) -> None: ...
 
 class SyncSkillRequest(_message.Message):
-    __slots__ = ("name", "content", "description", "tags")
+    __slots__ = ("name", "content", "description", "tags", "files")
     NAME_FIELD_NUMBER: _ClassVar[int]
     CONTENT_FIELD_NUMBER: _ClassVar[int]
     DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
     TAGS_FIELD_NUMBER: _ClassVar[int]
+    FILES_FIELD_NUMBER: _ClassVar[int]
     name: str
     content: str
     description: str
     tags: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, name: _Optional[str] = ..., content: _Optional[str] = ..., description: _Optional[str] = ..., tags: _Optional[_Iterable[str]] = ...) -> None: ...
+    files: _containers.RepeatedCompositeFieldContainer[SkillFile]
+    def __init__(self, name: _Optional[str] = ..., content: _Optional[str] = ..., description: _Optional[str] = ..., tags: _Optional[_Iterable[str]] = ..., files: _Optional[_Iterable[_Union[SkillFile, _Mapping]]] = ...) -> None: ...
 
 class SyncMcpRequest(_message.Message):
     __slots__ = ("name", "command", "args", "env", "description")
@@ -316,13 +326,23 @@ class SandboxSpec(_message.Message):
     init: _containers.RepeatedScalarFieldContainer[str]
     def __init__(self, image: _Optional[str] = ..., resources: _Optional[_Mapping[str, str]] = ..., init: _Optional[_Iterable[str]] = ...) -> None: ...
 
+class SkillFile(_message.Message):
+    __slots__ = ("path", "content")
+    PATH_FIELD_NUMBER: _ClassVar[int]
+    CONTENT_FIELD_NUMBER: _ClassVar[int]
+    path: str
+    content: str
+    def __init__(self, path: _Optional[str] = ..., content: _Optional[str] = ...) -> None: ...
+
 class SkillContent(_message.Message):
-    __slots__ = ("name", "content")
+    __slots__ = ("name", "content", "files")
     NAME_FIELD_NUMBER: _ClassVar[int]
     CONTENT_FIELD_NUMBER: _ClassVar[int]
+    FILES_FIELD_NUMBER: _ClassVar[int]
     name: str
     content: str
-    def __init__(self, name: _Optional[str] = ..., content: _Optional[str] = ...) -> None: ...
+    files: _containers.RepeatedCompositeFieldContainer[SkillFile]
+    def __init__(self, name: _Optional[str] = ..., content: _Optional[str] = ..., files: _Optional[_Iterable[_Union[SkillFile, _Mapping]]] = ...) -> None: ...
 
 class ModelConfig(_message.Message):
     __slots__ = ("provider", "model", "base_url", "api_key", "api_key_env", "extra_params")

@@ -20,6 +20,7 @@ Directory layout::
 from __future__ import annotations
 
 import logging
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +49,36 @@ def _agent_dir(base_dir: Path, name: str) -> Path:
 
 def _agent_yaml(base_dir: Path, name: str) -> Path:
     return _agent_dir(base_dir, name) / "agent.yaml"
+
+
+def _resolve_skill_file_path(skill_dir: Path, relative_path: str) -> Path:
+    """Resolve and validate a relative skill file path."""
+    if not relative_path.strip():
+        raise ValueError("Skill file path cannot be empty")
+
+    candidate = Path(relative_path)
+    if candidate.is_absolute():
+        raise ValueError(f"Skill file path must be relative: {relative_path}")
+
+    full_path = (skill_dir / candidate).resolve()
+    root = skill_dir.resolve()
+    try:
+        full_path.relative_to(root)
+    except ValueError as exc:
+        msg = f"Skill file path escapes skill directory: {relative_path}"
+        raise ValueError(msg) from exc
+
+    if full_path == root:
+        raise ValueError(f"Skill file path must point to a file: {relative_path}")
+
+    if full_path.name == "SKILL.md":
+        msg = (
+            "Skill file path 'SKILL.md' is reserved; "
+            "use the skill content field instead"
+        )
+        raise ValueError(msg)
+
+    return full_path
 
 
 def _spec_to_yaml_dict(spec: AgentSpec) -> dict[str, Any]:
@@ -85,10 +116,19 @@ def _spec_to_yaml_dict(spec: AgentSpec) -> dict[str, Any]:
         subagents.append(sa_dict)
 
     # Serialize skills
-    skills = [
-        {"name": s["name"], "content": s["content"]}
-        for s in spec.skills
-    ]
+    skills = []
+    for skill in spec.skills:
+        skill_dict: dict[str, Any] = {
+            "name": skill["name"],
+            "content": skill["content"],
+        }
+        files = [
+            {"path": file["path"], "content": file["content"]}
+            for file in skill.get("files", [])
+        ]
+        if files:
+            skill_dict["files"] = files
+        skills.append(skill_dict)
 
     spec_dict: dict[str, Any] = {
         "model": spec.model,
@@ -118,9 +158,9 @@ class Registry:
     """File-system registry for agent specs.
 
     Manages the directory layout for each agent, including skills,
-    memory, and workspace directories.  When an agent spec is added,
-    the registry writes skill content to disk and creates the
-    standard subdirectory structure.
+    memory, and workspace directories. When an agent spec is added,
+    the registry writes skill directory snapshots to disk and creates
+    the standard subdirectory structure.
     """
 
     def __init__(self, base_dir: Path | None = None) -> None:
@@ -155,27 +195,37 @@ class Registry:
         """Write an agent spec to disk and populate resource directories.
 
         Creates the standard subdirectory structure and writes each
-        skill's SKILL.md content to ``skills/{name}/SKILL.md``.
+        skill directory snapshot under ``skills/{name}/``.
         """
         agent_dir = _agent_dir(self._base_dir, spec.name)
         agent_dir.mkdir(parents=True, exist_ok=True)
 
         # Create standard subdirectories
         skills_base = agent_dir / "skills"
+        shutil.rmtree(skills_base, ignore_errors=True)
         skills_base.mkdir(exist_ok=True)
         (agent_dir / "memory").mkdir(exist_ok=True)
         (agent_dir / "workspace").mkdir(exist_ok=True)
 
-        # Write skill content files
+        # Write skill directory snapshots
         for skill in spec.skills:
-            if skill.get("content"):
-                skill_dir = skills_base / skill["name"]
-                skill_dir.mkdir(exist_ok=True)
-                skill_md = skill_dir / "SKILL.md"
-                skill_md.write_text(skill["content"], encoding="utf-8")
+            skill_dir = skills_base / skill["name"]
+            skill_dir.mkdir(parents=True, exist_ok=True)
+
+            skill_md = skill_dir / "SKILL.md"
+            skill_md.write_text(skill.get("content", ""), encoding="utf-8")
+            logger.debug(
+                "Wrote skill '%s' root file for agent '%s' to %s",
+                skill["name"], spec.name, skill_md,
+            )
+
+            for file in skill.get("files", []):
+                target = _resolve_skill_file_path(skill_dir, file["path"])
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(file["content"], encoding="utf-8")
                 logger.debug(
-                    "Wrote skill '%s' for agent '%s' to %s",
-                    skill["name"], spec.name, skill_md,
+                    "Wrote skill '%s' file for agent '%s' to %s",
+                    skill["name"], spec.name, target,
                 )
 
         # 确保AGENTS.md 存在
@@ -243,8 +293,6 @@ class Registry:
 
     async def delete_agent_spec(self, name: str) -> bool:
         """Delete an agent spec directory.  Returns True if it existed."""
-        import shutil
-
         agent_dir = _agent_dir(self._base_dir, name)
         if not agent_dir.exists():
             return False
