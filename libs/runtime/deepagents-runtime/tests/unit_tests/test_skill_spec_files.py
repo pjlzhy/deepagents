@@ -14,7 +14,7 @@ from deepagents_runtime.converters import (
     sync_skill_request_to_skill_spec,
 )
 from deepagents_runtime.generated import runtime_pb2 as pb2
-from deepagents_runtime.manager.registry import Registry
+from deepagents_runtime.registry import Registry
 from deepagents_runtime.spec import AgentSpec
 
 

@@ -291,23 +291,7 @@ class AgentSpec:
         )
 
 
-
 # ──────────────────── Runtime Constructs ────────────────────
-
-
-@dataclass
-class AgentTemplate:
-    """Assembly output: everything needed to run the agent, minus per-run resources.
-
-    The ``graph`` field holds a ``CompiledStateGraph`` from the SDK but is
-    typed as ``Any`` here so that spec.py remains a leaf module.
-    """
-
-    graph: Any  # CompiledStateGraph
-    sandbox_spec: SandboxSpec
-    mcp_configs: list[McpConfig]
-    resolved_spec: AgentSpec
-
 
 @dataclass
 class MCPRuntime:
@@ -333,57 +317,6 @@ class AgentRuntimeContext(TypedDict, total=False):
 
 
 @dataclass
-class AgentRun:
-    """Per-invocation runtime context.
-
-    Lifecycle::
-
-        run = AgentRun(template=template, run_id="abc", thread_id="t1")
-        await run.setup(sandbox_pool=pool)    # acquire sandbox lease
-        try:
-            # ... execute agent loop ...
-            pass
-        finally:
-            await run.teardown(sandbox_pool=pool)  # release sandbox lease
-    """
-
-    template: AgentTemplate
-    agent_name: str = ""
-    run_id: str = ""
-    thread_id: str = ""
-    sandbox: Any = None  # Sandbox backend lease for this run
-
-    async def setup(self, sandbox_pool: Any = None) -> None:
-        """Acquire per-run resources.
-
-        Args:
-            sandbox_pool: Optional SandboxPool to acquire a sandbox from.
-        """
-        if sandbox_pool is not None:
-            self.sandbox = await sandbox_pool.acquire(self.template.sandbox_spec)
-
-    def runtime_context(self) -> AgentRuntimeContext:
-        """Build the graph runtime context for this run."""
-        if self.sandbox is None:
-            return {}
-        return {"sandbox_backend": self.sandbox}
-
-    async def teardown(self, sandbox_pool: Any = None) -> None:
-        """Release per-run resources."""
-        if self.sandbox is not None:
-            if sandbox_pool is not None:
-                await sandbox_pool.release(self.sandbox)
-            else:
-                cleanup = getattr(self.sandbox, "cleanup", None)
-                if cleanup and callable(cleanup):
-                    try:
-                        await cleanup()
-                    except Exception:
-                        pass
-            self.sandbox = None
-
-
-@dataclass
 class RunConfig:
     """Runtime configuration for launching an agent (not part of AgentSpec)."""
 
@@ -392,21 +325,6 @@ class RunConfig:
     input: str = ""
     thread_id: str | None = None
     run_id: str | None = None
-
-
-@dataclass
-class ManagedAgent:
-    """Manager-owned runtime bookkeeping per agent."""
-
-    name: str
-    spec: AgentSpec
-    template: AgentTemplate | None = None
-    mcp_runtime: MCPRuntime | None = None
-    sandbox_runtime: SandboxRuntime | None = None
-    status: AgentStatus = AgentStatus.INSTALLED
-    run_config: RunConfig | None = None
-    active_run_count: int = 0
-    last_invoked: datetime | None = None
 
 
 # ──────────────────── Metadata Types (Registry) ────────────────

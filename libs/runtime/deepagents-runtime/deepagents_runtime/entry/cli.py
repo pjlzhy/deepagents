@@ -14,7 +14,6 @@ import asyncio
 import logging
 import sys
 from pathlib import Path
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +110,7 @@ async def _cmd_run(args: argparse.Namespace) -> None:
         spec.model = args.model
 
     await manager.define_agent(spec)
+    await manager.assemble_agent(spec.name)
 
     run_config = RunConfig(
         mode=LaunchMode(args.mode),
@@ -171,7 +171,7 @@ async def _cmd_workspace_up(args: argparse.Namespace) -> None:
 
 async def _cmd_registry(args: argparse.Namespace) -> None:
     """Execute ``registry`` subcommands."""
-    from deepagents_runtime.manager.registry import Registry
+    from deepagents_runtime.registry import Registry
     from deepagents_runtime.spec import AgentSpec
 
     registry = Registry()
