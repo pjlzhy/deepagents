@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from langchain_core.messages import ToolMessage
+from types import SimpleNamespace
+
+from langchain_core.messages import AIMessageChunk, ToolMessage
 
 from deepagents_runtime import events
 from deepagents_runtime.converters import (
@@ -10,7 +12,11 @@ from deepagents_runtime.converters import (
     runtime_event_to_agent_event,
 )
 from deepagents_runtime.spec import RuntimeEventType
-from deepagents_runtime.streams import StreamParserState, _parse_tool_message
+from deepagents_runtime.streams import (
+    StreamParserState,
+    _parse_tool_message,
+    parse_stream_part,
+)
 
 
 def test_run_canceled_roundtrip() -> None:
@@ -74,3 +80,62 @@ def test_parse_tool_message_marks_error_results() -> None:
     assert parsed_events[1].type == RuntimeEventType.TOOL_RESULT
     assert parsed_events[1].data["content"] == "non-zero exit"
     assert parsed_events[1].data["is_error"] is True
+
+
+def test_parse_stream_part_reads_v2_message_parts() -> None:
+    """v2 message parts should be converted into runtime text events."""
+
+    state = StreamParserState(run_id="run-4", agent_name="demo-agent")
+    part = {
+        "type": "messages",
+        "ns": (),
+        "data": (
+            AIMessageChunk(content="hello v2"),
+            {"langgraph_node": "model"},
+        ),
+    }
+
+    parsed = parse_stream_part(part, state)
+
+    assert len(parsed.events) == 1
+    assert parsed.interrupts == {}
+    assert parsed.events[0].type == RuntimeEventType.TEXT_DELTA
+    assert parsed.events[0].data["text"] == "hello v2"
+    assert state.full_response == ["hello v2"]
+
+
+def test_parse_stream_part_buffers_v2_interrupts() -> None:
+    """v2 updates parts should buffer validated HITL interrupts."""
+
+    state = StreamParserState(run_id="run-5", agent_name="demo-agent")
+    interrupt = SimpleNamespace(
+        id="interrupt-1",
+        value={
+            "action_requests": [
+                {
+                    "name": "execute",
+                    "args": {"command": "pwd"},
+                    "description": "Run pwd",
+                }
+            ],
+            "review_configs": [
+                {
+                    "action_name": "execute",
+                    "allowed_decisions": ["approve", "reject"],
+                }
+            ],
+        },
+    )
+
+    parsed = parse_stream_part(
+        {
+            "type": "updates",
+            "ns": (),
+            "data": {"__interrupt__": [interrupt]},
+        },
+        state,
+    )
+
+    assert parsed.events == []
+    assert "interrupt-1" in parsed.interrupts
+    assert parsed.interrupts["interrupt-1"]["action_requests"][0]["name"] == "execute"

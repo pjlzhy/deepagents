@@ -164,7 +164,7 @@ async def _cmd_workspace_up(args: argparse.Namespace) -> None:
     config = WorkspaceConfig.from_yaml(data)
 
     print(f"Starting workspace '{config.name}' with {len(config.agents)} agents...")
-    # TODO: implement full workspace orchestration
+    # TODO: implement full workspace execution flow
     for name, entry in config.agents.items():
         print(f"  - {name}: {entry.mode.value} (spec: {entry.spec_path})")
 

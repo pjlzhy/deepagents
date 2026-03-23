@@ -1,7 +1,7 @@
-"""Parse LangGraph stream chunks into RuntimeEvents.
+"""Parse LangGraph stream output into RuntimeEvents.
 
-Bridge between SDK-level ``agent.astream()`` output and the runtime's
-universal RuntimeEvent system.
+Bridge between SDK-level `agent.astream()` output and the runtime's
+universal `RuntimeEvent` system.
 """
 
 from __future__ import annotations
@@ -22,41 +22,50 @@ _MESSAGE_DATA_LENGTH = 2
 
 @dataclass
 class StreamParserState:
-    """Accumulated state while iterating over the raw LangGraph stream."""
+    """Run-scoped state accumulated while parsing stream output."""
 
     full_response: list[str] = field(default_factory=list)
     tool_call_buffers: dict[int | str, dict[str, str | None]] = field(
         default_factory=dict
     )
-    pending_interrupts: dict[str, Any] = field(default_factory=dict)
-    interrupt_occurred: bool = False
     stats: SessionStats = field(default_factory=SessionStats)
     run_id: str = ""
     agent_name: str = ""
 
 
-def parse_stream_chunk(
-    chunk: object,
-    state: StreamParserState,
-) -> list[RuntimeEvent]:
-    """Parse a single raw LangGraph stream chunk into RuntimeEvents.
+@dataclass
+class StreamParseResult:
+    """Parser output for one stream part."""
 
-    Only main-agent chunks (namespace == "") are processed.
+    events: list[RuntimeEvent] = field(default_factory=list)
+    interrupts: dict[str, Any] = field(default_factory=dict)
+
+
+def parse_stream_part(
+    part: object,
+    state: StreamParserState,
+) -> StreamParseResult:
+    """Parse one v2 StreamPart into RuntimeEvents.
+
+    Only root-agent parts (`ns == ()`) are processed.
 
     Args:
-        chunk: Raw element from ``agent.astream()``. Expected to be a
-            3-tuple ``(namespace, stream_mode, data)``.
+        part: Raw element from `agent.astream(version="v2")`. Expected to be
+            a dict with `type`, `ns`, and `data`.
         state: Mutable parser state.
 
     Returns:
-        List of RuntimeEvents produced from this chunk (may be empty).
+        Parsed runtime events and validated interrupts from this part.
     """
-    if not isinstance(chunk, tuple) or len(chunk) != _STREAM_CHUNK_LENGTH:
-        return []
+    if not isinstance(part, dict):
+        return StreamParseResult()
 
-    namespace, stream_mode, data = chunk
-    if namespace:  # skip sub-agent chunks
-        return []
+    namespace = part.get("ns", ())
+    stream_mode = part.get("type")
+    data = part.get("data")
+
+    if namespace:  # skip sub-agent parts
+        return StreamParseResult()
 
     if (
         stream_mode == "updates"
@@ -64,25 +73,44 @@ def parse_stream_chunk(
         and "__interrupt__" in data
     ):
         return _parse_interrupts(data, state)
-    elif stream_mode == "messages":
-        return _parse_message_chunk(data, state)
+    if stream_mode == "messages":
+        return StreamParseResult(events=_parse_message_chunk(data, state))
 
-    return []
+    return StreamParseResult()
+
+
+def parse_stream_chunk(
+    chunk: object,
+    state: StreamParserState,
+) -> StreamParseResult:
+    """Compatibility wrapper for callers still handing in v1 tuple chunks."""
+    if isinstance(chunk, dict):
+        return parse_stream_part(chunk, state)
+
+    if not isinstance(chunk, tuple) or len(chunk) != _STREAM_CHUNK_LENGTH:
+        return StreamParseResult()
+
+    namespace, stream_mode, data = chunk
+    return parse_stream_part(
+        {
+            "type": stream_mode,
+            "ns": namespace,
+            "data": data,
+        },
+        state,
+    )
 
 
 def _parse_interrupts(
     data: dict[str, Any],
     state: StreamParserState,
-) -> list[RuntimeEvent]:
+) -> StreamParseResult:
     """Extract HITL interrupts from an updates chunk.
 
-    Sets ``state.pending_interrupts`` and ``state.interrupt_occurred``
-    but does **not** emit ``HITL_REQUEST`` events — that responsibility
-    belongs to :func:`orchestration.run_agent_loop` which emits the
-    event once, right before calling the ``hitl_handler`` callback.
-    This avoids duplicate HITL_REQUEST events.
+    Returns validated interrupts separately from event emission so the
+    outer runtime loop can own HITL control flow.
     """
-    result: list[RuntimeEvent] = []
+    result = StreamParseResult()
 
     for interrupt_obj in data.get("__interrupt__", []):
         interrupt_id = getattr(interrupt_obj, "id", str(id(interrupt_obj)))
@@ -97,7 +125,7 @@ def _parse_interrupts(
             validated = adapter.validate_python(interrupt_value)
         except Exception:
             logger.warning("Rejecting malformed HITL interrupt %s", interrupt_id)
-            result.append(
+            result.events.append(
                 events.error_event(
                     f"Malformed HITL interrupt: {interrupt_id}",
                     run_id=state.run_id,
@@ -106,9 +134,7 @@ def _parse_interrupts(
             )
             continue
 
-        state.pending_interrupts[interrupt_id] = validated
-        state.interrupt_occurred = True
-
+        result.interrupts[interrupt_id] = validated
     return result
 
 
@@ -129,11 +155,11 @@ def _parse_message_chunk(
 
     # Lazy import to avoid hard SDK dependency at module load
     try:
-        from langchain_core.messages import AIMessage, ToolMessage
+        from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
     except ImportError:
         return []
 
-    if isinstance(message_obj, AIMessage):
+    if isinstance(message_obj, (AIMessage, AIMessageChunk)):
         return _parse_ai_message(message_obj, state)
     elif isinstance(message_obj, ToolMessage):
         return _parse_tool_message(message_obj, state)

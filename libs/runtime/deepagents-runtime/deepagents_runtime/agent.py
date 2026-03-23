@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from typing import Any
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -36,11 +36,10 @@ from deepagents_runtime.events import RuntimeEvent
 
 from deepagents_runtime.mcp_tool import load_mcp_tools_from_configs
 from deepagents_runtime.models import create_model, ModelResult
-from deepagents_runtime.orchestration import HITLHandler
 from deepagents_runtime.registry import Registry
 from deepagents_runtime.sandbox.pool import SandboxPool
 from deepagents_runtime.spec import AgentSpec, MCPRuntime, SandboxRuntime, AgentStatus, RunConfig
-from deepagents_runtime.streams import StreamParserState, parse_stream_chunk
+from deepagents_runtime.streams import StreamParserState, parse_stream_part
 
 REQUIRE_COMPACT_TOOL_APPROVAL: bool = True
 """When ``True``, ``compact_conversation`` requires HITL approval."""
@@ -48,6 +47,8 @@ REQUIRE_COMPACT_TOOL_APPROVAL: bool = True
 _MAX_HITL_ITERATIONS = 50
 
 logger = logging.getLogger(__name__)
+
+HITLHandler = Callable[[dict[str, Any]], Awaitable[list[dict[str, Any]]]]
 
 # ---------------------------------------------------------------------------
 # Default system prompt (hardcoded)
@@ -782,17 +783,22 @@ class RuntimeAgent:
 
         async with self._sandbox_context(context) as runtime_context:
             while True:
-                async for chunk in self._graph.astream(
+                pending_interrupts: dict[str, Any] = {}
+
+                async for part in self._graph.astream(
                         stream_input,
                         config=config,
                         context=runtime_context,
                         stream_mode=["messages", "updates"],
                         subgraphs=True,
+                        version="v2",
                 ):
-                    for event in parse_stream_chunk(chunk, parser_state):
+                    parsed = parse_stream_part(part, parser_state)
+                    pending_interrupts.update(parsed.interrupts)
+                    for event in parsed.events:
                         yield event
 
-                if not parser_state.interrupt_occurred:
+                if not pending_interrupts:
                     break
 
                 iteration += 1
@@ -804,7 +810,7 @@ class RuntimeAgent:
                     raise RuntimeError(msg)
 
                 hitl_response: dict[str, Any] = {}
-                for interrupt_id, request in parser_state.pending_interrupts.items():
+                for interrupt_id, request in pending_interrupts.items():
                     action_requests = (
                         request.get("action_requests", [])
                         if isinstance(request, dict)
@@ -830,8 +836,6 @@ class RuntimeAgent:
 
                     hitl_response[interrupt_id] = {"decisions": decisions}
 
-                parser_state.pending_interrupts.clear()
-                parser_state.interrupt_occurred = False
                 stream_input = Command(resume=hitl_response)
 
         wall_time = time.monotonic() - wall_start

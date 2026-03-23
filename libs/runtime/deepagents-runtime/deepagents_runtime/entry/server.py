@@ -82,7 +82,7 @@ class AgentExecutorServicer(runtime_pb2_grpc.AgentExecutorServicer):
         )
 
         # ── 2. Build HITL handler ──
-        # The orchestration layer emits HITL_REQUEST events and then calls
+        # The runtime execution path emits HITL_REQUEST events and then calls
         # this handler. The handler simply waits for the client to send a
         # HITLDecision message via the bidirectional stream.
         hitl_decision_queue: asyncio.Queue[pb2.HITLDecision] = asyncio.Queue()
@@ -151,7 +151,7 @@ class AgentExecutorServicer(runtime_pb2_grpc.AgentExecutorServicer):
                     )
                     break
 
-                # Forward event (including HITL_REQUEST from orchestration)
+                # Forward runtime events, including HITL_REQUEST.
                 yield runtime_event_to_agent_event(event)
 
         except KeyError as e:

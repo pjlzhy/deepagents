@@ -124,7 +124,7 @@ async def load_mcp_tools_from_configs(
 ) -> tuple[list[BaseTool], MCPSessionManager | None, list[MCPServerInfo]]:
     """Load LangChain tools from a list of ``McpConfig`` specs.
 
-    This is the single entry-point used by ``assembly.py``.  It converts
+    This is the single entry-point used by the runtime assembly path. It converts
     each ``McpConfig`` into a ``langchain-mcp-adapters`` connection,
     starts sessions, and returns the loaded tools along with a session
     manager that **must** be cleaned up by the caller.

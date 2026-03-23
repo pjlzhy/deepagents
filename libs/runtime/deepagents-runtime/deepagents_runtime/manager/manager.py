@@ -2,8 +2,8 @@
 
 Central coordinator for the data plane. Manages:
 - Agent specs via Registry (file-system backed)
-- Agent compilation via assembly.py (spec → template)
-- Agent execution via orchestration.py (run_agent_loop)
+- Agent compilation into RuntimeAgent-owned runnable graphs
+- Agent execution via RuntimeAgent.astream()
 - Compiled agent scoped MCP / sandbox runtime resources
 
 The AgentManager does NOT know about the control plane or gRPC.
@@ -18,9 +18,8 @@ from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Any
 
-from deepagents_runtime.agent import RuntimeAgent
+from deepagents_runtime.agent import HITLHandler, RuntimeAgent
 from deepagents_runtime.events import RuntimeEvent
-from deepagents_runtime.orchestration import HITLHandler
 from deepagents_runtime.registry import Registry
 from deepagents_runtime.sandbox.pool import SandboxPool
 from deepagents_runtime.sessions import generate_thread_id, get_checkpointer
@@ -304,4 +303,3 @@ class AgentManager:
         agent = RuntimeAgent(spec=spec, reg=self._registry)
         await self.agent_pool.set(agent)
         return agent
-

@@ -1,1 +1,1 @@
-"""Agent Manager: lifecycle management, registry, assembly, orchestration."""
+"""Agent Manager: lifecycle management, registry, compilation, and execution."""
