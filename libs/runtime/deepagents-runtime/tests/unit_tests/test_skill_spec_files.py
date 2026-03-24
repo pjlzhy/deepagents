@@ -163,3 +163,70 @@ def test_registry_rejects_skill_file_path_escape() -> None:
             asyncio.run(registry.add_agent_spec(spec))
     finally:
         shutil.rmtree(base_dir, ignore_errors=True)
+
+
+def test_registry_rejects_duplicate_skill_file_path() -> None:
+    """Registry should reject duplicate file targets within one skill."""
+
+    base_dir = _make_base_dir()
+    registry = Registry(base_dir=base_dir)
+    spec = AgentSpec(
+        name="demo-agent",
+        skills=[
+            {
+                "name": "dup-skill",
+                "content": "# Duplicate Skill\n",
+                "files": [
+                    {"path": "scripts/example.py", "content": "print('one')\n"},
+                    {"path": "scripts/example.py", "content": "print('two')\n"},
+                ],
+            }
+        ],
+    )
+
+    try:
+        with pytest.raises(ValueError, match="Duplicate skill file path"):
+            asyncio.run(registry.add_agent_spec(spec))
+    finally:
+        shutil.rmtree(base_dir, ignore_errors=True)
+
+
+def test_agent_spec_from_yaml_ignores_removed_phase2_fields() -> None:
+    """Legacy YAML fields removed in Phase 2 should be ignored on load."""
+
+    loaded = AgentSpec.from_yaml(
+        {
+            "metadata": {"name": "demo-agent"},
+            "spec": {
+                "prompt": {
+                    "system": "system prompt",
+                    "memory": ["legacy-memory.md"],
+                },
+                "tools": {
+                    "builtins": ["execute"],
+                    "mcp": ["github"],
+                },
+                "subagents": [
+                    {
+                        "name": "reviewer",
+                        "description": "code review",
+                        "system_prompt": "review code",
+                        "model": "openai:gpt-5.2",
+                        "source": "project",
+                        "path": "subagents/reviewer.yaml",
+                    }
+                ],
+            },
+        }
+    )
+
+    assert loaded.prompt == {"system": "system prompt"}
+    assert loaded.tools == {}
+    assert loaded.subagents == [
+        {
+            "name": "reviewer",
+            "description": "code review",
+            "system_prompt": "review code",
+            "model": "openai:gpt-5.2",
+        }
+    ]

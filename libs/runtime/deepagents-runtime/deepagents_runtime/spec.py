@@ -9,6 +9,7 @@ from __future__ import annotations
 import enum
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import PurePath
 from typing import Any, NotRequired, TypedDict
 
 
@@ -119,14 +120,10 @@ class PromptSpec(TypedDict, total=False):
     """Prompt configuration within an AgentSpec."""
 
     system: str
-    memory: list[str]
 
 
 class ToolsSpec(TypedDict, total=False):
-    """Tools configuration within an AgentSpec."""
-
-    builtins: list[str]
-    mcp: list[str]
+    """Reserved for future tool configuration extensions."""
 
 
 class SubagentMetadata(TypedDict):
@@ -143,12 +140,6 @@ class SubagentMetadata(TypedDict):
 
     model: NotRequired[str | None]
     """Optional model override in 'provider:model-name' format."""
-
-    source: NotRequired[str]
-    """Where this subagent was loaded from ('user' or 'project')."""
-
-    path: NotRequired[str]
-    """Path to the subagent definition file."""
 
 
 class SkillFileItem(TypedDict):
@@ -236,10 +227,6 @@ class AgentSpec:
                 }
                 if sa_raw.get("model"):
                     sa["model"] = sa_raw["model"]
-                if sa_raw.get("source"):
-                    sa["source"] = sa_raw["source"]
-                if sa_raw.get("path"):
-                    sa["path"] = sa_raw["path"]
                 subagents.append(sa)
 
         # Parse skills (support both dict and legacy string format)
@@ -274,6 +261,11 @@ class AgentSpec:
             if mc_raw.get("extra_params"):
                 model_config["extra_params"] = mc_raw["extra_params"]
 
+        prompt_raw = spec.get("prompt", {})
+        prompt: PromptSpec = {}
+        if isinstance(prompt_raw, dict) and prompt_raw.get("system"):
+            prompt["system"] = prompt_raw["system"]
+
         return cls(
             name=metadata.get("name", "unnamed"),
             version=metadata.get("version", "1.0.0"),
@@ -281,9 +273,9 @@ class AgentSpec:
             tags=metadata.get("tags", []),
             model=spec.get("model", "anthropic:claude-sonnet-4-6"),
             model_config=model_config,
-            prompt=spec.get("prompt", {}),
+            prompt=prompt,
             skills=skills,
-            tools=spec.get("tools", {}),
+            tools={},
             subagents=subagents,
             mcp_servers=mcp_servers,
             sandbox=spec.get("sandbox", {}),
@@ -292,6 +284,177 @@ class AgentSpec:
 
 
 # ──────────────────── Runtime Constructs ────────────────────
+
+_SUPPORTED_MCP_TRANSPORTS = frozenset({"stdio", "sse", "http", "streamable_http"})
+_SUPPORTED_SANDBOX_BACKENDS = frozenset({"local", "docker", "k8s"})
+_SANDBOX_BACKEND_ALIASES = {
+    "filesystem": "local",
+    "kubernetes": "k8s",
+    "shell": "local",
+}
+
+
+def _require_non_empty(value: str, field_name: str) -> str:
+    """Return a trimmed string or raise when it is empty."""
+    normalized = value.strip()
+    if not normalized:
+        msg = f"{field_name} cannot be empty"
+        raise ValueError(msg)
+    return normalized
+
+
+def _require_path_safe_name(value: str, field_name: str) -> str:
+    """Validate a filesystem-backed resource name."""
+    normalized = _require_non_empty(value, field_name)
+    candidate = PurePath(normalized)
+    if normalized in {".", ".."} or candidate.name != normalized:
+        msg = f"{field_name} must be a simple name without path separators"
+        raise ValueError(msg)
+    return normalized
+
+
+def _validate_unique(values: list[str], field_name: str) -> None:
+    """Raise when a list contains duplicates."""
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for value in values:
+        if value in seen:
+            duplicates.add(value)
+            continue
+        seen.add(value)
+
+    if duplicates:
+        names = ", ".join(sorted(duplicates))
+        msg = f"duplicate {field_name}: {names}"
+        raise ValueError(msg)
+
+
+def _validate_model_spec(model: str, field_name: str) -> None:
+    """Validate the runtime `provider:model` syntax."""
+    normalized = _require_non_empty(model, field_name)
+    if ":" not in normalized:
+        msg = f"{field_name} must be in provider:model format"
+        raise ValueError(msg)
+    provider, model_name = normalized.split(":", 1)
+    _require_non_empty(provider, f"{field_name} provider")
+    _require_non_empty(model_name, f"{field_name} name")
+
+
+def resolve_sandbox_backend_kind(spec: SandboxSpec) -> str:
+    """Resolve the concrete sandbox backend kind for a sandbox spec.
+
+    Resolution order:
+
+    1. `sandbox.resources["backend"]` (also accepts `kind`/`provider`)
+    2. `docker` when an image is present
+    3. `local` fallback
+    """
+
+    resources = spec.get("resources") or {}
+    if not isinstance(resources, dict):
+        msg = "sandbox resources must be a mapping"
+        raise ValueError(msg)
+
+    raw_backend: str | None = None
+    for key in ("backend", "kind", "provider"):
+        value = resources.get(key)
+        if value is not None:
+            raw_backend = str(value)
+            break
+
+    if raw_backend:
+        normalized = _require_non_empty(raw_backend, "sandbox backend").lower()
+    elif spec.get("image"):
+        normalized = "docker"
+    else:
+        normalized = "local"
+
+    normalized = _SANDBOX_BACKEND_ALIASES.get(normalized, normalized)
+    if normalized not in _SUPPORTED_SANDBOX_BACKENDS:
+        allowed = ", ".join(sorted(_SUPPORTED_SANDBOX_BACKENDS))
+        msg = f"sandbox backend '{normalized}' must be one of: {allowed}"
+        raise ValueError(msg)
+    return normalized
+
+
+def validate_agent_spec(spec: AgentSpec) -> None:
+    """Validate an agent spec before it is persisted or assembled."""
+    _require_path_safe_name(spec.name, "agent name")
+    _validate_model_spec(spec.model, "agent model")
+
+    skill_names: list[str] = []
+    for skill in spec.skills:
+        skill_name = _require_path_safe_name(skill["name"], "skill name")
+        skill_names.append(skill_name)
+        for file in skill.get("files", []):
+            _require_non_empty(
+                file["path"],
+                f"skill '{skill_name}' file path",
+            )
+    _validate_unique(skill_names, "skill names")
+
+    subagent_names: list[str] = []
+    for subagent in spec.subagents:
+        subagent_name = _require_non_empty(subagent["name"], "subagent name")
+        subagent_names.append(subagent_name)
+        _require_non_empty(
+            subagent["description"],
+            f"subagent '{subagent_name}' description",
+        )
+        _require_non_empty(
+            subagent["system_prompt"],
+            f"subagent '{subagent_name}' system_prompt",
+        )
+        model = subagent.get("model")
+        if model:
+            _validate_model_spec(model, f"subagent '{subagent_name}' model")
+    _validate_unique(subagent_names, "subagent names")
+
+    mcp_names: list[str] = []
+    for mcp in spec.mcp_servers:
+        mcp_name = _require_non_empty(mcp.name, "mcp server name")
+        mcp_names.append(mcp_name)
+        transport = _require_non_empty(
+            mcp.transport,
+            f"mcp server '{mcp_name}' transport",
+        ).lower()
+        if transport not in _SUPPORTED_MCP_TRANSPORTS:
+            allowed = ", ".join(sorted(_SUPPORTED_MCP_TRANSPORTS))
+            msg = f"mcp server '{mcp_name}' transport must be one of: {allowed}"
+            raise ValueError(msg)
+        if transport == "stdio":
+            _require_non_empty(
+                mcp.command,
+                f"mcp server '{mcp_name}' command",
+            )
+        else:
+            _require_non_empty(
+                mcp.command,
+                f"mcp server '{mcp_name}' url",
+            )
+    _validate_unique(mcp_names, "mcp server names")
+
+    interrupts: list[str] = []
+    for interrupt_name in spec.interrupt_on:
+        interrupts.append(_require_non_empty(interrupt_name, "interrupt_on entry"))
+    _validate_unique(interrupts, "interrupt_on entries")
+
+    sandbox = spec.sandbox or {}
+    if sandbox:
+        image = sandbox.get("image")
+        if image is not None:
+            _require_non_empty(str(image), "sandbox image")
+
+        init_commands = sandbox.get("init")
+        if init_commands is not None:
+            if not isinstance(init_commands, list):
+                msg = "sandbox init must be a list"
+                raise ValueError(msg)
+            for index, command in enumerate(init_commands):
+                _require_non_empty(str(command), f"sandbox init[{index}]")
+
+        resolve_sandbox_backend_kind(sandbox)
+
 
 @dataclass
 class MCPRuntime:
@@ -304,10 +467,10 @@ class MCPRuntime:
 
 @dataclass
 class SandboxRuntime:
-    """Agent scoped sandbox runtime that leases backends per run."""
+    """Agent scoped sandbox runtime resources owned by a compiled agent."""
 
     spec: SandboxSpec
-    pool: Any
+    backend: Any
 
 
 class AgentRuntimeContext(TypedDict, total=False):
@@ -325,6 +488,7 @@ class RunConfig:
     input: str = ""
     thread_id: str | None = None
     run_id: str | None = None
+    timeout_seconds: float | None = None
 
 
 # ──────────────────── Metadata Types (Registry) ────────────────

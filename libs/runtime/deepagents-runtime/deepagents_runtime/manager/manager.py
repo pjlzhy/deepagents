@@ -14,18 +14,30 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator
+import time
+import uuid
+from collections.abc import AsyncIterator, Callable
+from contextlib import suppress
 from datetime import UTC, datetime
 from typing import Any
 
+from deepagents_runtime import events
 from deepagents_runtime.agent import HITLHandler, RuntimeAgent
 from deepagents_runtime.events import RuntimeEvent
 from deepagents_runtime.registry import Registry
-from deepagents_runtime.sandbox.pool import SandboxPool
 from deepagents_runtime.sessions import generate_thread_id, get_checkpointer
-from deepagents_runtime.spec import AgentMeta, AgentSpec, AgentStatus, RunConfig
+from deepagents_runtime.spec import (
+    AgentMeta,
+    AgentSpec,
+    AgentStatus,
+    RunConfig,
+    validate_agent_spec,
+)
 
 logger = logging.getLogger(__name__)
+
+_RUN_TIMEOUT_ERROR = "timeout"
+_RUNTIME_ERROR = "runtime_error"
 
 
 class AgentPool:
@@ -80,10 +92,8 @@ class AgentManager:
     def __init__(
             self,
             registry: Registry | None = None,
-            sandbox_pool: SandboxPool | None = None,
     ) -> None:
         self._registry = registry or Registry()
-        self._sandbox_pool = sandbox_pool
         self.agent_pool: AgentPool | None = None
         self._checkpointer: Any = None
         self._checkpointer_cm: Any = None
@@ -135,17 +145,13 @@ class AgentManager:
         """Access the underlying registry for direct resource operations."""
         return self._registry
 
-    @property
-    def sandbox_pool(self) -> SandboxPool | None:
-        """Compatibility accessor for callers still expecting manager ownership."""
-        return self._sandbox_pool
-
     # ── Agent Lifecycle ──
 
     async def define_agent(self, spec: AgentSpec) -> None:
         """Install or update an agent spec without compiling it."""
         await self.setup()
         assert self.agent_pool is not None
+        validate_agent_spec(spec)
 
         agent = await self.agent_pool.get_optional(spec.name)
         if agent is not None:
@@ -160,6 +166,8 @@ class AgentManager:
         if agent is None:
             agent = RuntimeAgent(spec=spec, reg=self._registry)
             await self.agent_pool.set(agent)
+        else:
+            agent.spec = spec
 
         logger.info("Agent '%s' installed", spec.name)
 
@@ -175,6 +183,7 @@ class AgentManager:
         latest_spec = await self._registry.get_agent_spec(name)
         if latest_spec is None:
             raise KeyError(f"Agent '{name}' not found")
+        validate_agent_spec(latest_spec)
 
         if agent.has_runtime():
             await agent.release()
@@ -196,10 +205,6 @@ class AgentManager:
         if agent.has_runtime():
             await agent.release()
             logger.info("Agent '%s' unloaded", name)
-
-    async def stop_agent(self, name: str) -> None:
-        """Compatibility wrapper for callers still using stop terminology."""
-        await self.unload_agent(name)
 
     async def remove_agent(self, name: str) -> bool:
         """Uninstall an agent by unloading runtime state and deleting its spec."""
@@ -227,28 +232,222 @@ class AgentManager:
             run_config: RunConfig,
             *,
             hitl_handler: HITLHandler | None = None,
+            cancel_event: asyncio.Event | None = None,
+            cancel_reason: str = "Run canceled by client",
+            cancel_reason_getter: Callable[[], str] | None = None,
     ) -> AsyncIterator[RuntimeEvent]:
-        """Run an already compiled agent and stream events."""
+        """Run an already compiled agent and stream events.
+
+        The manager owns the run lifecycle wrapper around `RuntimeAgent.astream()`:
+        it resolves identifiers, enforces timeout and cancel semantics, and
+        normalizes terminal runtime failures into public `RuntimeEvent`s.
+        """
         await self.setup()
         agent = await self._get_or_create_agent(name)
         if not agent.has_runtime():
             msg = f"Agent '{name}' has not been assembled"
             raise RuntimeError(msg)
 
+        run_id = run_config.run_id or uuid.uuid4().hex[:12]
         thread_id = run_config.thread_id or generate_thread_id()
-        configurable: dict[str, Any] = {"thread_id": thread_id}
-        if run_config.run_id:
-            configurable["run_id"] = run_config.run_id
+        configurable: dict[str, Any] = {
+            "thread_id": thread_id,
+            "run_id": run_id,
+        }
+        config: dict[str, Any] = {
+            "configurable": configurable,
+            "metadata": {
+                "agent_name": name,
+                "updated_at": datetime.now(UTC).isoformat(),
+            },
+        }
+        timeout_seconds = run_config.timeout_seconds
+        if timeout_seconds is not None and timeout_seconds < 0:
+            msg = "run timeout_seconds cannot be negative"
+            raise ValueError(msg)
 
         agent.last_invoked = datetime.now(UTC)
+        if timeout_seconds == 0:
+            yield self._timeout_event(
+                agent_name=name,
+                run_id=run_id,
+                timeout_seconds=timeout_seconds,
+            )
+            return
 
-        async for evt in agent.astream(
-                context=None,
+        queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
+        producer = asyncio.create_task(
+            self._produce_run_events(
+                agent=agent,
                 message=run_config.input,
-                config={"configurable": configurable},
+                config=config,
                 hitl_handler=hitl_handler,
-        ):
-            yield evt
+                queue=queue,
+            )
+        )
+        deadline = (
+            None
+            if timeout_seconds is None
+            else time.monotonic() + timeout_seconds
+        )
+
+        try:
+            while True:
+                source, item = await self._wait_for_run_signal(
+                    queue=queue,
+                    cancel_event=cancel_event,
+                    deadline=deadline,
+                )
+                if source == "timeout":
+                    await self._cancel_run_producer(producer)
+                    yield self._timeout_event(
+                        agent_name=name,
+                        run_id=run_id,
+                        timeout_seconds=timeout_seconds,
+                    )
+                    return
+                if source == "cancel":
+                    await self._cancel_run_producer(producer)
+                    reason = (
+                        cancel_reason_getter()
+                        if cancel_reason_getter is not None
+                        else cancel_reason
+                    )
+                    yield events.run_canceled(
+                        reason,
+                        run_id=run_id,
+                        agent_name=name,
+                    )
+                    return
+
+                kind, payload = item
+                if kind == "event":
+                    yield payload
+                    continue
+                if kind == "error":
+                    yield self._error_event_from_exception(
+                        agent_name=name,
+                        run_id=run_id,
+                        exc=payload,
+                    )
+                    return
+                if kind == "done":
+                    return
+        finally:
+            await self._cancel_run_producer(producer)
+
+    async def _produce_run_events(
+            self,
+            *,
+            agent: RuntimeAgent,
+            message: str,
+            config: dict[str, Any],
+            hitl_handler: HITLHandler | None,
+            queue: asyncio.Queue[tuple[str, Any]],
+    ) -> None:
+        """Drain `RuntimeAgent.astream()` into a queue for lifecycle control."""
+        try:
+            async for event in agent.astream(
+                    context=None,
+                    message=message,
+                    config=config,
+                    hitl_handler=hitl_handler,
+            ):
+                queue.put_nowait(("event", event))
+        except Exception as exc:
+            queue.put_nowait(("error", exc))
+        finally:
+            queue.put_nowait(("done", None))
+
+    async def _wait_for_run_signal(
+            self,
+            *,
+            queue: asyncio.Queue[tuple[str, Any]],
+            cancel_event: asyncio.Event | None,
+            deadline: float | None,
+    ) -> tuple[str, Any]:
+        """Wait for the next run event, cancel request, or timeout edge."""
+        if not queue.empty():
+            return "queue", queue.get_nowait()
+        if cancel_event is not None and cancel_event.is_set():
+            return "cancel", None
+
+        timeout: float | None = None
+        if deadline is not None:
+            timeout = max(0.0, deadline - time.monotonic())
+            if timeout == 0:
+                return "timeout", None
+
+        queue_task = asyncio.create_task(queue.get())
+        cancel_task: asyncio.Task[bool] | None = None
+        waiters: set[asyncio.Task[Any]] = {queue_task}
+        if cancel_event is not None:
+            cancel_task = asyncio.create_task(cancel_event.wait())
+            waiters.add(cancel_task)
+
+        done, pending = await asyncio.wait(
+            waiters,
+            timeout=timeout,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in pending:
+            task.cancel()
+        for task in pending:
+            with suppress(asyncio.CancelledError):
+                await task
+
+        if not done:
+            return "timeout", None
+        if queue_task in done:
+            return "queue", queue_task.result()
+        return "cancel", None
+
+    async def _cancel_run_producer(self, task: asyncio.Task[None]) -> None:
+        """Cancel the producer task and swallow cooperative cancellation noise."""
+        if not task.done():
+            task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+    def _timeout_event(
+            self,
+            *,
+            agent_name: str,
+            run_id: str,
+            timeout_seconds: float | None,
+    ) -> RuntimeEvent:
+        """Create the terminal timeout event for a run."""
+        if timeout_seconds is None or timeout_seconds == 0:
+            message = "Run timed out before execution started"
+        else:
+            message = f"Run timed out after {timeout_seconds:.2f}s"
+        return events.error_event(
+            message,
+            run_id=run_id,
+            agent_name=agent_name,
+            error_type=_RUN_TIMEOUT_ERROR,
+        )
+
+    def _error_event_from_exception(
+            self,
+            *,
+            agent_name: str,
+            run_id: str,
+            exc: Exception,
+    ) -> RuntimeEvent:
+        """Convert an execution exception into the public error transport."""
+        error_type = (
+            _RUN_TIMEOUT_ERROR
+            if isinstance(exc, (TimeoutError, asyncio.TimeoutError))
+            else _RUNTIME_ERROR
+        )
+        message = str(exc) or exc.__class__.__name__
+        return events.error_event(
+            message,
+            run_id=run_id,
+            agent_name=agent_name,
+            error_type=error_type,
+        )
 
 
     async def list_agents(self) -> list[AgentMeta]:

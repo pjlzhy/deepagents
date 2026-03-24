@@ -1,7 +1,7 @@
 # Runtime 资源生命周期设计
 
-> 状态：Draft
-> 最后更新：2026-03-19
+> 状态：Final
+> 最后更新：2026-03-24
 > 范围：Phase 3 / Phase 4
 
 ## 1. 背景
@@ -99,14 +99,13 @@ created -> running -> ended | canceled | errored
 
 ## 5. 资源 owner 与边界
 
-### 5.1 `AgentManager` 是唯一 runtime owner
+### 5.1 `AgentManager` 是顶层 runtime owner
 
-`AgentManager` 应该成为以下资源的唯一 owner：
+`AgentManager` 是 data plane runtime 的顶层 owner，负责：
 
-- compiled `AgentTemplate`
-- agent-scoped MCP runtime
-- agent-scoped sandbox owner / pool
-- active runs
+- 管理 installed / compiled agent pool
+- 管理 shared checkpointer
+- 统一 run setup / teardown / cancel / timeout / error 收口
 
 gRPC servicer 只负责：
 
@@ -137,22 +136,43 @@ MCP 默认采用 **agent-scoped** 生命周期：
 - owner 和 cleanup 位置更清晰
 - 更适合 warm runtime
 
-### 5.3 sandbox 由 manager 持有 owner，但默认按 run 租用实例
+### 5.3 sandbox 默认与 compiled agent 对齐
 
-sandbox 也由 `AgentManager` 管理，但默认不作为 agent 共享单实例。
+sandbox 当前采用 **agent-owned backend lifecycle**。
 
-推荐模型是：
+当前实现不是 run-scoped sandbox lease / pool，而是：
 
-- `Assemble` 时初始化 sandbox factory / strategy / pool
-- `ManagedAgent` 持有 sandbox owner
-- `invoke()` 时按 run 获取 sandbox lease / instance
-- run 结束后释放 lease
-- `unload`、`uninstall` 或 `shutdown()` 时回收该 agent 对应的 sandbox owner 和 warm instances
+- `Assemble` 时根据 `SandboxSpec` 创建一个 concrete sandbox backend
+- `RuntimeAgent` 持有 `SandboxRuntime`
+- `invoke()` / `astream()` 时将该 backend 注入 runtime context
+- `release`、`uninstall` 或 `shutdown()` 时统一 cleanup
 
 这意味着 sandbox 是：
 
-- **owner 在 agent 层**
-- **具体实例使用在 run 层**
+- **owner 在 compiled agent 层**
+- **backend 在 run 期间复用，而不是按 run 租用**
+
+### 5.4 `SandboxSpec` 驱动 backend 选择
+
+当前 runtime 使用如下解析顺序：
+
+1. 优先读取 `sandbox.resources.backend`
+2. 兼容读取 `sandbox.resources.kind`
+3. 兼容读取 `sandbox.resources.provider`
+4. 如果未声明 backend，但声明了 `image`，默认视为 `docker`
+5. 否则默认视为 `local`
+
+当前支持的 backend kind：
+
+- `local`
+- `docker`
+- `k8s`
+
+兼容别名：
+
+- `filesystem -> local`
+- `shell -> local`
+- `kubernetes -> k8s`
 
 ## 6. Public 语义与 internal 语义
 
@@ -195,19 +215,19 @@ sandbox 也由 `AgentManager` 管理，但默认不作为 agent 共享单实例�
 
 - `sandbox_spec`
 - `mcp_configs`
-- prompt / memory / tools / subagents
+- prompt / skills / subagents
 
-### 7.2 `ManagedAgent` / compiled runtime 层
+### 7.2 `RuntimeAgent` / compiled runtime 层
 
-长生命周期资源层，由 `AgentManager` 持有。
+长生命周期资源层，由 `AgentManager` 持有、由 `RuntimeAgent` 实际承载。
 
 建议包含：
 
-- `template`
+- `graph`
 - `mcp_runtime`
 - `sandbox_runtime`
 - `status`
-- `active_run_count`
+- `last_invoked`
 
 ### 7.3 `AgentRun` 层
 
@@ -217,26 +237,23 @@ sandbox 也由 `AgentManager` 管理，但默认不作为 agent 共享单实例�
 
 - `run_id`
 - `thread_id`
-- `sandbox_lease`
 - hitl handler
 - run stats
+- cancel / timeout 控制状态
 
 ## 8. 数据结构建议
 
-### 8.1 `ManagedAgent`
+### 8.1 `RuntimeAgent`
 
-建议扩展为：
+当前代码已经收敛到 `RuntimeAgent` 持有 compiled runtime，结构近似为：
 
 ```python
-@dataclass
-class ManagedAgent:
-    name: str
+class RuntimeAgent:
     spec: AgentSpec
-    template: AgentTemplate | None = None
+    graph: CompiledStateGraph | None = None
     mcp_runtime: MCPRuntime | None = None
     sandbox_runtime: SandboxRuntime | None = None
-    status: AgentStatus = AgentStatus.DEFINED
-    active_run_count: int = 0
+    runtime_status: str | None = None
     last_invoked: datetime | None = None
 ```
 
@@ -254,29 +271,28 @@ class MCPRuntime:
 
 ### 8.3 `SandboxRuntime`
 
-建议新增运行时结构，用于封装 agent 级 sandbox 策略。
+当前 `SandboxRuntime` 已用于封装 agent-owned sandbox backend。
 
 ```python
 @dataclass
 class SandboxRuntime:
     spec: SandboxSpec
-    pool: SandboxPool
+    backend: Any
 ```
 
 ### 8.4 `AgentRun`
 
-建议收缩职责，不再创建 MCP clients。
+当前没有独立的 `AgentRun` 对象。run 级上下文由 `AgentManager.invoke()` 与 `RuntimeAgent.astream()` 共同承载。
 
 ```python
-@dataclass
-class AgentRun:
-    template: AgentTemplate
-    run_id: str
-    thread_id: str
-    sandbox: Any | None = None
+run_id: str
+thread_id: str
+hitl_handler: HITLHandler | None
+cancel_event: asyncio.Event | None
+timeout_seconds: float | None
 ```
 
-`AgentRun` 只负责持有本次 run 的 sandbox lease 和上下文信息。
+run 层不再创建 MCP clients，也不再持有 sandbox lease。
 
 ## 9. 动作语义
 
@@ -296,11 +312,11 @@ class AgentRun:
 
 行为：
 
-1. 读取 `ManagedAgent.spec`
-2. 构建 graph / template
+1. 读取 `RuntimeAgent.spec`
+2. 构建 compiled graph
 3. 初始化 `mcp_runtime`
 4. 初始化 `sandbox_runtime`
-5. 将 runtime 资源挂到 `ManagedAgent`
+5. 将 runtime 资源挂到 `RuntimeAgent`
 
 结束语义：
 
@@ -311,16 +327,16 @@ class AgentRun:
 
 行为：
 
-1. 若未 compile，则先 compile
-2. 从 `sandbox_runtime.pool` 获取 sandbox lease
-3. 使用 compiled graph 执行 run
-4. MCP 直接复用 `ManagedAgent.mcp_runtime`
-5. run 结束后释放 sandbox lease
+1. 要求 agent 已处于 compiled 状态
+2. `AgentManager` 统一准备 `run_id`、`thread_id`、timeout、cancel 控制
+3. `RuntimeAgent.astream()` 使用 compiled graph 执行 run
+4. MCP 直接复用 `RuntimeAgent.mcp_runtime`
+5. sandbox 直接复用 `RuntimeAgent.sandbox_runtime.backend`
 
 运行态变化：
 
 - `compiled -> running`
-- 当 `active_run_count` 回到 `0` 时，恢复为 `compiled`
+- run 结束后恢复为 `compiled`
 
 ### 9.4 `cancel = CancelRequest`
 
@@ -362,29 +378,56 @@ class AgentRun:
 
 行为：
 
-- 遍历所有 `ManagedAgent`
+- 遍历所有 `RuntimeAgent`
 - 统一关闭 compiled 级 runtime 资源
-- 清理 active runs
+- 跳过仍在 running 的 agent
 - 关闭 checkpointer
 
 ## 10. 并发语义
 
 ### 10.1 MCP
 
-默认假设同一个 compiled agent 的 MCP runtime 可被多个 run 复用。
+默认复用同一个 compiled agent 的 MCP runtime。
 
 如果后续验证发现某些 MCP provider 不支持并发共享，则扩展方案为：
 
 - 保留 agent 级 `MCPRuntimeFactory`
 - run 从 factory 中借用 session
 
-但默认不做 per-run MCP client 重建。
+但当前默认不做 per-run MCP client 重建。
 
 ### 10.2 sandbox
 
-默认支持并发 run，但每个 run 获取各自的 sandbox lease。
+当前 runtime 采用“同 agent 单 run”并发模型。
 
-不默认允许多个 run 共享同一个 concrete sandbox 实例。
+因此，当前 sandbox 语义是：
+
+- 不存在 run-scoped sandbox lease
+- 同一个 compiled agent 的 run 复用同一个 owned backend
+- 如后续放开同 agent 多 run，需要重新定义 sandbox 并发语义
+
+### 10.3 backend 语义边界
+
+`local`：
+
+- 使用 `LocalShellBackend`
+- root 指向 agent workspace
+- 具备本地文件系统和本地 shell 执行能力
+- 不提供进程隔离
+
+`docker`：
+
+- assemble 时创建 long-lived container
+- run 期间复用该 container
+- release 时销毁 container
+- 当前要求镜像内具备 `sh` 和 `python3`
+- 当前不支持 per-command timeout override
+
+`k8s`：
+
+- 契约中已保留
+- 当前 runtime 仍返回 `NotImplementedError`
+- 在实现完成前，不应作为可用 backend 对外承诺
 
 ## 11. 与当前实现的映射关系
 
@@ -396,27 +439,27 @@ class AgentRun:
 | `assemble_agent()` | `compile` | 构建 runnable runtime |
 | `invoke()` | `execute` | 执行单次 run |
 | `CancelRequest` | `cancel current run` | 只影响当前执行流 |
-| `stop_agent()` | internal `unload` | 不应继续作为 public 语义 |
+| `unload_agent()` | internal `unload` | 释放 compiled runtime，保留 spec |
 | `RemoveResource` | `uninstall/delete` | 最终承担删除语义 |
 
 状态枚举建议映射如下：
 
 | 当前状态 | 目标语义 | 备注 |
 |----------|----------|------|
-| `DEFINED` | `installed` | spec 已存在 |
-| `ASSEMBLED` | `compiled` / `runnable` | 已可执行 |
+| `INSTALLED` | `installed` | spec 已存在 |
+| `COMPILED` | `compiled` / `runnable` | 已可执行 |
 | `RUNNING` | `running overlay` | active run 覆盖态 |
-| `STOPPED` | internal unloaded | 长期不建议作为 public 状态 |
 
-## 12. 收敛顺序建议
+## 12. 收敛状态
 
-建议按以下顺序继续推进：
+以下收敛工作已完成：
 
-1. 先统一文档语义，明确 `install / compile / execute / cancel / uninstall`
-2. 把 public 协议和外部术语中的 `stop` 全部收掉
-3. 将代码中的 `stop_agent()` 重命名为 `unload_agent()` 或等价内部名
-4. 让 `RemoveResource` 对 agent 场景明确承接 uninstall/delete 语义
-5. 统一 health / status 输出，不再把 `STOPPED` 当成产品态
+1. ✅ 统一文档语义，明确 `install / compile / execute / cancel / uninstall`
+2. ✅ 把 public 协议和外部术语中的 `stop` 全部收掉
+3. ✅ 将代码中的 `stop_agent()` 移除，仅保留 `unload_agent()`
+4. ✅ 让 `RemoveResource` 对 agent 场景明确承接 uninstall/delete 语义
+5. ✅ 移除 `sandbox_pool` 兼容残留
+6. ⏳ 统一 health / status 输出（Phase 5 范围）
 
 ## 13. 结论
 
@@ -430,10 +473,10 @@ class AgentRun:
 
 同时：
 
-- `AgentManager` 是 MCP 和 sandbox 的唯一 runtime owner
+- `AgentManager` 是顶层 runtime owner，`RuntimeAgent` 是 compiled runtime 的直接 owner
 - MCP 默认采用 **agent-scoped / compiled-agent-scoped** 生命周期
-- sandbox 默认采用 **agent-scoped owner + run-scoped lease** 生命周期
-- `AgentRun` 只持有单次调用上下文，不持有跨 run 的 live 资源
-- `stop` 不再作为 public 生命周期概念继续扩散
+- sandbox 默认采用 **agent-owned backend lifecycle**
+- 当前不存在独立的 `AgentRun` 对象，也不存在 run-scoped sandbox lease
+- `stop` 已从代码和 public 语义中移除
 
-这套模型把 public 语义、runtime owner、资源边界和执行协议统一到了同一条线上，是 Phase 4 后续实现和文档的基准口径。
+这套模型把 public 语义、runtime owner、资源边界和执行协议统一到了同一条线上，是 Phase 5 及后续实现的基准口径。

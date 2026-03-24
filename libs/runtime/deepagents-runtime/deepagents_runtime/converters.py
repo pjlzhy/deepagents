@@ -270,17 +270,9 @@ def sync_agent_spec_request_to_agent_spec(msg: pb2.SyncAgentSpecRequest) -> Agen
     """Convert a SyncAgentSpecRequest protobuf to an AgentSpec."""
     prompt: dict[str, Any] = {}
     if msg.HasField("prompt"):
-        prompt = {
-            "system": msg.prompt.system,
-            "memory": list(msg.prompt.memory),
-        }
+        prompt = {"system": msg.prompt.system}
 
     tools: dict[str, Any] = {}
-    if msg.HasField("tools"):
-        tools = {
-            "builtins": list(msg.tools.builtins),
-            "mcp": list(msg.tools.mcp),
-        }
 
     sandbox: dict[str, Any] = {}
     if msg.HasField("sandbox"):
@@ -300,10 +292,6 @@ def sync_agent_spec_request_to_agent_spec(msg: pb2.SyncAgentSpecRequest) -> Agen
         }
         if sa.model:
             sa_meta["model"] = sa.model
-        if sa.source:
-            sa_meta["source"] = sa.source
-        if sa.path:
-            sa_meta["path"] = sa.path
         subagents.append(sa_meta)
 
     # Parse MCP server configs

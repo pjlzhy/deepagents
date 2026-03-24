@@ -140,13 +140,9 @@ spec:
   prompt:
     system: |
       You are a senior code reviewer.
-    memory:
-      - ./team-standards.md
   skills:
     - name: code-review
       content: "<embedded SKILL.md>"
-  tools:
-    builtins: [filesystem, execute]
   mcp_servers:
     - name: github
       command: npx @modelcontextprotocol/server-github
@@ -204,7 +200,7 @@ The data plane `AgentManager` owns runtime resources:
 
 - compiled `AgentTemplate`
 - agent-scoped MCP runtime
-- agent-scoped sandbox owner / pool
+- agent-scoped sandbox runtime owner
 - active runs
 
 ---
@@ -237,11 +233,13 @@ Control Plane Registry / Workspace refs
             -> SyncAgentSpec (gRPC)
                 -> Data Plane compile():
                     - resolve model
-                    - build middleware from prompt / skills / memory / builtins
+                    - build middleware from prompt / skills
                     - attach mcp_servers metadata
                     - attach subagents metadata
+                    - materialize agent-scoped MCP runtime
+                    - materialize agent-scoped sandbox runtime
                     - create_deep_agent(...)
-                        -> AgentTemplate(graph, sandbox_spec, mcp_configs)
+                        -> compiled graph + runtime resources
 ```
 
 ### 7.2 Responsibility Split
@@ -329,10 +327,11 @@ CLI / Caller
       - open AgentExecutor.Run stream
           -> Data Plane
               - load compiled AgentTemplate
-              - prepare agent-scoped runtime and run-scoped leases
+              - reuse agent-scoped MCP / sandbox runtime resources
+              - prepare run-scoped execution context
               - execute graph
               - stream AgentEvents
-              - cleanup run-scoped resources
+              - cleanup run-scoped control state
 ```
 
 ### 11.2 Assembly Flow
@@ -344,24 +343,36 @@ Control Plane Registry / Workspace refs
             -> SyncAgentSpec
                 -> Data Plane assembly
                     - create model
-                    - build middleware from prompt / skills / memory / builtins
+                    - build middleware from prompt / skills
                     - attach mcp_servers / subagents / sandbox spec
-                    -> AgentTemplate
+                    - create agent-scoped MCP / sandbox runtime resources
+                    -> compiled runtime
 ```
 
 ---
 
 ## 12. Sandbox
 
-Sandboxing is a data-plane responsibility and is managed per run.
+Sandboxing is a data-plane responsibility. In the current runtime, sandbox resources are owned by the compiled runtime agent, not by an individual run.
 
-Goals:
+Current lifecycle:
 
-- isolate filesystem and execution side effects
-- support backend-specific implementations such as local, Docker, and K8s
-- keep sandbox creation and cleanup inside the runtime lifecycle
+- `Assemble` resolves `SandboxSpec` and creates one agent-scoped sandbox backend when sandboxing is enabled
+- `Run` reuses that backend by injecting it into the graph runtime context
+- `Release` / `Remove` / manager shutdown clean up the owned backend
 
-`SandboxSpec` describes how a sandbox should be created. The actual backend instance is owned by `AgentRun`.
+Backend selection is driven by `SandboxSpec`:
+
+- prefer `sandbox.resources.backend`
+- also accept `sandbox.resources.kind` and `sandbox.resources.provider` as compatibility aliases
+- if no backend is declared but `image` is present, default to `docker`
+- otherwise default to `local`
+
+Current backend semantics:
+
+- `local`: use `LocalShellBackend` rooted at the agent workspace; execution is local-host shell execution without isolation
+- `docker`: create one long-lived container per compiled agent and reuse it across runs until release
+- `k8s`: reserved in the contract, but not yet implemented in the runtime
 
 ---
 
@@ -372,7 +383,11 @@ MCP integration is split across planes:
 - control plane stores reusable MCP definitions and packages them into runtime-ready inputs
 - data plane receives MCP server configurations and manages runtime MCP usage
 
-MCP server metadata belongs in the synced `AgentSpec`. Live MCP sessions belong to run-scoped runtime state.
+MCP server metadata belongs in the synced `AgentSpec`. Live MCP sessions belong to agent-scoped runtime state:
+
+- `Assemble` starts MCP runtime resources and loads MCP tools
+- `Run` reuses the compiled agent's MCP runtime
+- `Release` / `Remove` / manager shutdown clean up MCP sessions
 
 ---
 

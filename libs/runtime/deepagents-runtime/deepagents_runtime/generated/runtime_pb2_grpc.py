@@ -449,3 +449,255 @@ class ResourceSync(object):
             timeout,
             metadata,
             _registered_method=True)
+
+
+class SessionQueryStub(object):
+    """Query runtime-local session state derived from checkpoint storage.
+    """
+
+    def __init__(self, channel):
+        """Constructor.
+
+        Args:
+            channel: A grpc.Channel.
+        """
+        self.ListSessions = channel.unary_unary(
+                '/deepagents.runtime.v1.SessionQuery/ListSessions',
+                request_serializer=runtime__pb2.ListSessionsRequest.SerializeToString,
+                response_deserializer=runtime__pb2.ListSessionsResponse.FromString,
+                _registered_method=True)
+        self.GetSession = channel.unary_unary(
+                '/deepagents.runtime.v1.SessionQuery/GetSession',
+                request_serializer=runtime__pb2.GetSessionRequest.SerializeToString,
+                response_deserializer=runtime__pb2.GetSessionResponse.FromString,
+                _registered_method=True)
+        self.GetSessionMessages = channel.unary_unary(
+                '/deepagents.runtime.v1.SessionQuery/GetSessionMessages',
+                request_serializer=runtime__pb2.GetSessionMessagesRequest.SerializeToString,
+                response_deserializer=runtime__pb2.GetSessionMessagesResponse.FromString,
+                _registered_method=True)
+        self.GetLatestSession = channel.unary_unary(
+                '/deepagents.runtime.v1.SessionQuery/GetLatestSession',
+                request_serializer=runtime__pb2.GetLatestSessionRequest.SerializeToString,
+                response_deserializer=runtime__pb2.GetLatestSessionResponse.FromString,
+                _registered_method=True)
+        self.DeleteSession = channel.unary_unary(
+                '/deepagents.runtime.v1.SessionQuery/DeleteSession',
+                request_serializer=runtime__pb2.DeleteSessionRequest.SerializeToString,
+                response_deserializer=runtime__pb2.DeleteSessionResponse.FromString,
+                _registered_method=True)
+
+
+class SessionQueryServicer(object):
+    """Query runtime-local session state derived from checkpoint storage.
+    """
+
+    def ListSessions(self, request, context):
+        """List recent sessions ordered by latest checkpoint update time.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetSession(self, request, context):
+        """Get one session summary by thread_id.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetSessionMessages(self, request, context):
+        """Read checkpoint-backed session messages for one thread.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetLatestSession(self, request, context):
+        """Resolve the latest session, optionally filtered by agent.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def DeleteSession(self, request, context):
+        """Delete one local session from checkpoint storage.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+
+def add_SessionQueryServicer_to_server(servicer, server):
+    rpc_method_handlers = {
+            'ListSessions': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListSessions,
+                    request_deserializer=runtime__pb2.ListSessionsRequest.FromString,
+                    response_serializer=runtime__pb2.ListSessionsResponse.SerializeToString,
+            ),
+            'GetSession': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetSession,
+                    request_deserializer=runtime__pb2.GetSessionRequest.FromString,
+                    response_serializer=runtime__pb2.GetSessionResponse.SerializeToString,
+            ),
+            'GetSessionMessages': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetSessionMessages,
+                    request_deserializer=runtime__pb2.GetSessionMessagesRequest.FromString,
+                    response_serializer=runtime__pb2.GetSessionMessagesResponse.SerializeToString,
+            ),
+            'GetLatestSession': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetLatestSession,
+                    request_deserializer=runtime__pb2.GetLatestSessionRequest.FromString,
+                    response_serializer=runtime__pb2.GetLatestSessionResponse.SerializeToString,
+            ),
+            'DeleteSession': grpc.unary_unary_rpc_method_handler(
+                    servicer.DeleteSession,
+                    request_deserializer=runtime__pb2.DeleteSessionRequest.FromString,
+                    response_serializer=runtime__pb2.DeleteSessionResponse.SerializeToString,
+            ),
+    }
+    generic_handler = grpc.method_handlers_generic_handler(
+            'deepagents.runtime.v1.SessionQuery', rpc_method_handlers)
+    server.add_generic_rpc_handlers((generic_handler,))
+    server.add_registered_method_handlers('deepagents.runtime.v1.SessionQuery', rpc_method_handlers)
+
+
+ # This class is part of an EXPERIMENTAL API.
+class SessionQuery(object):
+    """Query runtime-local session state derived from checkpoint storage.
+    """
+
+    @staticmethod
+    def ListSessions(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/deepagents.runtime.v1.SessionQuery/ListSessions',
+            runtime__pb2.ListSessionsRequest.SerializeToString,
+            runtime__pb2.ListSessionsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetSession(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/deepagents.runtime.v1.SessionQuery/GetSession',
+            runtime__pb2.GetSessionRequest.SerializeToString,
+            runtime__pb2.GetSessionResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetSessionMessages(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/deepagents.runtime.v1.SessionQuery/GetSessionMessages',
+            runtime__pb2.GetSessionMessagesRequest.SerializeToString,
+            runtime__pb2.GetSessionMessagesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetLatestSession(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/deepagents.runtime.v1.SessionQuery/GetLatestSession',
+            runtime__pb2.GetLatestSessionRequest.SerializeToString,
+            runtime__pb2.GetLatestSessionResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DeleteSession(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/deepagents.runtime.v1.SessionQuery/DeleteSession',
+            runtime__pb2.DeleteSessionRequest.SerializeToString,
+            runtime__pb2.DeleteSessionResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)

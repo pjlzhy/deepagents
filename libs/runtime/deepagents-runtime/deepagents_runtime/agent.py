@@ -10,12 +10,11 @@ from types import SimpleNamespace
 from typing import Any
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 
 from langchain.agents.middleware.types import AgentState
 from langchain.messages import ToolCall
-from langchain_core.messages import AIMessageChunk
 from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
 from langchain.agents.middleware import InterruptOnConfig
@@ -37,8 +36,16 @@ from deepagents_runtime.events import RuntimeEvent
 from deepagents_runtime.mcp_tool import load_mcp_tools_from_configs
 from deepagents_runtime.models import create_model, ModelResult
 from deepagents_runtime.registry import Registry
-from deepagents_runtime.sandbox.pool import SandboxPool
-from deepagents_runtime.spec import AgentSpec, MCPRuntime, SandboxRuntime, AgentStatus, RunConfig
+from deepagents_runtime.sandbox.docker import DockerSandboxBackend
+from deepagents_runtime.sandbox.k8s import K8sSandboxBackend
+from deepagents_runtime.spec import (
+    AgentSpec,
+    MCPRuntime,
+    SandboxRuntime,
+    AgentStatus,
+    resolve_sandbox_backend_kind,
+    validate_agent_spec,
+)
 from deepagents_runtime.streams import StreamParserState, parse_stream_part
 
 REQUIRE_COMPACT_TOOL_APPROVAL: bool = True
@@ -462,15 +469,30 @@ class RuntimeAgent:
             virtual_mode=False,
         )
 
-    def _create_sandbox_runtime(self) -> SandboxRuntime:
-        """Create the agent-scoped sandbox runtime owner."""
-
-        async def backend_factory(_spec: Any) -> Any:
+    async def _build_sandbox_backend(self, *, spec: dict[str, Any]) -> Any:
+        """Create the concrete backend selected by the sandbox spec."""
+        backend_kind = resolve_sandbox_backend_kind(spec)
+        if backend_kind == "local":
             return self._build_workspace_backend()
+        if backend_kind == "docker":
+            backend = await DockerSandboxBackend.from_spec(spec)
+            await backend.start()
+            return backend
+        if backend_kind == "k8s":
+            backend = await K8sSandboxBackend.from_spec(spec)
+            await backend.start()
+            return backend
+
+        msg = f"unsupported sandbox backend '{backend_kind}'"
+        raise ValueError(msg)
+
+    async def _create_sandbox_runtime(self, *, spec: dict[str, Any]) -> SandboxRuntime:
+        """Create the agent-scoped sandbox runtime owner."""
+        backend = await self._build_sandbox_backend(spec=spec)
 
         return SandboxRuntime(
-            spec=self.spec.sandbox or {},
-            pool=SandboxPool(backend_factory=backend_factory),
+            spec=spec,
+            backend=backend,
         )
 
     def _merge_runtime_context(
@@ -498,20 +520,27 @@ class RuntimeAgent:
 
     @asynccontextmanager
     async def _sandbox_context(self, context: Any) -> AsyncIterator[Any]:
-        """Acquire a run-scoped sandbox lease and inject it into context."""
+        """Inject the agent-owned sandbox backend into the runtime context."""
         sandbox_runtime = self._sandbox_runtime
         if sandbox_runtime is None:
             yield context
             return
 
-        sandbox_backend = await sandbox_runtime.pool.acquire(sandbox_runtime.spec)
-        try:
-            yield self._merge_runtime_context(
-                context,
-                sandbox_backend=sandbox_backend,
-            )
-        finally:
-            await sandbox_runtime.pool.release(sandbox_backend)
+        yield self._merge_runtime_context(
+            context,
+            sandbox_backend=sandbox_runtime.backend,
+        )
+
+    async def _cleanup_sandbox_backend(self, sandbox_backend: Any) -> None:
+        """Best-effort cleanup for an owned sandbox backend."""
+        cleanup = getattr(sandbox_backend, "cleanup", None)
+        if cleanup and callable(cleanup):
+            try:
+                result = cleanup()
+                if asyncio.iscoroutine(result) or asyncio.isfuture(result):
+                    await result
+            except Exception:
+                logger.warning("Error cleaning up sandbox", exc_info=True)
 
     def build_model_extra_kwargs(self) -> dict[str, Any]:
         """Resolve model constructor kwargs from an agent spec."""
@@ -576,40 +605,26 @@ class RuntimeAgent:
             *,
             checkpointer: Any = None,
     ) -> None:
-        """Assemble an ``AgentSpec`` into an ``AgentTemplate``.
+        """Build compiled runtime resources for the current agent spec.
 
         Steps:
-            1. Create the model via ``create_model(spec.model)``.
-            2. Load MCP tools from ``spec.mcp_servers``.
-            3. Build middleware stack (Memory, Skills, Summarization).
-            4. Construct system prompt.
-            5. Build ``interrupt_on`` mapping.
-            6. Resolve subagents (with cycle detection).
-            7. Create backend (``LocalShellBackend`` + ``CompositeBackend``).
-            8. Call SDK ``create_deep_agent()`` to build the compiled graph.
+            1. Validate the current spec and resolve the chat model.
+            2. Load MCP tools and retain releasable MCP runtime resources.
+            3. Build the backend selector and middleware stack.
+            4. Build the final system prompt and interrupt mapping.
+            5. Materialize subagent configuration and compile the graph.
 
         Args:
-            spec: The agent specification to assemble.
-            registry: Registry instance (for subagent spec lookup).
             checkpointer: Optional LangGraph checkpointer for persistence.
-            _assembling: Internal — agent names currently being assembled.
-                Used for circular-dependency detection.  Callers should not
-                pass this parameter.
 
-        Returns:
-            Tuple of ``(template, mcp_runtime)``. ``mcp_runtime`` is ``None``
-            when the agent has no MCP servers configured.
-
-        Raises:
-            ValueError: If a circular dependency is detected or a referenced
-                subagent is not found in the registry.
         """
         # Runtime state is managed by `_runtime_phase()`.
-        # ── 1. Create model ──
+        validate_agent_spec(self.spec)
+        # 1. Resolve the chat model.
         extra_kwargs = self.build_model_extra_kwargs()
         result = create_model(self.spec.model, extra_kwargs=extra_kwargs or None)
 
-        # ── 2. Load MCP tools ──
+        # 2. Load MCP tools and stage releasable runtime resources.
         mcp_tools, mcp_session_manager, mcp_server_infos = (
             await load_mcp_tools_from_configs(self.spec.mcp_servers)
         )
@@ -628,15 +643,36 @@ class RuntimeAgent:
                 len(mcp_tools), self.spec.name, len(mcp_server_infos),
             )
 
-        # ── 3. Build middleware stack ──
-        fallback_backend = self._build_workspace_backend()
+        desired_sandbox_spec = dict(self.spec.sandbox or {})
+        existing_sandbox_runtime = self._sandbox_runtime
+        replace_sandbox_runtime = (
+            existing_sandbox_runtime is not None
+            and existing_sandbox_runtime.spec != desired_sandbox_spec
+        )
+        sandbox_runtime = existing_sandbox_runtime
+        created_sandbox_runtime: SandboxRuntime | None = None
+        if replace_sandbox_runtime:
+            sandbox_runtime = None
+        if sandbox_runtime is None and desired_sandbox_spec:
+            sandbox_runtime = await self._create_sandbox_runtime(
+                spec=desired_sandbox_spec
+            )
+            created_sandbox_runtime = sandbox_runtime
+
+        # 3. Build the backend selector and middleware stack.
+        fallback_backend = (
+            sandbox_runtime.backend
+            if sandbox_runtime is not None
+            else self._build_workspace_backend()
+        )
 
         def runtime_backend_factory(tool_runtime: Any) -> Any:
             """Resolve the backend for the current tool call.
 
-            When an invocation provides a leased sandbox backend via runtime
-            context, file and execute tools should use that backend. Otherwise
-            the assembled agent falls back to the workspace-local shell backend.
+            When an invocation provides an agent-owned sandbox backend via
+            runtime context, file and execute tools should use that backend.
+            Otherwise the assembled agent falls back to the workspace-local
+            shell backend.
             """
             sandbox_backend = None
             context = getattr(tool_runtime, "context", None)
@@ -655,7 +691,7 @@ class RuntimeAgent:
         # Memory middleware
         agent_middleware.append(
             MemoryMiddleware(
-                backend=FilesystemBackend(),
+                backend=FilesystemBackend(virtual_mode=False),
                 sources=[str(self.registry.memory_dir(self.spec.name))],
             )
         )
@@ -663,19 +699,19 @@ class RuntimeAgent:
         # Skills middleware
         agent_middleware.append(
             SkillsMiddleware(
-                backend=FilesystemBackend(),
+                backend=FilesystemBackend(virtual_mode=False),
                 sources=[str(self.registry.skills_dir(self.spec.name))],
             )
         )
 
-        # 手动摘要工具中间件，通过prompt调用工具触发
+        # Expose summarization through an explicit tool-backed middleware.
         agent_middleware.append(
             SummarizationToolMiddleware(
                 create_summarization_middleware(result.model, runtime_backend_factory)
             )
         )
 
-        # ── 4. System prompt ──
+        # 4. Build the final system prompt.
         prompt_system = self.spec.prompt.get("system", "") if self.spec.prompt else ""
         system_prompt = get_system_prompt(
             agent_name=self.spec.name,
@@ -684,16 +720,16 @@ class RuntimeAgent:
             skills_dir=str(self.registry.skills_dir(self.spec.name)),
         )
 
-        # ── 5. interrupt_on ──
+        # 5. Build the interrupt_on mapping.
         if self.spec.interrupt_on:
-            # Convert list[str] → dict[str, bool]
+            # Convert list[str] to dict[str, bool].
             interrupt_on: dict[str, bool | InterruptOnConfig] = {
                 name: True for name in self.spec.interrupt_on
             }
         else:
             interrupt_on = _add_interrupt_on()
 
-        # ── 6. Subagents ──
+        # 6. Materialize subagent configuration.
         custom_subagents: list[Any] = []
         for sa_meta in self.spec.subagents:
             subagent: SubAgent = {
@@ -705,25 +741,31 @@ class RuntimeAgent:
                 subagent["model"] = sa_meta["model"]
             custom_subagents.append(subagent)
 
-        # ── 7. Build compiled graph via SDK ──
-        self._graph = create_deep_agent(
-            name=self.spec.name,
-            model=result.model,
-            tools=tools if tools else None,
-            system_prompt=system_prompt,
-            middleware=agent_middleware,
-            subagents=custom_subagents if custom_subagents else None,
-            backend=runtime_backend_factory,
-            interrupt_on=interrupt_on,
-            checkpointer=checkpointer,
-        )
+        # 7. Compile the runnable graph via the SDK.
+        try:
+            graph = create_deep_agent(
+                name=self.spec.name,
+                model=result.model,
+                tools=tools if tools else None,
+                system_prompt=system_prompt,
+                middleware=agent_middleware,
+                subagents=custom_subagents if custom_subagents else None,
+                backend=runtime_backend_factory,
+                interrupt_on=interrupt_on,
+                checkpointer=checkpointer,
+            )
+        except Exception:
+            if created_sandbox_runtime is not None:
+                await self._cleanup_sandbox_backend(created_sandbox_runtime.backend)
+            if mcp_runtime is not None:
+                await mcp_runtime.session_manager.cleanup()
+            raise
 
+        self._graph = graph
         self._mcp_runtime = mcp_runtime
-        if self._sandbox_runtime is None:
-            self._sandbox_runtime = self._create_sandbox_runtime()
-
-    async def ainvoke(self):
-        """Invokes the agent."""
+        self._sandbox_runtime = sandbox_runtime
+        if replace_sandbox_runtime and existing_sandbox_runtime is not None:
+            await self._cleanup_sandbox_backend(existing_sandbox_runtime.backend)
 
     async def astream(self,
                       *,
@@ -877,5 +919,5 @@ class RuntimeAgent:
             self._mcp_runtime = None
 
         if self._sandbox_runtime is not None:
-            await self._sandbox_runtime.pool.shutdown()
+            await self._cleanup_sandbox_backend(self._sandbox_runtime.backend)
             self._sandbox_runtime = None

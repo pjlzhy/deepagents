@@ -1,1 +1,1 @@
-"""Sandbox pool and backend implementations."""
+"""Sandbox backend implementations (local, docker, k8s)."""

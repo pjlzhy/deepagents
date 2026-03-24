@@ -29,6 +29,7 @@ import yaml
 from deepagents_runtime.spec import (
     AgentMeta,
     AgentSpec,
+    validate_agent_spec,
 )
 
 logger = logging.getLogger(__name__)
@@ -109,10 +110,6 @@ def _spec_to_yaml_dict(spec: AgentSpec) -> dict[str, Any]:
         }
         if sa.get("model"):
             sa_dict["model"] = sa["model"]
-        if sa.get("source"):
-            sa_dict["source"] = sa["source"]
-        if sa.get("path"):
-            sa_dict["path"] = sa["path"]
         subagents.append(sa_dict)
 
     # Serialize skills
@@ -132,9 +129,13 @@ def _spec_to_yaml_dict(spec: AgentSpec) -> dict[str, Any]:
 
     spec_dict: dict[str, Any] = {
         "model": spec.model,
-        "prompt": dict(spec.prompt) if spec.prompt else {},
+        "prompt": (
+            {"system": spec.prompt["system"]}
+            if spec.prompt.get("system")
+            else {}
+        ),
         "skills": skills,
-        "tools": dict(spec.tools) if spec.tools else {},
+        "tools": {},
         "subagents": subagents,
         "mcp_servers": mcp_servers,
         "sandbox": dict(spec.sandbox) if spec.sandbox else {},
@@ -164,7 +165,7 @@ class Registry:
     """
 
     def __init__(self, base_dir: Path | None = None) -> None:
-        self._base_dir = base_dir or Path("D:\project\deepagents") ##_default_base_dir() todo
+        self._base_dir = base_dir or _default_base_dir()
         self._base_dir.mkdir(parents=True, exist_ok=True)
 
     @property
@@ -197,6 +198,7 @@ class Registry:
         Creates the standard subdirectory structure and writes each
         skill directory snapshot under ``skills/{name}/``.
         """
+        validate_agent_spec(spec)
         agent_dir = _agent_dir(self._base_dir, spec.name)
         agent_dir.mkdir(parents=True, exist_ok=True)
 
@@ -211,6 +213,7 @@ class Registry:
         for skill in spec.skills:
             skill_dir = skills_base / skill["name"]
             skill_dir.mkdir(parents=True, exist_ok=True)
+            seen_targets: set[Path] = set()
 
             skill_md = skill_dir / "SKILL.md"
             skill_md.write_text(skill.get("content", ""), encoding="utf-8")
@@ -221,6 +224,13 @@ class Registry:
 
             for file in skill.get("files", []):
                 target = _resolve_skill_file_path(skill_dir, file["path"])
+                if target in seen_targets:
+                    msg = (
+                        f"Duplicate skill file path within skill "
+                        f"'{skill['name']}': {file['path']}"
+                    )
+                    raise ValueError(msg)
+                seen_targets.add(target)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(file["content"], encoding="utf-8")
                 logger.debug(

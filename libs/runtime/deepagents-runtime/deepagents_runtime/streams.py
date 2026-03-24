@@ -9,7 +9,9 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from typing import Any
+from pydantic import TypeAdapter
 
+from langchain.agents.middleware.human_in_the_loop import HITLRequest
 from deepagents_runtime import events
 from deepagents_runtime.events import RuntimeEvent
 from deepagents_runtime.runs import SessionStats
@@ -118,9 +120,6 @@ def _parse_interrupts(
 
         # Validate as HITLRequest
         try:
-            from pydantic import TypeAdapter
-            from langchain.agents.middleware.human_in_the_loop import HITLRequest
-
             adapter = TypeAdapter(HITLRequest)
             validated = adapter.validate_python(interrupt_value)
         except Exception:

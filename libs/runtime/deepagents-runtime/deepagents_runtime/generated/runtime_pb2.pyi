@@ -3,12 +3,48 @@ import datetime
 from google.protobuf import struct_pb2 as _struct_pb2
 from google.protobuf import timestamp_pb2 as _timestamp_pb2
 from google.protobuf.internal import containers as _containers
+from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
 from collections.abc import Iterable as _Iterable, Mapping as _Mapping
 from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 
 DESCRIPTOR: _descriptor.FileDescriptor
+
+class AgentRuntimeStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    AGENT_RUNTIME_STATUS_UNSPECIFIED: _ClassVar[AgentRuntimeStatus]
+    AGENT_RUNTIME_STATUS_UNKNOWN: _ClassVar[AgentRuntimeStatus]
+    AGENT_RUNTIME_STATUS_INSTALLED: _ClassVar[AgentRuntimeStatus]
+    AGENT_RUNTIME_STATUS_COMPILED: _ClassVar[AgentRuntimeStatus]
+    AGENT_RUNTIME_STATUS_RUNNING: _ClassVar[AgentRuntimeStatus]
+
+class SessionHistoryMode(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    SESSION_HISTORY_MODE_UNSPECIFIED: _ClassVar[SessionHistoryMode]
+    SESSION_HISTORY_MODE_RESUME_VIEW: _ClassVar[SessionHistoryMode]
+    SESSION_HISTORY_MODE_FULL_TRANSCRIPT: _ClassVar[SessionHistoryMode]
+
+class SessionMessageRole(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    SESSION_MESSAGE_ROLE_UNSPECIFIED: _ClassVar[SessionMessageRole]
+    SESSION_MESSAGE_ROLE_SYSTEM: _ClassVar[SessionMessageRole]
+    SESSION_MESSAGE_ROLE_HUMAN: _ClassVar[SessionMessageRole]
+    SESSION_MESSAGE_ROLE_AI: _ClassVar[SessionMessageRole]
+    SESSION_MESSAGE_ROLE_TOOL: _ClassVar[SessionMessageRole]
+AGENT_RUNTIME_STATUS_UNSPECIFIED: AgentRuntimeStatus
+AGENT_RUNTIME_STATUS_UNKNOWN: AgentRuntimeStatus
+AGENT_RUNTIME_STATUS_INSTALLED: AgentRuntimeStatus
+AGENT_RUNTIME_STATUS_COMPILED: AgentRuntimeStatus
+AGENT_RUNTIME_STATUS_RUNNING: AgentRuntimeStatus
+SESSION_HISTORY_MODE_UNSPECIFIED: SessionHistoryMode
+SESSION_HISTORY_MODE_RESUME_VIEW: SessionHistoryMode
+SESSION_HISTORY_MODE_FULL_TRANSCRIPT: SessionHistoryMode
+SESSION_MESSAGE_ROLE_UNSPECIFIED: SessionMessageRole
+SESSION_MESSAGE_ROLE_SYSTEM: SessionMessageRole
+SESSION_MESSAGE_ROLE_HUMAN: SessionMessageRole
+SESSION_MESSAGE_ROLE_AI: SessionMessageRole
+SESSION_MESSAGE_ROLE_TOOL: SessionMessageRole
 
 class ClientMessage(_message.Message):
     __slots__ = ("run_request", "hitl_decision", "cancel")
@@ -255,20 +291,16 @@ class SyncAgentSpecRequest(_message.Message):
     def __init__(self, name: _Optional[str] = ..., version: _Optional[str] = ..., description: _Optional[str] = ..., tags: _Optional[_Iterable[str]] = ..., model: _Optional[str] = ..., prompt: _Optional[_Union[PromptSpec, _Mapping]] = ..., skills: _Optional[_Iterable[_Union[SkillContent, _Mapping]]] = ..., tools: _Optional[_Union[ToolsSpec, _Mapping]] = ..., subagents: _Optional[_Iterable[_Union[SubagentSpec, _Mapping]]] = ..., sandbox: _Optional[_Union[SandboxSpec, _Mapping]] = ..., interrupt_on: _Optional[_Iterable[str]] = ..., mcp_servers: _Optional[_Iterable[_Union[McpServerConfig, _Mapping]]] = ..., model_config: _Optional[_Union[ModelConfig, _Mapping]] = ...) -> None: ...
 
 class SubagentSpec(_message.Message):
-    __slots__ = ("name", "description", "system_prompt", "model", "source", "path")
+    __slots__ = ("name", "description", "system_prompt", "model")
     NAME_FIELD_NUMBER: _ClassVar[int]
     DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
     SYSTEM_PROMPT_FIELD_NUMBER: _ClassVar[int]
     MODEL_FIELD_NUMBER: _ClassVar[int]
-    SOURCE_FIELD_NUMBER: _ClassVar[int]
-    PATH_FIELD_NUMBER: _ClassVar[int]
     name: str
     description: str
     system_prompt: str
     model: str
-    source: str
-    path: str
-    def __init__(self, name: _Optional[str] = ..., description: _Optional[str] = ..., system_prompt: _Optional[str] = ..., model: _Optional[str] = ..., source: _Optional[str] = ..., path: _Optional[str] = ...) -> None: ...
+    def __init__(self, name: _Optional[str] = ..., description: _Optional[str] = ..., system_prompt: _Optional[str] = ..., model: _Optional[str] = ...) -> None: ...
 
 class McpServerConfig(_message.Message):
     __slots__ = ("name", "command", "args", "env", "transport", "description")
@@ -294,20 +326,14 @@ class McpServerConfig(_message.Message):
     def __init__(self, name: _Optional[str] = ..., command: _Optional[str] = ..., args: _Optional[_Iterable[str]] = ..., env: _Optional[_Mapping[str, str]] = ..., transport: _Optional[str] = ..., description: _Optional[str] = ...) -> None: ...
 
 class PromptSpec(_message.Message):
-    __slots__ = ("system", "memory")
+    __slots__ = ("system",)
     SYSTEM_FIELD_NUMBER: _ClassVar[int]
-    MEMORY_FIELD_NUMBER: _ClassVar[int]
     system: str
-    memory: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, system: _Optional[str] = ..., memory: _Optional[_Iterable[str]] = ...) -> None: ...
+    def __init__(self, system: _Optional[str] = ...) -> None: ...
 
 class ToolsSpec(_message.Message):
-    __slots__ = ("builtins", "mcp")
-    BUILTINS_FIELD_NUMBER: _ClassVar[int]
-    MCP_FIELD_NUMBER: _ClassVar[int]
-    builtins: _containers.RepeatedScalarFieldContainer[str]
-    mcp: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, builtins: _Optional[_Iterable[str]] = ..., mcp: _Optional[_Iterable[str]] = ...) -> None: ...
+    __slots__ = ()
+    def __init__(self) -> None: ...
 
 class SandboxSpec(_message.Message):
     __slots__ = ("image", "resources", "init")
@@ -404,11 +430,153 @@ class HealthRequest(_message.Message):
     def __init__(self) -> None: ...
 
 class HealthResponse(_message.Message):
-    __slots__ = ("status", "assembled_agent_count", "uptime_seconds")
+    __slots__ = ("status", "assembled_agent_count", "uptime_seconds", "installed_agent_count", "running_agent_count", "ready")
     STATUS_FIELD_NUMBER: _ClassVar[int]
     ASSEMBLED_AGENT_COUNT_FIELD_NUMBER: _ClassVar[int]
     UPTIME_SECONDS_FIELD_NUMBER: _ClassVar[int]
+    INSTALLED_AGENT_COUNT_FIELD_NUMBER: _ClassVar[int]
+    RUNNING_AGENT_COUNT_FIELD_NUMBER: _ClassVar[int]
+    READY_FIELD_NUMBER: _ClassVar[int]
     status: str
     assembled_agent_count: int
     uptime_seconds: float
-    def __init__(self, status: _Optional[str] = ..., assembled_agent_count: _Optional[int] = ..., uptime_seconds: _Optional[float] = ...) -> None: ...
+    installed_agent_count: int
+    running_agent_count: int
+    ready: bool
+    def __init__(self, status: _Optional[str] = ..., assembled_agent_count: _Optional[int] = ..., uptime_seconds: _Optional[float] = ..., installed_agent_count: _Optional[int] = ..., running_agent_count: _Optional[int] = ..., ready: bool = ...) -> None: ...
+
+class ListSessionsRequest(_message.Message):
+    __slots__ = ("agent_name", "page_size", "page_token")
+    AGENT_NAME_FIELD_NUMBER: _ClassVar[int]
+    PAGE_SIZE_FIELD_NUMBER: _ClassVar[int]
+    PAGE_TOKEN_FIELD_NUMBER: _ClassVar[int]
+    agent_name: str
+    page_size: int
+    page_token: str
+    def __init__(self, agent_name: _Optional[str] = ..., page_size: _Optional[int] = ..., page_token: _Optional[str] = ...) -> None: ...
+
+class ListSessionsResponse(_message.Message):
+    __slots__ = ("sessions", "next_page_token")
+    SESSIONS_FIELD_NUMBER: _ClassVar[int]
+    NEXT_PAGE_TOKEN_FIELD_NUMBER: _ClassVar[int]
+    sessions: _containers.RepeatedCompositeFieldContainer[SessionSummary]
+    next_page_token: str
+    def __init__(self, sessions: _Optional[_Iterable[_Union[SessionSummary, _Mapping]]] = ..., next_page_token: _Optional[str] = ...) -> None: ...
+
+class GetSessionRequest(_message.Message):
+    __slots__ = ("thread_id",)
+    THREAD_ID_FIELD_NUMBER: _ClassVar[int]
+    thread_id: str
+    def __init__(self, thread_id: _Optional[str] = ...) -> None: ...
+
+class GetSessionResponse(_message.Message):
+    __slots__ = ("found", "session")
+    FOUND_FIELD_NUMBER: _ClassVar[int]
+    SESSION_FIELD_NUMBER: _ClassVar[int]
+    found: bool
+    session: SessionDetail
+    def __init__(self, found: bool = ..., session: _Optional[_Union[SessionDetail, _Mapping]] = ...) -> None: ...
+
+class GetLatestSessionRequest(_message.Message):
+    __slots__ = ("agent_name",)
+    AGENT_NAME_FIELD_NUMBER: _ClassVar[int]
+    agent_name: str
+    def __init__(self, agent_name: _Optional[str] = ...) -> None: ...
+
+class GetLatestSessionResponse(_message.Message):
+    __slots__ = ("found", "session")
+    FOUND_FIELD_NUMBER: _ClassVar[int]
+    SESSION_FIELD_NUMBER: _ClassVar[int]
+    found: bool
+    session: SessionSummary
+    def __init__(self, found: bool = ..., session: _Optional[_Union[SessionSummary, _Mapping]] = ...) -> None: ...
+
+class DeleteSessionRequest(_message.Message):
+    __slots__ = ("thread_id",)
+    THREAD_ID_FIELD_NUMBER: _ClassVar[int]
+    thread_id: str
+    def __init__(self, thread_id: _Optional[str] = ...) -> None: ...
+
+class DeleteSessionResponse(_message.Message):
+    __slots__ = ("deleted",)
+    DELETED_FIELD_NUMBER: _ClassVar[int]
+    deleted: bool
+    def __init__(self, deleted: bool = ...) -> None: ...
+
+class GetSessionMessagesRequest(_message.Message):
+    __slots__ = ("thread_id", "checkpoint_id", "page_size", "page_token", "requested_mode", "include_raw")
+    THREAD_ID_FIELD_NUMBER: _ClassVar[int]
+    CHECKPOINT_ID_FIELD_NUMBER: _ClassVar[int]
+    PAGE_SIZE_FIELD_NUMBER: _ClassVar[int]
+    PAGE_TOKEN_FIELD_NUMBER: _ClassVar[int]
+    REQUESTED_MODE_FIELD_NUMBER: _ClassVar[int]
+    INCLUDE_RAW_FIELD_NUMBER: _ClassVar[int]
+    thread_id: str
+    checkpoint_id: str
+    page_size: int
+    page_token: str
+    requested_mode: SessionHistoryMode
+    include_raw: bool
+    def __init__(self, thread_id: _Optional[str] = ..., checkpoint_id: _Optional[str] = ..., page_size: _Optional[int] = ..., page_token: _Optional[str] = ..., requested_mode: _Optional[_Union[SessionHistoryMode, str]] = ..., include_raw: bool = ...) -> None: ...
+
+class GetSessionMessagesResponse(_message.Message):
+    __slots__ = ("thread_id", "resolved_checkpoint_id", "actual_mode", "total_message_count", "messages", "next_page_token")
+    THREAD_ID_FIELD_NUMBER: _ClassVar[int]
+    RESOLVED_CHECKPOINT_ID_FIELD_NUMBER: _ClassVar[int]
+    ACTUAL_MODE_FIELD_NUMBER: _ClassVar[int]
+    TOTAL_MESSAGE_COUNT_FIELD_NUMBER: _ClassVar[int]
+    MESSAGES_FIELD_NUMBER: _ClassVar[int]
+    NEXT_PAGE_TOKEN_FIELD_NUMBER: _ClassVar[int]
+    thread_id: str
+    resolved_checkpoint_id: str
+    actual_mode: SessionHistoryMode
+    total_message_count: int
+    messages: _containers.RepeatedCompositeFieldContainer[SessionMessage]
+    next_page_token: str
+    def __init__(self, thread_id: _Optional[str] = ..., resolved_checkpoint_id: _Optional[str] = ..., actual_mode: _Optional[_Union[SessionHistoryMode, str]] = ..., total_message_count: _Optional[int] = ..., messages: _Optional[_Iterable[_Union[SessionMessage, _Mapping]]] = ..., next_page_token: _Optional[str] = ...) -> None: ...
+
+class SessionSummary(_message.Message):
+    __slots__ = ("thread_id", "agent_name", "updated_at", "latest_checkpoint_id", "message_count", "initial_prompt", "history_mode", "agent_status")
+    THREAD_ID_FIELD_NUMBER: _ClassVar[int]
+    AGENT_NAME_FIELD_NUMBER: _ClassVar[int]
+    UPDATED_AT_FIELD_NUMBER: _ClassVar[int]
+    LATEST_CHECKPOINT_ID_FIELD_NUMBER: _ClassVar[int]
+    MESSAGE_COUNT_FIELD_NUMBER: _ClassVar[int]
+    INITIAL_PROMPT_FIELD_NUMBER: _ClassVar[int]
+    HISTORY_MODE_FIELD_NUMBER: _ClassVar[int]
+    AGENT_STATUS_FIELD_NUMBER: _ClassVar[int]
+    thread_id: str
+    agent_name: str
+    updated_at: _timestamp_pb2.Timestamp
+    latest_checkpoint_id: str
+    message_count: int
+    initial_prompt: str
+    history_mode: SessionHistoryMode
+    agent_status: AgentRuntimeStatus
+    def __init__(self, thread_id: _Optional[str] = ..., agent_name: _Optional[str] = ..., updated_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., latest_checkpoint_id: _Optional[str] = ..., message_count: _Optional[int] = ..., initial_prompt: _Optional[str] = ..., history_mode: _Optional[_Union[SessionHistoryMode, str]] = ..., agent_status: _Optional[_Union[AgentRuntimeStatus, str]] = ...) -> None: ...
+
+class SessionDetail(_message.Message):
+    __slots__ = ("summary", "checkpoint_count")
+    SUMMARY_FIELD_NUMBER: _ClassVar[int]
+    CHECKPOINT_COUNT_FIELD_NUMBER: _ClassVar[int]
+    summary: SessionSummary
+    checkpoint_count: int
+    def __init__(self, summary: _Optional[_Union[SessionSummary, _Mapping]] = ..., checkpoint_count: _Optional[int] = ...) -> None: ...
+
+class SessionMessage(_message.Message):
+    __slots__ = ("index", "role", "text", "tool_call_id", "tool_name", "is_error", "raw")
+    INDEX_FIELD_NUMBER: _ClassVar[int]
+    ROLE_FIELD_NUMBER: _ClassVar[int]
+    TEXT_FIELD_NUMBER: _ClassVar[int]
+    TOOL_CALL_ID_FIELD_NUMBER: _ClassVar[int]
+    TOOL_NAME_FIELD_NUMBER: _ClassVar[int]
+    IS_ERROR_FIELD_NUMBER: _ClassVar[int]
+    RAW_FIELD_NUMBER: _ClassVar[int]
+    index: int
+    role: SessionMessageRole
+    text: str
+    tool_call_id: str
+    tool_name: str
+    is_error: bool
+    raw: _struct_pb2.Struct
+    def __init__(self, index: _Optional[int] = ..., role: _Optional[_Union[SessionMessageRole, str]] = ..., text: _Optional[str] = ..., tool_call_id: _Optional[str] = ..., tool_name: _Optional[str] = ..., is_error: bool = ..., raw: _Optional[_Union[_struct_pb2.Struct, _Mapping]] = ...) -> None: ...

@@ -86,58 +86,62 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 async def _cmd_run(args: argparse.Namespace) -> None:
-    """Execute the ``run`` command."""
+    """Execute the ``run`` command.
+
+    Uses the standard AgentManager lifecycle: setup → define → assemble →
+    invoke → shutdown.  All run setup, teardown, cancel, and timeout
+    semantics are owned by the manager.
+    """
     from deepagents_runtime.manager.manager import AgentManager
     from deepagents_runtime.spec import AgentSpec, LaunchMode, RunConfig
 
-    manager = AgentManager()
+    async with AgentManager() as manager:
+        # Load agent: from registry name or YAML file
+        agent_path = Path(args.agent)
+        if agent_path.suffix in (".yaml", ".yml") and agent_path.exists():
+            import yaml
 
-    # Load agent: from registry name or YAML file
-    agent_path = Path(args.agent)
-    if agent_path.suffix in (".yaml", ".yml") and agent_path.exists():
-        import yaml
+            with open(agent_path) as f:
+                data = yaml.safe_load(f)
+            spec = AgentSpec.from_yaml(data)
+        else:
+            spec = await manager.registry.get_agent_spec(args.agent)
+            if spec is None:
+                print(f"Error: Agent '{args.agent}' not found", file=sys.stderr)
+                sys.exit(1)
 
-        with open(agent_path) as f:
-            data = yaml.safe_load(f)
-        spec = AgentSpec.from_yaml(data)
-    else:
-        spec = await manager.registry.get_agent_spec(args.agent)
-        if spec is None:
-            print(f"Error: Agent '{args.agent}' not found", file=sys.stderr)
-            sys.exit(1)
+        if args.model:
+            spec.model = args.model
 
-    if args.model:
-        spec.model = args.model
+        await manager.define_agent(spec)
+        await manager.assemble_agent(spec.name)
 
-    await manager.define_agent(spec)
-    await manager.assemble_agent(spec.name)
+        run_config = RunConfig(
+            mode=LaunchMode(args.mode),
+            input=args.message,
+            thread_id=args.thread,
+        )
 
-    run_config = RunConfig(
-        mode=LaunchMode(args.mode),
-        input=args.message,
-        thread_id=args.thread,
-    )
-
-    async for event in manager.invoke(spec.name, run_config):
-        # Simple text streaming to stdout
-        if event.type.value == "text_delta":
-            print(event.data.get("text", ""), end="", flush=True)
-        elif event.type.value == "run_end":
-            print()  # newline after streaming
-            stats = event.data.get("stats", {})
-            if stats:
+        async for event in manager.invoke(spec.name, run_config):
+            # Simple text streaming to stdout
+            if event.type.value == "text_delta":
+                print(event.data.get("text", ""), end="", flush=True)
+            elif event.type.value == "run_end":
+                print()  # newline after streaming
+                stats = event.data.get("stats", {})
+                if stats:
+                    print(
+                        f"\n[{stats.get('request_count', 0)} requests | "
+                        f"{stats.get('input_tokens', 0)} in / "
+                        f"{stats.get('output_tokens', 0)} out | "
+                        f"{stats.get('wall_time_seconds', 0)}s]",
+                        file=sys.stderr,
+                    )
+            elif event.type.value == "error":
                 print(
-                    f"\n[{stats.get('request_count', 0)} requests | "
-                    f"{stats.get('input_tokens', 0)} in / "
-                    f"{stats.get('output_tokens', 0)} out | "
-                    f"{stats.get('wall_time_seconds', 0)}s]",
+                    f"Error: {event.data.get('message', '')}",
                     file=sys.stderr,
                 )
-        elif event.type.value == "error":
-            print(
-                f"Error: {event.data.get('message', '')}",
-                file=sys.stderr,
-            )
 
 
 async def _cmd_serve(args: argparse.Namespace) -> None:

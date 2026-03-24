@@ -234,6 +234,26 @@ service ResourceSync {
   rpc Health(HealthRequest) returns (HealthResponse);
 }
 
+// Query runtime-local session state derived from checkpoint storage.
+service SessionQuery {
+  // List recent sessions ordered by latest checkpoint update time.
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
+
+  // Get one session summary by thread_id.
+  rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
+
+  // Read checkpoint-backed session messages for one thread.
+  rpc GetSessionMessages(GetSessionMessagesRequest)
+      returns (GetSessionMessagesResponse);
+
+  // Resolve the latest session, optionally filtered by agent.
+  rpc GetLatestSession(GetLatestSessionRequest)
+      returns (GetLatestSessionResponse);
+
+  // Delete one local session from checkpoint storage.
+  rpc DeleteSession(DeleteSessionRequest) returns (DeleteSessionResponse);
+}
+
 
 // 鈹€鈹€ Skill sync 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
@@ -301,8 +321,8 @@ message SubagentSpec {
   string description  = 2;
   string system_prompt = 3;
   string model        = 4;  // optional, provider:model format
-  string source       = 5;  // "user" or "project"
-  string path         = 6;  // path to definition file
+  reserved 5, 6;
+  reserved "source", "path";
 }
 
 // MCP server connection configuration.
@@ -317,12 +337,13 @@ message McpServerConfig {
 
 message PromptSpec {
   string system = 1;
-  repeated string memory = 2;  // file paths or content references
+  reserved 2;
+  reserved "memory";
 }
 
 message ToolsSpec {
-  repeated string builtins = 1;  // built-in middleware tools
-  repeated string mcp      = 2;  // MCP server names
+  reserved 1, 2;
+  reserved "builtins", "mcp";
 }
 
 message SandboxSpec {
@@ -391,11 +412,123 @@ message HealthResponse {
   // "ok", "degraded", or "unhealthy".
   string status = 1;
 
-  // Number of compiled agents ready for execution.
+  // Number of compiled or running agents ready for execution.
   int32 assembled_agent_count = 2;
 
   // Data plane uptime in seconds.
   float uptime_seconds = 3;
+
+  // Number of installed agents known to the runtime.
+  int32 installed_agent_count = 4;
+
+  // Number of agents currently serving one or more active runs.
+  int32 running_agent_count = 5;
+
+  // Whether the runtime is ready to accept run traffic.
+  bool ready = 6;
+}
+
+enum AgentRuntimeStatus {
+  AGENT_RUNTIME_STATUS_UNSPECIFIED = 0;
+  AGENT_RUNTIME_STATUS_UNKNOWN = 1;
+  AGENT_RUNTIME_STATUS_INSTALLED = 2;
+  AGENT_RUNTIME_STATUS_COMPILED = 3;
+  AGENT_RUNTIME_STATUS_RUNNING = 4;
+}
+
+enum SessionHistoryMode {
+  SESSION_HISTORY_MODE_UNSPECIFIED = 0;
+  SESSION_HISTORY_MODE_RESUME_VIEW = 1;
+  SESSION_HISTORY_MODE_FULL_TRANSCRIPT = 2;
+}
+
+enum SessionMessageRole {
+  SESSION_MESSAGE_ROLE_UNSPECIFIED = 0;
+  SESSION_MESSAGE_ROLE_SYSTEM = 1;
+  SESSION_MESSAGE_ROLE_HUMAN = 2;
+  SESSION_MESSAGE_ROLE_AI = 3;
+  SESSION_MESSAGE_ROLE_TOOL = 4;
+}
+
+message ListSessionsRequest {
+  string agent_name = 1;
+  int32 page_size = 2;
+  string page_token = 3;
+}
+
+message ListSessionsResponse {
+  repeated SessionSummary sessions = 1;
+  string next_page_token = 2;
+}
+
+message GetSessionRequest {
+  string thread_id = 1;
+}
+
+message GetSessionResponse {
+  bool found = 1;
+  SessionDetail session = 2;
+}
+
+message GetLatestSessionRequest {
+  string agent_name = 1;
+}
+
+message GetLatestSessionResponse {
+  bool found = 1;
+  SessionSummary session = 2;
+}
+
+message DeleteSessionRequest {
+  string thread_id = 1;
+}
+
+message DeleteSessionResponse {
+  bool deleted = 1;
+}
+
+message GetSessionMessagesRequest {
+  string thread_id = 1;
+  string checkpoint_id = 2;
+  int32 page_size = 3;
+  string page_token = 4;
+  SessionHistoryMode requested_mode = 5;
+  bool include_raw = 6;
+}
+
+message GetSessionMessagesResponse {
+  string thread_id = 1;
+  string resolved_checkpoint_id = 2;
+  SessionHistoryMode actual_mode = 3;
+  int32 total_message_count = 4;
+  repeated SessionMessage messages = 5;
+  string next_page_token = 6;
+}
+
+message SessionSummary {
+  string thread_id = 1;
+  string agent_name = 2;
+  google.protobuf.Timestamp updated_at = 3;
+  string latest_checkpoint_id = 4;
+  int32 message_count = 5;
+  string initial_prompt = 6;
+  SessionHistoryMode history_mode = 7;
+  AgentRuntimeStatus agent_status = 8;
+}
+
+message SessionDetail {
+  SessionSummary summary = 1;
+  int32 checkpoint_count = 2;
+}
+
+message SessionMessage {
+  int32 index = 1;
+  SessionMessageRole role = 2;
+  string text = 3;
+  string tool_call_id = 4;
+  string tool_name = 5;
+  bool is_error = 6;
+  google.protobuf.Struct raw = 7;
 }
 
 
