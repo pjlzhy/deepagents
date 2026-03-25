@@ -47,7 +47,7 @@ Agent OS uses a unified separated architecture: control plane and data plane are
 | deepagents-control        |                    | deepagents-runtime        |
 |                           |                    |                           |
 | Registry / packaging      |                    | Compile / execution       |
-| Lifecycle / scheduling    |                    | Agent runtime / run leases|
+| Lifecycle / scheduling    |                    | Agent runtime / session state |
 | Routing / external API    |                    | Session / checkpoint      |
 +---------------------------+                    +---------------------------+
 ```
@@ -99,7 +99,7 @@ The data plane is responsible for:
 - compiling `AgentSpec` into runnable `AgentTemplate`
 - executing runs through a stable runtime entrypoint
 - managing agent-scoped runtime resources such as MCP runtime and sandbox owners
-- managing run-scoped resources such as sandbox leases, checkpoints, and execution context
+- managing run-scoped execution state such as checkpoints and execution context
 - exposing health and runtime status to the control plane
 
 ### 3.3 Communication Protocol
@@ -404,6 +404,6 @@ The control plane may resolve or package sub-agent metadata before sync. The dat
 The architectural split is:
 
 - **Control plane** owns registry, packaging, lifecycle, scheduling, and routing
-- **Data plane** owns assembly, execution, run-scoped resources, and runtime state
+- **Data plane** owns assembly, execution, agent-scoped runtime resources, run-scoped execution state, and runtime state
 
 The boundary between them is a stable gRPC protocol centered on rich `AgentSpec` input and streaming invocation.
