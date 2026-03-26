@@ -1,0 +1,647 @@
+package runtimeclient
+
+import (
+	"context"
+	"errors"
+	"net"
+	"testing"
+	"time"
+
+	"agentctl/pkg/domain"
+	runtimev1 "agentctl/pkg/proto"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	grpcstatus "google.golang.org/grpc/status"
+	"google.golang.org/grpc/test/bufconn"
+	"google.golang.org/protobuf/types/known/structpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
+)
+
+type testRuntimeServer struct {
+	runtimev1.UnimplementedResourceSyncServer
+	runtimev1.UnimplementedAgentExecutorServer
+	runtimev1.UnimplementedSessionQueryServer
+
+	syncAgentSpecResponse *runtimev1.SyncResponse
+	syncAgentSpecRequest  *runtimev1.SyncAgentSpecRequest
+
+	assembleResponse *runtimev1.AssembleResponse
+	assembleRequest  *runtimev1.AssembleRequest
+
+	removeResponse *runtimev1.SyncResponse
+	removeRequest  *runtimev1.RemoveResourceRequest
+
+	healthResponse *runtimev1.HealthResponse
+
+	listSessionsResponse  *runtimev1.ListSessionsResponse
+	getSessionResponse    *runtimev1.GetSessionResponse
+	getMessagesResponse   *runtimev1.GetSessionMessagesResponse
+	getMessagesRequest    *runtimev1.GetSessionMessagesRequest
+	getLatestResponse     *runtimev1.GetLatestSessionResponse
+	deleteSessionResponse *runtimev1.DeleteSessionResponse
+
+	receivedRunRequest   *runtimev1.RunRequest
+	receivedHITLDecision *runtimev1.HITLDecision
+	receivedCancel       *runtimev1.CancelRequest
+}
+
+func (s *testRuntimeServer) SyncAgentSpec(
+	_ context.Context,
+	_ *runtimev1.SyncAgentSpecRequest,
+) (*runtimev1.SyncResponse, error) {
+	return &runtimev1.SyncResponse{Ok: true}, nil
+}
+
+func (s *testRuntimeServer) Assemble(
+	_ context.Context,
+	request *runtimev1.AssembleRequest,
+) (*runtimev1.AssembleResponse, error) {
+	s.assembleRequest = request
+	if s.assembleResponse == nil {
+		return &runtimev1.AssembleResponse{Ok: true, Status: "compiled"}, nil
+	}
+	return s.assembleResponse, nil
+}
+
+func (s *testRuntimeServer) RemoveResource(
+	_ context.Context,
+	request *runtimev1.RemoveResourceRequest,
+) (*runtimev1.SyncResponse, error) {
+	s.removeRequest = request
+	if s.removeResponse == nil {
+		return &runtimev1.SyncResponse{Ok: true, Message: "removed"}, nil
+	}
+	return s.removeResponse, nil
+}
+
+func (s *testRuntimeServer) Health(
+	_ context.Context,
+	_ *runtimev1.HealthRequest,
+) (*runtimev1.HealthResponse, error) {
+	if s.healthResponse == nil {
+		return &runtimev1.HealthResponse{Status: "ok", Ready: true}, nil
+	}
+	return s.healthResponse, nil
+}
+
+func (s *testRuntimeServer) ListSessions(
+	_ context.Context,
+	_ *runtimev1.ListSessionsRequest,
+) (*runtimev1.ListSessionsResponse, error) {
+	if s.listSessionsResponse == nil {
+		return &runtimev1.ListSessionsResponse{}, nil
+	}
+	return s.listSessionsResponse, nil
+}
+
+func (s *testRuntimeServer) GetSession(
+	_ context.Context,
+	_ *runtimev1.GetSessionRequest,
+) (*runtimev1.GetSessionResponse, error) {
+	if s.getSessionResponse == nil {
+		return &runtimev1.GetSessionResponse{Found: false}, nil
+	}
+	return s.getSessionResponse, nil
+}
+
+func (s *testRuntimeServer) GetSessionMessages(
+	_ context.Context,
+	request *runtimev1.GetSessionMessagesRequest,
+) (*runtimev1.GetSessionMessagesResponse, error) {
+	s.getMessagesRequest = request
+	if s.getMessagesResponse == nil {
+		return nil, grpcstatus.Error(codes.NotFound, "session not found")
+	}
+	return s.getMessagesResponse, nil
+}
+
+func (s *testRuntimeServer) GetLatestSession(
+	_ context.Context,
+	_ *runtimev1.GetLatestSessionRequest,
+) (*runtimev1.GetLatestSessionResponse, error) {
+	if s.getLatestResponse == nil {
+		return &runtimev1.GetLatestSessionResponse{Found: false}, nil
+	}
+	return s.getLatestResponse, nil
+}
+
+func (s *testRuntimeServer) DeleteSession(
+	_ context.Context,
+	_ *runtimev1.DeleteSessionRequest,
+) (*runtimev1.DeleteSessionResponse, error) {
+	if s.deleteSessionResponse == nil {
+		return &runtimev1.DeleteSessionResponse{Deleted: false}, nil
+	}
+	return s.deleteSessionResponse, nil
+}
+
+func (s *testRuntimeServer) Run(
+	stream runtimev1.AgentExecutor_RunServer,
+) error {
+	first, err := stream.Recv()
+	if err != nil {
+		return err
+	}
+	s.receivedRunRequest = first.GetRunRequest()
+
+	if err := stream.Send(&runtimev1.AgentEvent{
+		RunId:     "run-1",
+		AgentName: s.receivedRunRequest.GetAgentName(),
+		Timestamp: timestamppb.New(time.Unix(100, 0)),
+		Payload: &runtimev1.AgentEvent_RunStarted{
+			RunStarted: &runtimev1.RunStarted{ThreadId: "thread-1"},
+		},
+	}); err != nil {
+		return err
+	}
+	if err := stream.Send(&runtimev1.AgentEvent{
+		RunId:     "run-1",
+		AgentName: s.receivedRunRequest.GetAgentName(),
+		Timestamp: timestamppb.New(time.Unix(101, 0)),
+		Payload: &runtimev1.AgentEvent_HitlRequest{
+			HitlRequest: &runtimev1.HITLRequest{
+				InterruptId: "interrupt-1",
+				ActionRequests: []*runtimev1.ActionRequest{
+					{
+						Action:     "write_file",
+						ToolCallId: "tool-1",
+						Args:       mustStructValue(map[string]any{"path": "/tmp/a.txt"}),
+					},
+				},
+			},
+		},
+	}); err != nil {
+		return err
+	}
+
+	next, err := stream.Recv()
+	if err != nil {
+		return err
+	}
+	s.receivedHITLDecision = next.GetHitlDecision()
+
+	if err := stream.Send(&runtimev1.AgentEvent{
+		RunId:     "run-1",
+		AgentName: s.receivedRunRequest.GetAgentName(),
+		Timestamp: timestamppb.New(time.Unix(102, 0)),
+		Payload: &runtimev1.AgentEvent_ToolResult{
+			ToolResult: &runtimev1.ToolResult{
+				ToolCallId: "tool-1",
+				Content:    "ok",
+				IsError:    false,
+			},
+		},
+	}); err != nil {
+		return err
+	}
+
+	last, err := stream.Recv()
+	if err != nil {
+		return err
+	}
+	s.receivedCancel = last.GetCancel()
+
+	return stream.Send(&runtimev1.AgentEvent{
+		RunId:     "run-1",
+		AgentName: s.receivedRunRequest.GetAgentName(),
+		Timestamp: timestamppb.New(time.Unix(103, 0)),
+		Payload: &runtimev1.AgentEvent_RunCanceled{
+			RunCanceled: &runtimev1.RunCanceled{Reason: s.receivedCancel.GetReason()},
+		},
+	})
+}
+
+func TestGRPCClientSyncAgentSpecHealthAndRemove(t *testing.T) {
+	server := &testRuntimeServer{
+		syncAgentSpecResponse: &runtimev1.SyncResponse{Ok: true, Message: "synced"},
+		healthResponse: &runtimev1.HealthResponse{
+			Status:              "ok",
+			AssembledAgentCount: 2,
+			InstalledAgentCount: 3,
+			RunningAgentCount:   1,
+			UptimeSeconds:       42.5,
+			Ready:               true,
+		},
+		removeResponse: &runtimev1.SyncResponse{Ok: true, Message: "removed"},
+	}
+
+	client, cleanup := newTestClient(t, server)
+	defer cleanup()
+
+	spec := domain.RuntimeAgentSpec{
+		Name:        "assistant",
+		Version:     "1.0.0",
+		Description: "demo agent",
+		Tags:        []string{"prod"},
+		Model: domain.ModelSpec{
+			Provider:    "openai",
+			Model:       "gpt-5",
+			BaseURL:     "https://example.com/v1",
+			APIKeyEnv:   "OPENAI_API_KEY",
+			ExtraParams: map[string]string{"temperature": "0"},
+		},
+		Prompt: domain.PromptSpec{System: "You are helpful"},
+		Skills: []domain.Skill{
+			{
+				Name:        "writer",
+				Content:     "# writer",
+				Description: "writes",
+				Tags:        []string{"content"},
+				Files: []domain.SkillFile{
+					{Path: "scripts/init.py", Content: "print('ok')"},
+				},
+			},
+		},
+		MCPServers: []domain.MCPConfig{
+			{
+				Name:        "docs",
+				Command:     "uvx",
+				Args:        []string{"mcp-docs"},
+				Env:         map[string]string{"TOKEN": "redacted"},
+				Transport:   "stdio",
+				Description: "docs server",
+			},
+		},
+		Subagents: []domain.SubagentSpec{
+			{
+				Name:         "planner",
+				Description:  "plans work",
+				SystemPrompt: "plan first",
+				Model: domain.ModelSpec{
+					Provider: "anthropic",
+					Model:    "claude-sonnet-4-6",
+				},
+			},
+		},
+		Sandbox: domain.SandboxSpec{
+			Image:     "python:3.12",
+			Resources: map[string]string{"cpu": "2"},
+			Init:      []string{"echo ready"},
+		},
+		InterruptOn: []string{"write_file"},
+	}
+
+	syncResponse, err := client.SyncAgentSpec(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("SyncAgentSpec returned error: %v", err)
+	}
+	if !syncResponse.OK || syncResponse.Message != "synced" {
+		t.Fatalf("unexpected sync response: %#v", syncResponse)
+	}
+
+	request := server.syncAgentSpecRequest
+	if request == nil {
+		t.Fatal("expected SyncAgentSpec request capture")
+	}
+	if request.GetModel() != "openai:gpt-5" {
+		t.Fatalf("unexpected model string: %s", request.GetModel())
+	}
+	if request.GetModelConfig().GetProvider() != "openai" {
+		t.Fatalf("unexpected model provider: %#v", request.GetModelConfig())
+	}
+	if request.GetModelConfig().GetApiKeyEnv() != "OPENAI_API_KEY" {
+		t.Fatalf("unexpected api key env: %#v", request.GetModelConfig())
+	}
+	if request.GetSubagents()[0].GetModel() != "anthropic:claude-sonnet-4-6" {
+		t.Fatalf("unexpected subagent model: %#v", request.GetSubagents()[0])
+	}
+	if request.GetSkills()[0].GetFiles()[0].GetPath() != "scripts/init.py" {
+		t.Fatalf("unexpected skill file path: %#v", request.GetSkills()[0])
+	}
+	if request.GetMcpServers()[0].GetTransport() != "stdio" {
+		t.Fatalf("unexpected mcp server transport: %#v", request.GetMcpServers()[0])
+	}
+
+	health, err := client.Health(context.Background())
+	if err != nil {
+		t.Fatalf("Health returned error: %v", err)
+	}
+	if !health.Ready || health.AssembledAgentCount != 2 || health.UptimeSeconds != 42.5 {
+		t.Fatalf("unexpected health response: %#v", health)
+	}
+
+	assembleResponse, err := client.Assemble(context.Background(), "assistant")
+	if err != nil {
+		t.Fatalf("Assemble returned error: %v", err)
+	}
+	if !assembleResponse.OK || assembleResponse.Status != "compiled" {
+		t.Fatalf("unexpected assemble response: %#v", assembleResponse)
+	}
+	if server.assembleRequest.GetAgentName() != "assistant" {
+		t.Fatalf("unexpected assemble request: %#v", server.assembleRequest)
+	}
+
+	removeResponse, err := client.RemoveAgent(context.Background(), "assistant")
+	if err != nil {
+		t.Fatalf("RemoveAgent returned error: %v", err)
+	}
+	if !removeResponse.OK || server.removeRequest.GetResourceType() != "agent" {
+		t.Fatalf("unexpected remove response/request: %#v %#v", removeResponse, server.removeRequest)
+	}
+}
+
+func TestGRPCClientSessionQueries(t *testing.T) {
+	server := &testRuntimeServer{
+		listSessionsResponse: &runtimev1.ListSessionsResponse{
+			Sessions: []*runtimev1.SessionSummary{
+				{
+					ThreadId:           "thread-1",
+					AgentName:          "assistant",
+					UpdatedAt:          timestamppb.New(time.Unix(200, 0)),
+					LatestCheckpointId: "cp-2",
+					MessageCount:       4,
+					InitialPrompt:      "hello",
+					HistoryMode:        runtimev1.SessionHistoryMode_SESSION_HISTORY_MODE_RESUME_VIEW,
+					AgentStatus:        runtimev1.AgentRuntimeStatus_AGENT_RUNTIME_STATUS_RUNNING,
+				},
+			},
+			NextPageToken: "page-2",
+		},
+		getSessionResponse: &runtimev1.GetSessionResponse{
+			Found: true,
+			Session: &runtimev1.SessionDetail{
+				Summary: &runtimev1.SessionSummary{
+					ThreadId:           "thread-1",
+					AgentName:          "assistant",
+					UpdatedAt:          timestamppb.New(time.Unix(201, 0)),
+					LatestCheckpointId: "cp-3",
+					MessageCount:       6,
+					InitialPrompt:      "hello again",
+					HistoryMode:        runtimev1.SessionHistoryMode_SESSION_HISTORY_MODE_FULL_TRANSCRIPT,
+					AgentStatus:        runtimev1.AgentRuntimeStatus_AGENT_RUNTIME_STATUS_COMPILED,
+				},
+				CheckpointCount: 3,
+			},
+		},
+		getMessagesResponse: &runtimev1.GetSessionMessagesResponse{
+			ThreadId:             "thread-1",
+			ResolvedCheckpointId: "cp-3",
+			ActualMode:           runtimev1.SessionHistoryMode_SESSION_HISTORY_MODE_RESUME_VIEW,
+			TotalMessageCount:    2,
+			Messages: []*runtimev1.SessionMessage{
+				{
+					Index:      0,
+					Role:       runtimev1.SessionMessageRole_SESSION_MESSAGE_ROLE_HUMAN,
+					Text:       "hello",
+					ToolCallId: "",
+					ToolName:   "",
+					IsError:    false,
+					Raw:        mustStruct(t, map[string]any{"kind": "human"}),
+				},
+				{
+					Index:      1,
+					Role:       runtimev1.SessionMessageRole_SESSION_MESSAGE_ROLE_TOOL,
+					Text:       "ok",
+					ToolCallId: "tool-1",
+					ToolName:   "write_file",
+					IsError:    false,
+					Raw:        mustStruct(t, map[string]any{"kind": "tool"}),
+				},
+			},
+			NextPageToken: "page-3",
+		},
+		getLatestResponse: &runtimev1.GetLatestSessionResponse{
+			Found: true,
+			Session: &runtimev1.SessionSummary{
+				ThreadId:           "thread-9",
+				AgentName:          "assistant",
+				UpdatedAt:          timestamppb.New(time.Unix(202, 0)),
+				LatestCheckpointId: "cp-9",
+				MessageCount:       8,
+				InitialPrompt:      "latest prompt",
+				HistoryMode:        runtimev1.SessionHistoryMode_SESSION_HISTORY_MODE_RESUME_VIEW,
+				AgentStatus:        runtimev1.AgentRuntimeStatus_AGENT_RUNTIME_STATUS_INSTALLED,
+			},
+		},
+		deleteSessionResponse: &runtimev1.DeleteSessionResponse{Deleted: true},
+	}
+
+	client, cleanup := newTestClient(t, server)
+	defer cleanup()
+
+	sessions, nextPageToken, err := client.ListSessions(context.Background(), "assistant", 20, "")
+	if err != nil {
+		t.Fatalf("ListSessions returned error: %v", err)
+	}
+	if len(sessions) != 1 || nextPageToken != "page-2" {
+		t.Fatalf("unexpected list response: %#v %q", sessions, nextPageToken)
+	}
+	if sessions[0].InitialPrompt != "hello" || sessions[0].AgentStatus != domain.ObservedRuntimeStateRunning {
+		t.Fatalf("unexpected session summary mapping: %#v", sessions[0])
+	}
+
+	session, err := client.GetSession(context.Background(), "thread-1")
+	if err != nil {
+		t.Fatalf("GetSession returned error: %v", err)
+	}
+	if session.CheckpointCount != 3 || session.HistoryMode != domain.SessionHistoryModeFullTranscript {
+		t.Fatalf("unexpected session detail mapping: %#v", session)
+	}
+
+	page, err := client.GetSessionMessagePage(context.Background(), domain.SessionMessageQuery{
+		ThreadID:     "thread-1",
+		CheckpointID: "cp-2",
+		Mode:         domain.SessionHistoryModeResumeView,
+		PageSize:     20,
+		PageToken:    "page-2",
+		IncludeRaw:   true,
+	})
+	if err != nil {
+		t.Fatalf("GetSessionMessagePage returned error: %v", err)
+	}
+	if page.ThreadID != "thread-1" || page.ResolvedCheckpointID != "cp-3" {
+		t.Fatalf("unexpected page identity mapping: %#v", page)
+	}
+	if page.ActualMode != domain.SessionHistoryModeResumeView || page.TotalMessageCount != 2 {
+		t.Fatalf("unexpected page metadata mapping: %#v", page)
+	}
+	if server.getMessagesRequest == nil {
+		t.Fatal("expected GetSessionMessages request capture")
+	}
+	if server.getMessagesRequest.GetCheckpointId() != "cp-2" ||
+		server.getMessagesRequest.GetPageToken() != "page-2" ||
+		server.getMessagesRequest.GetRequestedMode() != runtimev1.SessionHistoryMode_SESSION_HISTORY_MODE_RESUME_VIEW ||
+		!server.getMessagesRequest.GetIncludeRaw() {
+		t.Fatalf("unexpected page request capture: %#v", server.getMessagesRequest)
+	}
+
+	messages, token, err := client.GetSessionMessages(
+		context.Background(),
+		"thread-1",
+		domain.SessionHistoryModeResumeView,
+		20,
+		"",
+	)
+	if err != nil {
+		t.Fatalf("GetSessionMessages returned error: %v", err)
+	}
+	if len(messages) != 2 || token != "page-3" {
+		t.Fatalf("unexpected messages response: %#v %q", messages, token)
+	}
+	if messages[0].Text != "hello" || messages[0].Content != "hello" {
+		t.Fatalf("unexpected first message mapping: %#v", messages[0])
+	}
+	if messages[1].CheckpointID != "cp-3" || messages[1].ToolName != "write_file" || string(messages[1].Raw) == "" {
+		t.Fatalf("unexpected second message mapping: %#v", messages[1])
+	}
+
+	latest, err := client.GetLatestSession(context.Background(), "assistant")
+	if err != nil {
+		t.Fatalf("GetLatestSession returned error: %v", err)
+	}
+	if latest.ThreadID != "thread-9" || latest.AgentStatus != domain.ObservedRuntimeStateInstalled {
+		t.Fatalf("unexpected latest session mapping: %#v", latest)
+	}
+
+	if err := client.DeleteSession(context.Background(), "thread-1"); err != nil {
+		t.Fatalf("DeleteSession returned error: %v", err)
+	}
+}
+
+func TestGRPCClientRunStream(t *testing.T) {
+	server := &testRuntimeServer{}
+	client, cleanup := newTestClient(t, server)
+	defer cleanup()
+
+	stream, err := client.OpenRun(context.Background(), domain.RunRequest{
+		AgentName: "assistant",
+		Message:   "hello",
+		ThreadID:  "thread-1",
+		Metadata:  map[string]string{"timeout_seconds": "30"},
+	})
+	if err != nil {
+		t.Fatalf("OpenRun returned error: %v", err)
+	}
+	defer stream.Close()
+
+	first := <-stream.Events()
+	if first.Type != AgentEventTypeRunStarted || first.ThreadID != "thread-1" {
+		t.Fatalf("unexpected first event: %#v", first)
+	}
+
+	second := <-stream.Events()
+	if second.Type != AgentEventTypeHITLRequest || second.InterruptID != "interrupt-1" {
+		t.Fatalf("unexpected second event: %#v", second)
+	}
+
+	if err := stream.SendHITLDecision(context.Background(), "interrupt-1", []ToolDecision{
+		{ToolCallID: "tool-1", Approved: true},
+	}); err != nil {
+		t.Fatalf("SendHITLDecision returned error: %v", err)
+	}
+	if err := stream.SendCancel(context.Background(), "user canceled"); err != nil {
+		t.Fatalf("SendCancel returned error: %v", err)
+	}
+
+	third := <-stream.Events()
+	if third.Type != AgentEventTypeToolResult || third.Text != "ok" {
+		t.Fatalf("unexpected third event: %#v", third)
+	}
+
+	fourth := <-stream.Events()
+	if fourth.Type != AgentEventTypeRunCanceled || fourth.Reason != "user canceled" {
+		t.Fatalf("unexpected fourth event: %#v", fourth)
+	}
+
+	if server.receivedRunRequest == nil || server.receivedRunRequest.GetAgentName() != "assistant" {
+		t.Fatalf("unexpected initial run request: %#v", server.receivedRunRequest)
+	}
+	if server.receivedHITLDecision == nil || server.receivedHITLDecision.GetInterruptId() != "interrupt-1" {
+		t.Fatalf("unexpected hitl decision: %#v", server.receivedHITLDecision)
+	}
+	if server.receivedCancel == nil || server.receivedCancel.GetReason() != "user canceled" {
+		t.Fatalf("unexpected cancel request: %#v", server.receivedCancel)
+	}
+}
+
+func TestGRPCClientMapsNotFound(t *testing.T) {
+	client, cleanup := newTestClient(t, &testRuntimeServer{})
+	defer cleanup()
+
+	if _, err := client.GetSession(context.Background(), "missing"); err == nil || err != ErrNotFound {
+		t.Fatalf("expected GetSession ErrNotFound, got %v", err)
+	}
+	if _, err := client.GetLatestSession(context.Background(), "assistant"); err == nil || err != ErrNotFound {
+		t.Fatalf("expected GetLatestSession ErrNotFound, got %v", err)
+	}
+	if err := client.DeleteSession(context.Background(), "missing"); err == nil || err != ErrNotFound {
+		t.Fatalf("expected DeleteSession ErrNotFound, got %v", err)
+	}
+	if _, _, err := client.GetSessionMessages(
+		context.Background(),
+		"missing",
+		domain.SessionHistoryModeResumeView,
+		20,
+		"",
+	); err == nil || !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected GetSessionMessages error, got %v", err)
+	}
+}
+
+func newTestClient(t *testing.T, server *testRuntimeServer) (*GRPCClient, func()) {
+	t.Helper()
+
+	listener := bufconn.Listen(1024 * 1024)
+	grpcServer := grpc.NewServer()
+	runtimev1.RegisterResourceSyncServer(grpcServer, &resourceSyncCaptureServer{server})
+	runtimev1.RegisterAgentExecutorServer(grpcServer, server)
+	runtimev1.RegisterSessionQueryServer(grpcServer, server)
+
+	go func() {
+		_ = grpcServer.Serve(listener)
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	client, err := NewGRPCClient(
+		ctx,
+		"bufnet",
+		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
+			return listener.Dial()
+		}),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	cancel()
+	if err != nil {
+		listener.Close()
+		grpcServer.Stop()
+		t.Fatalf("failed to create gRPC client: %v", err)
+	}
+
+	cleanup := func() {
+		_ = client.Close()
+		grpcServer.Stop()
+		_ = listener.Close()
+	}
+	return client, cleanup
+}
+
+type resourceSyncCaptureServer struct {
+	*testRuntimeServer
+}
+
+func (s *resourceSyncCaptureServer) SyncAgentSpec(
+	_ context.Context,
+	request *runtimev1.SyncAgentSpecRequest,
+) (*runtimev1.SyncResponse, error) {
+	s.syncAgentSpecRequest = request
+	if s.syncAgentSpecResponse == nil {
+		return &runtimev1.SyncResponse{Ok: true}, nil
+	}
+	return s.syncAgentSpecResponse, nil
+}
+
+func mustStruct(t *testing.T, value map[string]any) *structpb.Struct {
+	t.Helper()
+
+	return mustStructValue(value)
+}
+
+func mustStructValue(value map[string]any) *structpb.Struct {
+	result, err := structpb.NewStruct(value)
+	if err != nil {
+		panic(err)
+	}
+	return result
+}

@@ -3,7 +3,8 @@
 The key constraint here is to keep generated files directly under
 `deepagents_runtime/generated/`, not under a nested package path like
 `generated/deepagents/runtime/v1/`. The script achieves that by invoking
-`protoc` from the leaf proto directory and compiling `runtime.proto` directly.
+`protoc` from the repo-level `proto/` directory and compiling `runtime.proto`
+directly.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from pathlib import Path
 import sys
 from typing import Sequence
 
-_PROTO_RELATIVE_PATH = Path("deepagents/runtime/v1/runtime.proto")
+_PROTO_RELATIVE_PATH = Path("runtime.proto")
 _GENERATED_FILENAMES = (
     "runtime_pb2.py",
     "runtime_pb2.pyi",
@@ -34,7 +35,7 @@ def _build_protoc_args(*, proto_dir: Path, output_dir: Path) -> list[str]:
     """Build the `grpc_tools.protoc` argv for runtime.proto generation.
 
     Args:
-        proto_dir: Leaf directory containing `runtime.proto`.
+        proto_dir: Directory containing `runtime.proto`.
         output_dir: Target directory for generated files.
 
     Returns:
@@ -117,8 +118,8 @@ def generate_runtime_proto(
     resolved_package_root = package_root or _default_package_root()
     resolved_repo_root = repo_root or _default_repo_root(resolved_package_root)
 
-    proto_dir = resolved_repo_root / "proto" / _PROTO_RELATIVE_PATH.parent
-    proto_file = proto_dir / "runtime.proto"
+    proto_dir = resolved_repo_root / "proto"
+    proto_file = proto_dir / _PROTO_RELATIVE_PATH
     output_dir = resolved_package_root / "deepagents_runtime" / "generated"
 
     if not proto_file.is_file():

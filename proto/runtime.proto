@@ -12,7 +12,7 @@ syntax = "proto3";
 package deepagents.runtime.v1;
 
 option java_package = "com.deepagents.runtime.v1";
-option go_package = "deepagents/runtime/v1;runtimev1";
+option go_package = "agentctl/pkg/proto;runtimev1";
 
 import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";

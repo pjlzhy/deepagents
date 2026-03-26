@@ -1,6 +1,6 @@
 """Generated protobuf/gRPC stubs for deepagents.runtime.v1.
 
-Auto-generated from proto/deepagents/runtime/v1/runtime.proto.
+Auto-generated from proto/runtime.proto.
 Do not edit manually.
 """
 

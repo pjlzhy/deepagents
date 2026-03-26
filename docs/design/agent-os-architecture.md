@@ -47,8 +47,8 @@ Agent OS uses a unified separated architecture: control plane and data plane are
 | deepagents-control        |                    | deepagents-runtime        |
 |                           |                    |                           |
 | Registry / packaging      |                    | Compile / execution       |
-| Lifecycle / scheduling    |                    | Agent runtime / session state |
-| Routing / external API    |                    | Session / checkpoint      |
+| Lifecycle / northbound API|                    | Agent runtime / session state |
+| Shared runtime client     |                    | Session / checkpoint      |
 +---------------------------+                    +---------------------------+
 ```
 
@@ -57,7 +57,7 @@ Agent OS uses a unified separated architecture: control plane and data plane are
 | Layer | Responsibility | Knows about |
 |-------|---------------|-------------|
 | **SDK** (`deepagents`) | Build agent graphs from components | Models, tools, backends, middleware |
-| **Control Plane** (`deepagents-control`) | Own registry, package resources, manage lifecycle and scheduling | Registry, packaging, cron, routing, external API |
+| **Control Plane** (`deepagents-control`) | Own registry, package resources, and orchestrate runtime lifecycle | Registry, packaging, HTTP/SSE API, southbound orchestration |
 | **Data Plane** (`deepagents-runtime`) | Consume rich `AgentSpec` inputs, assemble agents, execute runs | Assembly, orchestration, sandbox, MCP, sessions |
 | **gRPC Protocol** (`proto/`) | Control <-> Data plane communication | `AgentExecutor`, `ResourceSync` |
 
@@ -73,6 +73,12 @@ Local and K8s deployments should use the same runtime behavior. The main differe
 | Provisioning | CLI / local scripts | Helm / kubectl |
 | Runtime contract | Same | Same |
 
+The current control-plane implementation is intentionally narrower than the long-term model:
+
+- one bootstrapped `default_target`
+- one shared southbound gRPC client bound to that target
+- no per-agent target selection or multi-target routing in the runnable path
+
 ---
 
 ## 3. Control Plane / Data Plane Separation
@@ -84,12 +90,10 @@ Control plane and data plane are always separate processes.
 The control plane is responsible for:
 
 - registry CRUD for skills, MCP configs, and agent definitions
-- workspace and shared-reference resolution
 - packaging runtime-ready agent inputs
-- install / compile / uninstall orchestration
+- `SyncAgentSpec -> Assemble -> Run` orchestration
 - lifecycle and status management
-- scheduling and routing
-- future external API exposure
+- HTTP / SSE northbound API
 
 ### 3.2 Data Plane Responsibilities
 
@@ -124,11 +128,12 @@ The control plane remains the source of truth for:
 - **Skills**: reusable prompt instructions (`SKILL.md` content)
 - **MCP configs**: reusable server connection definitions
 - **AgentSpecs**: declarative agent definitions authored by users
-- **Workspace/shared references**: optional authoring-time indirections
+
+In the current implementation, `workspace` is not part of the northbound control-plane contract. `RuntimeTarget` and `Deployment` remain reserved control-plane models for future expansion, but they are not part of the runnable main path today.
 
 ### 4.2 Runtime Input: Rich `AgentSpec`
 
-Before syncing an agent to the data plane, the control plane may resolve or package registry resources, local files, and workspace references into a richer runtime input.
+Before syncing an agent to the data plane, the control plane may resolve or package registry resources and local files into a richer runtime input.
 
 ```yaml
 metadata:
@@ -194,7 +199,7 @@ Operation mapping:
 
 ### 5.3 Runtime Ownership
 
-The control plane owns registry CRUD, packaging, scheduling, and uninstall orchestration.
+The control plane owns registry CRUD, packaging, northbound API handling, and uninstall orchestration.
 
 The data plane `AgentManager` owns runtime resources:
 
@@ -212,7 +217,7 @@ The Registry lives in the control plane and remains the system source of truth f
 Its responsibilities are:
 
 - CRUD for skills, MCP configs, and authored `AgentSpec`
-- workspace and shared-reference resolution
+- resolve skill and MCP references from the registry
 - packaging runtime-ready `AgentSpec` payloads for the data plane
 - dependency tracking and safe deletion checks
 
@@ -227,8 +232,8 @@ Assembly transforms a rich `AgentSpec` into a runnable `AgentTemplate`.
 ### 7.1 Assembly Flow
 
 ```text
-Control Plane Registry / Workspace refs
-    -> resolve + package
+Control Plane Registry
+    -> resolve skill / MCP refs + package
         -> rich AgentSpec
             -> SyncAgentSpec (gRPC)
                 -> Data Plane compile():
@@ -250,7 +255,7 @@ The control plane owns reference resolution and packaging. The data plane owns r
 
 ## 8. gRPC Protocol
 
-All communication between control plane and data plane uses `proto/deepagents/runtime/v1/runtime.proto`.
+All communication between control plane and data plane uses `proto/runtime.proto`.
 
 ### 8.1 Services
 
@@ -298,20 +303,15 @@ Launch mode is runtime configuration, not part of the authored agent definition.
 
 ---
 
-## 10. CLI and Workspace
+## 10. Northbound API
 
-The control plane CLI manages the full system.
+The current control plane exposes a northbound API rather than a workspace-centric contract.
 
-Representative commands:
+- management APIs use HTTP for registry CRUD and session queries
+- execution uses SSE over a shared southbound `AgentExecutor.Run` bridge
+- all runnable requests currently flow through the bootstrapped `default_target`
 
-```bash
-deepagents up
-deepagents registry ...
-deepagents agent invoke <name> -m "..."
-deepagents workspace up
-```
-
-Workspaces group authored resources and agent entries. They are a control-plane concern used for authoring, packaging, and deployment.
+CLI commands may be added on top of this northbound API, but they are not the authoritative contract described here.
 
 ---
 
@@ -322,8 +322,10 @@ Workspaces group authored resources and agent entries. They are a control-plane 
 ```text
 CLI / Caller
   -> Control Plane
-      - lookup agent -> data plane endpoint
+      - resolve skill / MCP refs
+      - package runtime-ready AgentSpec
       - ensure rich AgentSpec is installed and compiled
+      - use shared default runtime client
       - open AgentExecutor.Run stream
           -> Data Plane
               - load compiled AgentTemplate
@@ -337,8 +339,8 @@ CLI / Caller
 ### 11.2 Assembly Flow
 
 ```text
-Control Plane Registry / Workspace refs
-    -> resolve + package
+Control Plane Registry
+    -> resolve skill / MCP refs + package
         -> rich AgentSpec
             -> SyncAgentSpec
                 -> Data Plane assembly
@@ -403,7 +405,7 @@ The control plane may resolve or package sub-agent metadata before sync. The dat
 
 The architectural split is:
 
-- **Control plane** owns registry, packaging, lifecycle, scheduling, and routing
+- **Control plane** owns registry, packaging, northbound API, and runtime lifecycle orchestration
 - **Data plane** owns assembly, execution, agent-scoped runtime resources, run-scoped execution state, and runtime state
 
-The boundary between them is a stable gRPC protocol centered on rich `AgentSpec` input and streaming invocation.
+The current runnable path uses a single shared `default_target` client. The boundary between planes remains a stable gRPC protocol centered on rich `AgentSpec` input and streaming invocation.

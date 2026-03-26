@@ -9,8 +9,8 @@ import pytest
 from deepagents_runtime import proto_codegen
 
 def test_build_protoc_args_use_leaf_proto_directory() -> None:
-    """Protoc args should compile `runtime.proto` from the leaf proto directory."""
-    proto_dir = Path("D:/repo/proto/deepagents/runtime/v1")
+    """Protoc args should compile `runtime.proto` from the repo-level proto directory."""
+    proto_dir = Path("D:/repo/proto")
     output_dir = Path("D:/repo/libs/runtime/deepagents-runtime/deepagents_runtime/generated")
 
     args = proto_codegen._build_protoc_args(

@@ -1,0 +1,1431 @@
+package api
+
+import (
+	"agentctl/pkg/domain"
+	"agentctl/pkg/orchestrator"
+	registrypkg "agentctl/pkg/registry"
+	"agentctl/pkg/runtimeclient"
+	"agentctl/pkg/streamproxy"
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+)
+
+const runSessionHeader = "X-Deepagents-Run-Session-ID"
+
+var (
+	errRunSessionNotFound = errors.New("run session not found")
+	errRunSessionClosed   = errors.New("run session is closed")
+	errRunSessionBusy     = errors.New("run session control queue is full")
+)
+
+// HTTPHandler exposes the northbound HTTP/SSE transport.
+type HTTPHandler struct {
+	service     AgentService
+	newProxy    func() streamproxy.Proxy
+	runSessions *runSessionRegistry
+	serveMux    *http.ServeMux
+}
+
+// NewHTTPHandler creates a new HTTP/SSE northbound handler.
+func NewHTTPHandler(
+	service AgentService,
+	proxyFactory func() streamproxy.Proxy,
+) (*HTTPHandler, error) {
+	if service == nil {
+		return nil, errors.New("api service must not be nil")
+	}
+	if proxyFactory == nil {
+		proxyFactory = func() streamproxy.Proxy {
+			return streamproxy.NewDefaultProxy(nil)
+		}
+	}
+
+	handler := &HTTPHandler{
+		service:     service,
+		newProxy:    proxyFactory,
+		runSessions: newRunSessionRegistry(),
+		serveMux:    http.NewServeMux(),
+	}
+	handler.registerRoutes()
+	return handler, nil
+}
+
+// Handler returns the underlying HTTP handler.
+func (h *HTTPHandler) Handler() http.Handler {
+	return h.serveMux
+}
+
+// ServeHTTP dispatches one northbound HTTP request.
+func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h.serveMux.ServeHTTP(w, r)
+}
+
+func (h *HTTPHandler) registerRoutes() {
+	h.serveMux.HandleFunc("GET /api/v1/health", h.handleHealth)
+	h.serveMux.HandleFunc("GET /api/v1/skills", h.handleListSkills)
+	h.serveMux.HandleFunc("PUT /api/v1/skills/{name}", h.handleUpsertSkill)
+	h.serveMux.HandleFunc("GET /api/v1/skills/{name}", h.handleGetSkill)
+	h.serveMux.HandleFunc("DELETE /api/v1/skills/{name}", h.handleDeleteSkill)
+	h.serveMux.HandleFunc("GET /api/v1/mcps", h.handleListMCPConfigs)
+	h.serveMux.HandleFunc("PUT /api/v1/mcps/{name}", h.handleUpsertMCPConfig)
+	h.serveMux.HandleFunc("GET /api/v1/mcps/{name}", h.handleGetMCPConfig)
+	h.serveMux.HandleFunc("DELETE /api/v1/mcps/{name}", h.handleDeleteMCPConfig)
+	h.serveMux.HandleFunc("GET /api/v1/agents", h.handleListAgentSpecs)
+	h.serveMux.HandleFunc("PUT /api/v1/agents/{name}", h.handleUpsertAgentSpec)
+	h.serveMux.HandleFunc("GET /api/v1/agents/{name}", h.handleGetAgentSpec)
+	h.serveMux.HandleFunc("DELETE /api/v1/agents/{name}", h.handleDeleteAgentSpec)
+	h.serveMux.HandleFunc("POST /api/v1/agents/{agent}/ensure_runnable", h.handleEnsureRunnable)
+	h.serveMux.HandleFunc("POST /api/v1/agents/{agent}/runs/stream", h.handleRunStream)
+	h.serveMux.HandleFunc("GET /api/v1/sessions", h.handleListSessions)
+	h.serveMux.HandleFunc("GET /api/v1/sessions/latest", h.handleGetLatestSession)
+	h.serveMux.HandleFunc("GET /api/v1/sessions/{thread_id}", h.handleGetSession)
+	h.serveMux.HandleFunc(
+		"GET /api/v1/sessions/{thread_id}/message_page",
+		h.handleGetSessionMessagePage,
+	)
+	h.serveMux.HandleFunc(
+		"GET /api/v1/sessions/{thread_id}/messages",
+		h.handleGetSessionMessages,
+	)
+	h.serveMux.HandleFunc("DELETE /api/v1/sessions/{thread_id}", h.handleDeleteSession)
+	h.serveMux.HandleFunc(
+		"POST /api/v1/run_sessions/{session_id}/cancel",
+		h.handleRunCancel,
+	)
+	h.serveMux.HandleFunc(
+		"POST /api/v1/run_sessions/{session_id}/hitl_decisions",
+		h.handleRunHITLDecisions,
+	)
+}
+
+func (h *HTTPHandler) handleRunStream(w http.ResponseWriter, r *http.Request) {
+	agentName := strings.TrimSpace(r.PathValue("agent"))
+
+	req, err := decodeRunStreamRequest(r)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+	req.AgentName = agentName
+
+	runStream, err := h.service.RunAgent(r.Context(), req)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	downstream, err := newSSERunDownstream(w)
+	if err != nil {
+		_ = runStream.Close()
+		writeJSONError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	sessionID, err := newRunSessionID()
+	if err != nil {
+		_ = runStream.Close()
+		writeJSONError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	h.runSessions.Store(sessionID, downstream)
+	defer func() {
+		h.runSessions.Delete(sessionID)
+		downstream.Close()
+	}()
+
+	prepareSSEHeaders(w, sessionID)
+	if err := downstream.SendEnvelope(
+		r.Context(),
+		"run_session",
+		map[string]string{"session_id": sessionID},
+	); err != nil {
+		return
+	}
+
+	proxy := h.newProxy()
+	if proxy == nil {
+		_ = downstream.SendEnvelope(
+			r.Context(),
+			"transport_error",
+			errorResponse{Error: "run proxy is not configured"},
+		)
+		return
+	}
+
+	if err := proxy.Proxy(r.Context(), runStream, downstream); err != nil &&
+		!errors.Is(err, context.Canceled) &&
+		!errors.Is(err, context.DeadlineExceeded) {
+		_ = downstream.SendEnvelope(
+			r.Context(),
+			"transport_error",
+			errorResponse{Error: err.Error()},
+		)
+	}
+}
+
+func (h *HTTPHandler) handleHealth(w http.ResponseWriter, r *http.Request) {
+	resp, err := h.service.Health(r.Context())
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, newHTTPHealthResponse(resp))
+}
+
+func (h *HTTPHandler) handleEnsureRunnable(w http.ResponseWriter, r *http.Request) {
+	agentName := strings.TrimSpace(r.PathValue("agent"))
+
+	if err := h.service.EnsureRunnable(r.Context(), agentName); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
+func (h *HTTPHandler) handleListSessions(w http.ResponseWriter, r *http.Request) {
+	query, err := decodeListSessionsQuery(r)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	sessions, nextPageToken, err := h.service.ListSessions(
+		r.Context(),
+		query.AgentName,
+		query.PageSize,
+		query.PageToken,
+	)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, sessionListResponse{
+		Sessions:      newHTTPSessionSummaryResponses(sessions),
+		NextPageToken: nextPageToken,
+	})
+}
+
+func (h *HTTPHandler) handleGetLatestSession(w http.ResponseWriter, r *http.Request) {
+	query := decodeLatestSessionQuery(r)
+	session, err := h.service.GetLatestSession(r.Context(), query.AgentName)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, newHTTPSessionSummaryResponse(session))
+}
+
+func (h *HTTPHandler) handleGetSession(w http.ResponseWriter, r *http.Request) {
+	session, err := h.service.GetSession(r.Context(), strings.TrimSpace(r.PathValue("thread_id")))
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, newHTTPSessionSummaryResponse(session))
+}
+
+func (h *HTTPHandler) handleGetSessionMessagePage(w http.ResponseWriter, r *http.Request) {
+	query, err := decodeSessionMessagePageQuery(r)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	page, err := h.service.GetSessionMessagePage(r.Context(), query)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, newHTTPSessionMessagePageResponse(page))
+}
+
+func (h *HTTPHandler) handleGetSessionMessages(w http.ResponseWriter, r *http.Request) {
+	query, err := decodeSessionMessagesQuery(r)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	messages, nextPageToken, err := h.service.GetSessionMessages(
+		r.Context(),
+		query.ThreadID,
+		query.Mode,
+		query.PageSize,
+		query.PageToken,
+	)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, sessionMessagesResponse{
+		Messages:      newHTTPSessionMessageResponses(messages),
+		NextPageToken: nextPageToken,
+	})
+}
+
+func (h *HTTPHandler) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
+	if err := h.service.DeleteSession(r.Context(), strings.TrimSpace(r.PathValue("thread_id"))); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *HTTPHandler) handleListSkills(w http.ResponseWriter, r *http.Request) {
+	skills, err := h.service.ListSkills(r.Context())
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, skillsListResponse{Skills: newHTTPSkillResponses(skills)})
+}
+
+func (h *HTTPHandler) handleUpsertSkill(w http.ResponseWriter, r *http.Request) {
+	skill, err := decodeSkillRequest(r)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+	stored, err := h.service.UpsertSkill(r.Context(), skill)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, newHTTPSkillResponse(stored))
+}
+
+func (h *HTTPHandler) handleGetSkill(w http.ResponseWriter, r *http.Request) {
+	name, err := decodeResourceName(r, "name")
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+	skill, err := h.service.GetSkill(r.Context(), name)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, newHTTPSkillResponse(skill))
+}
+
+func (h *HTTPHandler) handleDeleteSkill(w http.ResponseWriter, r *http.Request) {
+	name, err := decodeResourceName(r, "name")
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := h.service.DeleteSkill(r.Context(), name); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *HTTPHandler) handleListMCPConfigs(w http.ResponseWriter, r *http.Request) {
+	configs, err := h.service.ListMCPConfigs(r.Context())
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, mcpConfigsListResponse{MCPs: newHTTPMCPConfigResponses(configs)})
+}
+
+func (h *HTTPHandler) handleUpsertMCPConfig(w http.ResponseWriter, r *http.Request) {
+	config, err := decodeMCPConfigRequest(r)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+	stored, err := h.service.UpsertMCPConfig(r.Context(), config)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, newHTTPMCPConfigResponse(stored))
+}
+
+func (h *HTTPHandler) handleGetMCPConfig(w http.ResponseWriter, r *http.Request) {
+	name, err := decodeResourceName(r, "name")
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+	config, err := h.service.GetMCPConfig(r.Context(), name)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, newHTTPMCPConfigResponse(config))
+}
+
+func (h *HTTPHandler) handleDeleteMCPConfig(w http.ResponseWriter, r *http.Request) {
+	name, err := decodeResourceName(r, "name")
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := h.service.DeleteMCPConfig(r.Context(), name); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *HTTPHandler) handleListAgentSpecs(w http.ResponseWriter, r *http.Request) {
+	specs, err := h.service.ListAgentSpecs(r.Context())
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, agentSpecsListResponse{Agents: newHTTPAgentSpecResponses(specs)})
+}
+
+func (h *HTTPHandler) handleUpsertAgentSpec(w http.ResponseWriter, r *http.Request) {
+	spec, err := decodeAgentSpecRequest(r)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+	stored, err := h.service.UpsertAgentSpec(r.Context(), spec)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, newHTTPAgentSpecResponse(stored))
+}
+
+func (h *HTTPHandler) handleGetAgentSpec(w http.ResponseWriter, r *http.Request) {
+	name, err := decodeResourceName(r, "name")
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+	spec, err := h.service.GetAgentSpec(r.Context(), name)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, newHTTPAgentSpecResponse(spec))
+}
+
+func (h *HTTPHandler) handleDeleteAgentSpec(w http.ResponseWriter, r *http.Request) {
+	name, err := decodeResourceName(r, "name")
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := h.service.DeleteAgentSpec(r.Context(), name); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *HTTPHandler) handleRunCancel(w http.ResponseWriter, r *http.Request) {
+	sessionID := strings.TrimSpace(r.PathValue("session_id"))
+	request, err := decodeCancelRequest(r)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	session, err := h.runSessions.Load(sessionID)
+	if err != nil {
+		writeJSONError(w, http.StatusNotFound, err)
+		return
+	}
+	if err := session.EnqueueCancel(streamproxy.CancelSignal{Reason: request.Reason}); err != nil {
+		writeSessionControlError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
+func (h *HTTPHandler) handleRunHITLDecisions(w http.ResponseWriter, r *http.Request) {
+	sessionID := strings.TrimSpace(r.PathValue("session_id"))
+	request, err := decodeHITLDecisionRequest(r)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	session, err := h.runSessions.Load(sessionID)
+	if err != nil {
+		writeJSONError(w, http.StatusNotFound, err)
+		return
+	}
+	if err := session.EnqueueDecision(streamproxy.DecisionEnvelope{
+		InterruptID: request.InterruptID,
+		Decisions:   request.Decisions,
+	}); err != nil {
+		writeSessionControlError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
+func prepareSSEHeaders(w http.ResponseWriter, sessionID string) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.Header().Set(runSessionHeader, sessionID)
+	w.WriteHeader(http.StatusOK)
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+type runSessionRegistry struct {
+	mu       sync.RWMutex
+	sessions map[string]*sseRunDownstream
+}
+
+func newRunSessionRegistry() *runSessionRegistry {
+	return &runSessionRegistry{
+		sessions: make(map[string]*sseRunDownstream),
+	}
+}
+
+func (r *runSessionRegistry) Store(sessionID string, downstream *sseRunDownstream) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.sessions[sessionID] = downstream
+}
+
+func (r *runSessionRegistry) Load(sessionID string) (*sseRunDownstream, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	downstream, ok := r.sessions[sessionID]
+	if !ok {
+		return nil, errRunSessionNotFound
+	}
+	return downstream, nil
+}
+
+func (r *runSessionRegistry) Delete(sessionID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	delete(r.sessions, sessionID)
+}
+
+type sseRunDownstream struct {
+	writer    http.ResponseWriter
+	flusher   http.Flusher
+	writeMu   sync.Mutex
+	controlMu sync.Mutex
+	closed    bool
+
+	decisions chan streamproxy.DecisionEnvelope
+	cancels   chan streamproxy.CancelSignal
+}
+
+func newSSERunDownstream(w http.ResponseWriter) (*sseRunDownstream, error) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		return nil, errors.New("response writer must support flushing")
+	}
+
+	return &sseRunDownstream{
+		writer:    w,
+		flusher:   flusher,
+		decisions: make(chan streamproxy.DecisionEnvelope, 8),
+		cancels:   make(chan streamproxy.CancelSignal, 8),
+	}, nil
+}
+
+func (d *sseRunDownstream) SendEvent(ctx context.Context, event runtimeclient.AgentEvent) error {
+	return d.SendEnvelope(ctx, string(event.Type), newHTTPAgentEvent(event))
+}
+
+func (d *sseRunDownstream) SendEnvelope(ctx context.Context, eventName string, value any) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Errorf("marshal sse payload: %w", err)
+	}
+
+	d.writeMu.Lock()
+	defer d.writeMu.Unlock()
+
+	if _, err := fmt.Fprintf(d.writer, "event: %s\n", eventName); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(d.writer, "data: %s\n\n", payload); err != nil {
+		return err
+	}
+	d.flusher.Flush()
+	return nil
+}
+
+func (d *sseRunDownstream) HITLDecisions() <-chan streamproxy.DecisionEnvelope {
+	return d.decisions
+}
+
+func (d *sseRunDownstream) CancelRequests() <-chan streamproxy.CancelSignal {
+	return d.cancels
+}
+
+func (d *sseRunDownstream) EnqueueDecision(decision streamproxy.DecisionEnvelope) error {
+	d.controlMu.Lock()
+	defer d.controlMu.Unlock()
+
+	if d.closed {
+		return errRunSessionClosed
+	}
+
+	select {
+	case d.decisions <- decision:
+		return nil
+	default:
+		return errRunSessionBusy
+	}
+}
+
+func (d *sseRunDownstream) EnqueueCancel(signal streamproxy.CancelSignal) error {
+	d.controlMu.Lock()
+	defer d.controlMu.Unlock()
+
+	if d.closed {
+		return errRunSessionClosed
+	}
+
+	select {
+	case d.cancels <- signal:
+		return nil
+	default:
+		return errRunSessionBusy
+	}
+}
+
+func (d *sseRunDownstream) Close() {
+	d.controlMu.Lock()
+	defer d.controlMu.Unlock()
+
+	if d.closed {
+		return
+	}
+	d.closed = true
+	close(d.decisions)
+	close(d.cancels)
+}
+
+type runStreamRequest struct {
+	Message  string            `json:"message"`
+	ThreadID string            `json:"thread_id,omitempty"`
+	Metadata map[string]string `json:"metadata,omitempty"`
+}
+
+type cancelRequest struct {
+	Reason string `json:"reason,omitempty"`
+}
+
+type hitlDecisionRequest struct {
+	InterruptID string                `json:"interrupt_id"`
+	Decisions   []toolDecisionRequest `json:"decisions"`
+}
+
+type toolDecisionRequest struct {
+	ToolCallID string `json:"tool_call_id"`
+	Approved   bool   `json:"approved"`
+	Reason     string `json:"reason,omitempty"`
+}
+
+type errorResponse struct {
+	Error string `json:"error"`
+}
+
+type httpAgentEvent struct {
+	Type         string              `json:"type"`
+	RunID        string              `json:"run_id,omitempty"`
+	AgentName    string              `json:"agent_name,omitempty"`
+	Timestamp    string              `json:"timestamp,omitempty"`
+	ThreadID     string              `json:"thread_id,omitempty"`
+	Text         string              `json:"text,omitempty"`
+	ToolName     string              `json:"tool_name,omitempty"`
+	ToolCallID   string              `json:"tool_call_id,omitempty"`
+	InterruptID  string              `json:"interrupt_id,omitempty"`
+	Reason       string              `json:"reason,omitempty"`
+	ErrorMessage string              `json:"error_message,omitempty"`
+	Payload      json.RawMessage     `json:"payload,omitempty"`
+	Actions      []httpActionRequest `json:"actions,omitempty"`
+}
+
+type httpActionRequest struct {
+	Action     string          `json:"action"`
+	ToolCallID string          `json:"tool_call_id,omitempty"`
+	Arguments  json.RawMessage `json:"arguments,omitempty"`
+}
+
+type decodedHITLDecisionRequest struct {
+	InterruptID string
+	Decisions   []runtimeclient.ToolDecision
+}
+
+type healthResponse struct {
+	Status              string  `json:"status,omitempty"`
+	AssembledAgentCount int32   `json:"assembled_agent_count,omitempty"`
+	InstalledAgentCount int32   `json:"installed_agent_count,omitempty"`
+	RunningAgentCount   int32   `json:"running_agent_count,omitempty"`
+	UptimeSeconds       float32 `json:"uptime_seconds,omitempty"`
+	Ready               bool    `json:"ready"`
+}
+
+type sessionSummaryResponse struct {
+	ThreadID           string `json:"thread_id,omitempty"`
+	AgentName          string `json:"agent_name,omitempty"`
+	LatestCheckpointID string `json:"latest_checkpoint_id,omitempty"`
+	MessageCount       int32  `json:"message_count,omitempty"`
+	CheckpointCount    int32  `json:"checkpoint_count,omitempty"`
+	InitialPrompt      string `json:"initial_prompt,omitempty"`
+	HistoryMode        string `json:"history_mode,omitempty"`
+	AgentStatus        string `json:"agent_status,omitempty"`
+	UpdatedAt          string `json:"updated_at,omitempty"`
+}
+
+type sessionMessageResponse struct {
+	Index        int32           `json:"index,omitempty"`
+	CheckpointID string          `json:"checkpoint_id,omitempty"`
+	Role         string          `json:"role,omitempty"`
+	Text         string          `json:"text,omitempty"`
+	Content      string          `json:"content,omitempty"`
+	ToolCallID   string          `json:"tool_call_id,omitempty"`
+	ToolName     string          `json:"tool_name,omitempty"`
+	IsError      bool            `json:"is_error,omitempty"`
+	Raw          json.RawMessage `json:"raw,omitempty"`
+	CreatedAt    string          `json:"created_at,omitempty"`
+}
+
+type sessionMessagePageResponse struct {
+	ThreadID             string                   `json:"thread_id,omitempty"`
+	ResolvedCheckpointID string                   `json:"resolved_checkpoint_id,omitempty"`
+	ActualMode           string                   `json:"actual_mode,omitempty"`
+	TotalMessageCount    int32                    `json:"total_message_count,omitempty"`
+	Messages             []sessionMessageResponse `json:"messages"`
+	NextPageToken        string                   `json:"next_page_token,omitempty"`
+}
+
+type sessionListResponse struct {
+	Sessions      []sessionSummaryResponse `json:"sessions"`
+	NextPageToken string                   `json:"next_page_token,omitempty"`
+}
+
+type sessionMessagesResponse struct {
+	Messages      []sessionMessageResponse `json:"messages"`
+	NextPageToken string                   `json:"next_page_token,omitempty"`
+}
+
+type skillFilePayload struct {
+	Path    string `json:"path,omitempty"`
+	Content string `json:"content,omitempty"`
+}
+
+type skillUpsertRequest struct {
+	Description string             `json:"description,omitempty"`
+	Tags        []string           `json:"tags,omitempty"`
+	Content     string             `json:"content,omitempty"`
+	Files       []skillFilePayload `json:"files,omitempty"`
+	Status      string             `json:"status,omitempty"`
+}
+
+type skillResponse struct {
+	Name        string             `json:"name,omitempty"`
+	Description string             `json:"description,omitempty"`
+	Tags        []string           `json:"tags,omitempty"`
+	Content     string             `json:"content,omitempty"`
+	Files       []skillFilePayload `json:"files,omitempty"`
+	Status      string             `json:"status,omitempty"`
+	CreatedAt   string             `json:"created_at,omitempty"`
+	UpdatedAt   string             `json:"updated_at,omitempty"`
+}
+
+type skillsListResponse struct {
+	Skills []skillResponse `json:"skills"`
+}
+
+type mcpConfigUpsertRequest struct {
+	Command     string            `json:"command,omitempty"`
+	Args        []string          `json:"args,omitempty"`
+	Env         map[string]string `json:"env,omitempty"`
+	Transport   string            `json:"transport,omitempty"`
+	Description string            `json:"description,omitempty"`
+	Status      string            `json:"status,omitempty"`
+}
+
+type mcpConfigResponse struct {
+	Name        string            `json:"name,omitempty"`
+	Command     string            `json:"command,omitempty"`
+	Args        []string          `json:"args,omitempty"`
+	Env         map[string]string `json:"env,omitempty"`
+	Transport   string            `json:"transport,omitempty"`
+	Description string            `json:"description,omitempty"`
+	Status      string            `json:"status,omitempty"`
+	CreatedAt   string            `json:"created_at,omitempty"`
+	UpdatedAt   string            `json:"updated_at,omitempty"`
+}
+
+type mcpConfigsListResponse struct {
+	MCPs []mcpConfigResponse `json:"mcps"`
+}
+
+type promptSpecPayload struct {
+	System string `json:"system,omitempty"`
+}
+
+type modelSpecPayload struct {
+	Provider    string            `json:"provider,omitempty"`
+	Model       string            `json:"model,omitempty"`
+	BaseURL     string            `json:"base_url,omitempty"`
+	APIKeyEnv   string            `json:"api_key_env,omitempty"`
+	ExtraParams map[string]string `json:"extra_params,omitempty"`
+}
+
+type subagentSpecPayload struct {
+	Name         string           `json:"name,omitempty"`
+	Description  string           `json:"description,omitempty"`
+	SystemPrompt string           `json:"system_prompt,omitempty"`
+	Model        modelSpecPayload `json:"model"`
+}
+
+type sandboxSpecPayload struct {
+	Image     string            `json:"image,omitempty"`
+	Resources map[string]string `json:"resources,omitempty"`
+	Init      []string          `json:"init,omitempty"`
+}
+
+type agentSpecUpsertRequest struct {
+	Version     string                `json:"version,omitempty"`
+	Description string                `json:"description,omitempty"`
+	Tags        []string              `json:"tags,omitempty"`
+	Model       modelSpecPayload      `json:"model"`
+	Prompt      promptSpecPayload     `json:"prompt"`
+	SkillRefs   []string              `json:"skill_refs,omitempty"`
+	MCPRefs     []string              `json:"mcp_refs,omitempty"`
+	Subagents   []subagentSpecPayload `json:"subagents,omitempty"`
+	Sandbox     sandboxSpecPayload    `json:"sandbox"`
+	InterruptOn []string              `json:"interrupt_on,omitempty"`
+	Status      string                `json:"status,omitempty"`
+}
+
+type agentSpecResponse struct {
+	Name        string                `json:"name,omitempty"`
+	Version     string                `json:"version,omitempty"`
+	Description string                `json:"description,omitempty"`
+	Tags        []string              `json:"tags,omitempty"`
+	Model       modelSpecPayload      `json:"model"`
+	Prompt      promptSpecPayload     `json:"prompt"`
+	SkillRefs   []string              `json:"skill_refs,omitempty"`
+	MCPRefs     []string              `json:"mcp_refs,omitempty"`
+	Subagents   []subagentSpecPayload `json:"subagents,omitempty"`
+	Sandbox     sandboxSpecPayload    `json:"sandbox"`
+	InterruptOn []string              `json:"interrupt_on,omitempty"`
+	Status      string                `json:"status,omitempty"`
+	CreatedAt   string                `json:"created_at,omitempty"`
+	UpdatedAt   string                `json:"updated_at,omitempty"`
+}
+
+type agentSpecsListResponse struct {
+	Agents []agentSpecResponse `json:"agents"`
+}
+
+type listSessionsQuery struct {
+	AgentName string
+	PageSize  int32
+	PageToken string
+}
+
+type latestSessionQuery struct {
+	AgentName string
+}
+
+type sessionMessagesQuery struct {
+	ThreadID  string
+	Mode      domain.SessionHistoryMode
+	PageSize  int32
+	PageToken string
+}
+
+func decodeRunStreamRequest(r *http.Request) (domain.RunRequest, error) {
+	request, err := decodeJSON[runStreamRequest](r, false)
+	if err != nil {
+		return domain.RunRequest{}, err
+	}
+	return domain.RunRequest{
+		Message:  request.Message,
+		ThreadID: request.ThreadID,
+		Metadata: request.Metadata,
+	}, nil
+}
+
+func decodeCancelRequest(r *http.Request) (cancelRequest, error) {
+	return decodeJSON[cancelRequest](r, true)
+}
+
+func decodeHITLDecisionRequest(r *http.Request) (decodedHITLDecisionRequest, error) {
+	request, err := decodeJSON[hitlDecisionRequest](r, false)
+	if err != nil {
+		return decodedHITLDecisionRequest{}, err
+	}
+	if strings.TrimSpace(request.InterruptID) == "" {
+		return decodedHITLDecisionRequest{}, errors.New("interrupt_id must not be empty")
+	}
+
+	decisions := make([]runtimeclient.ToolDecision, 0, len(request.Decisions))
+	for _, decision := range request.Decisions {
+		toolCallID := strings.TrimSpace(decision.ToolCallID)
+		if toolCallID == "" {
+			return decodedHITLDecisionRequest{}, errors.New("tool_call_id must not be empty")
+		}
+		decisions = append(decisions, runtimeclient.ToolDecision{
+			ToolCallID: toolCallID,
+			Approved:   decision.Approved,
+			Reason:     decision.Reason,
+		})
+	}
+
+	return decodedHITLDecisionRequest{
+		InterruptID: strings.TrimSpace(request.InterruptID),
+		Decisions:   decisions,
+	}, nil
+}
+
+func decodeSessionMessagePageQuery(r *http.Request) (domain.SessionMessageQuery, error) {
+	mode, err := parseSessionHistoryMode(r.URL.Query().Get("mode"))
+	if err != nil {
+		return domain.SessionMessageQuery{}, err
+	}
+	pageSize, err := parsePageSize(r, "page_size")
+	if err != nil {
+		return domain.SessionMessageQuery{}, err
+	}
+	includeRaw, err := parseOptionalBool(r, "include_raw")
+	if err != nil {
+		return domain.SessionMessageQuery{}, err
+	}
+
+	return domain.SessionMessageQuery{
+		ThreadID:     strings.TrimSpace(r.PathValue("thread_id")),
+		CheckpointID: strings.TrimSpace(r.URL.Query().Get("checkpoint_id")),
+		Mode:         mode,
+		PageSize:     pageSize,
+		PageToken:    strings.TrimSpace(r.URL.Query().Get("page_token")),
+		IncludeRaw:   includeRaw,
+	}, nil
+}
+
+func decodeListSessionsQuery(r *http.Request) (listSessionsQuery, error) {
+	pageSize, err := parsePageSize(r, "page_size")
+	if err != nil {
+		return listSessionsQuery{}, err
+	}
+	return listSessionsQuery{
+		AgentName: strings.TrimSpace(r.URL.Query().Get("agent_name")),
+		PageSize:  pageSize,
+		PageToken: strings.TrimSpace(r.URL.Query().Get("page_token")),
+	}, nil
+}
+
+func decodeLatestSessionQuery(r *http.Request) latestSessionQuery {
+	return latestSessionQuery{
+		AgentName: strings.TrimSpace(r.URL.Query().Get("agent_name")),
+	}
+}
+
+func decodeSessionMessagesQuery(r *http.Request) (sessionMessagesQuery, error) {
+	mode, err := parseSessionHistoryMode(r.URL.Query().Get("mode"))
+	if err != nil {
+		return sessionMessagesQuery{}, err
+	}
+	pageSize, err := parsePageSize(r, "page_size")
+	if err != nil {
+		return sessionMessagesQuery{}, err
+	}
+	return sessionMessagesQuery{
+		ThreadID:  strings.TrimSpace(r.PathValue("thread_id")),
+		Mode:      mode,
+		PageSize:  pageSize,
+		PageToken: strings.TrimSpace(r.URL.Query().Get("page_token")),
+	}, nil
+}
+
+func decodeSkillRequest(r *http.Request) (domain.Skill, error) {
+	name, err := decodeResourceName(r, "name")
+	if err != nil {
+		return domain.Skill{}, err
+	}
+	request, err := decodeJSON[skillUpsertRequest](r, false)
+	if err != nil {
+		return domain.Skill{}, err
+	}
+	status, err := parseOptionalAuthoredStatus(request.Status)
+	if err != nil {
+		return domain.Skill{}, err
+	}
+
+	files := make([]domain.SkillFile, 0, len(request.Files))
+	for _, file := range request.Files {
+		files = append(files, domain.SkillFile{
+			Path:    strings.TrimSpace(file.Path),
+			Content: file.Content,
+		})
+	}
+
+	return domain.Skill{
+		Name:        name,
+		Description: request.Description,
+		Tags:        trimStrings(request.Tags),
+		Content:     request.Content,
+		Files:       files,
+		Status:      status,
+	}, nil
+}
+
+func decodeMCPConfigRequest(r *http.Request) (domain.MCPConfig, error) {
+	name, err := decodeResourceName(r, "name")
+	if err != nil {
+		return domain.MCPConfig{}, err
+	}
+	request, err := decodeJSON[mcpConfigUpsertRequest](r, false)
+	if err != nil {
+		return domain.MCPConfig{}, err
+	}
+	status, err := parseOptionalAuthoredStatus(request.Status)
+	if err != nil {
+		return domain.MCPConfig{}, err
+	}
+
+	return domain.MCPConfig{
+		Name:        name,
+		Command:     strings.TrimSpace(request.Command),
+		Args:        trimStrings(request.Args),
+		Env:         request.Env,
+		Transport:   strings.TrimSpace(request.Transport),
+		Description: request.Description,
+		Status:      status,
+	}, nil
+}
+
+func decodeAgentSpecRequest(r *http.Request) (domain.AuthoredAgentSpec, error) {
+	name, err := decodeResourceName(r, "name")
+	if err != nil {
+		return domain.AuthoredAgentSpec{}, err
+	}
+	request, err := decodeJSON[agentSpecUpsertRequest](r, false)
+	if err != nil {
+		return domain.AuthoredAgentSpec{}, err
+	}
+	status, err := parseOptionalAuthoredStatus(request.Status)
+	if err != nil {
+		return domain.AuthoredAgentSpec{}, err
+	}
+
+	subagents := make([]domain.SubagentSpec, 0, len(request.Subagents))
+	for _, subagent := range request.Subagents {
+		subagents = append(subagents, domain.SubagentSpec{
+			Name:         strings.TrimSpace(subagent.Name),
+			Description:  subagent.Description,
+			SystemPrompt: subagent.SystemPrompt,
+			Model:        newDomainModelSpec(subagent.Model),
+		})
+	}
+
+	return domain.AuthoredAgentSpec{
+		Name:        name,
+		Version:     strings.TrimSpace(request.Version),
+		Description: request.Description,
+		Tags:        trimStrings(request.Tags),
+		Model:       newDomainModelSpec(request.Model),
+		Prompt:      domain.PromptSpec{System: request.Prompt.System},
+		SkillRefs:   trimStrings(request.SkillRefs),
+		MCPRefs:     trimStrings(request.MCPRefs),
+		Subagents:   subagents,
+		Sandbox:     newDomainSandboxSpec(request.Sandbox),
+		InterruptOn: trimStrings(request.InterruptOn),
+		Status:      status,
+	}, nil
+}
+
+func decodeResourceName(r *http.Request, key string) (string, error) {
+	name := strings.TrimSpace(r.PathValue(key))
+	if name == "" {
+		return "", fmt.Errorf("%s must not be empty", key)
+	}
+	return name, nil
+}
+
+func parsePageSize(r *http.Request, key string) (int32, error) {
+	rawValue := strings.TrimSpace(r.URL.Query().Get(key))
+	if rawValue == "" {
+		return 0, nil
+	}
+
+	value, err := strconv.ParseInt(rawValue, 10, 32)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a valid integer", key)
+	}
+	if value < 0 {
+		return 0, fmt.Errorf("%s must be non-negative", key)
+	}
+	return int32(value), nil
+}
+
+func parseOptionalBool(r *http.Request, key string) (bool, error) {
+	rawValue := strings.TrimSpace(r.URL.Query().Get(key))
+	if rawValue == "" {
+		return false, nil
+	}
+
+	value, err := strconv.ParseBool(rawValue)
+	if err != nil {
+		return false, fmt.Errorf("%s must be a valid boolean", key)
+	}
+	return value, nil
+}
+
+func parseSessionHistoryMode(rawValue string) (domain.SessionHistoryMode, error) {
+	mode := domain.SessionHistoryMode(strings.TrimSpace(rawValue))
+	switch mode {
+	case "":
+		return "", nil
+	case domain.SessionHistoryModeResumeView, domain.SessionHistoryModeFullTranscript:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("unsupported session history mode %q", rawValue)
+	}
+}
+
+func parseOptionalAuthoredStatus(rawValue string) (domain.AuthoredStatus, error) {
+	status := domain.AuthoredStatus(strings.TrimSpace(rawValue))
+	if status == "" {
+		return "", nil
+	}
+	if !status.Valid() {
+		return "", fmt.Errorf("unsupported authored status %q", rawValue)
+	}
+	return status, nil
+}
+
+func decodeJSON[T any](r *http.Request, allowEmpty bool) (T, error) {
+	var zero T
+	if allowEmpty && r.Body == nil {
+		return zero, nil
+	}
+	if allowEmpty && r.ContentLength == 0 {
+		return zero, nil
+	}
+
+	defer r.Body.Close()
+
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+
+	var value T
+	if err := decoder.Decode(&value); err != nil {
+		return zero, fmt.Errorf("decode request body: %w", err)
+	}
+	return value, nil
+}
+
+func writeJSON(w http.ResponseWriter, statusCode int, value any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	_ = json.NewEncoder(w).Encode(value)
+}
+
+func writeJSONError(w http.ResponseWriter, statusCode int, err error) {
+	writeJSON(w, statusCode, errorResponse{Error: err.Error()})
+}
+
+func writeServiceError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, registrypkg.ErrNotFound), errors.Is(err, runtimeclient.ErrNotFound):
+		writeJSONError(w, http.StatusNotFound, err)
+	case errors.Is(err, registrypkg.ErrConflict):
+		writeJSONError(w, http.StatusConflict, err)
+	case errors.Is(err, registrypkg.ErrInvalid):
+		writeJSONError(w, http.StatusBadRequest, err)
+	case errors.Is(err, orchestrator.ErrEmptyAgentName):
+		writeJSONError(w, http.StatusBadRequest, err)
+	default:
+		writeJSONError(w, http.StatusInternalServerError, err)
+	}
+}
+
+func writeSessionControlError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, errRunSessionClosed):
+		writeJSONError(w, http.StatusGone, err)
+	case errors.Is(err, errRunSessionBusy):
+		writeJSONError(w, http.StatusConflict, err)
+	default:
+		writeJSONError(w, http.StatusInternalServerError, err)
+	}
+}
+
+func newHTTPAgentEvent(event runtimeclient.AgentEvent) httpAgentEvent {
+	actions := make([]httpActionRequest, 0, len(event.Actions))
+	for _, action := range event.Actions {
+		actions = append(actions, httpActionRequest{
+			Action:     action.Action,
+			ToolCallID: action.ToolCallID,
+			Arguments:  action.Arguments,
+		})
+	}
+
+	response := httpAgentEvent{
+		Type:         string(event.Type),
+		RunID:        event.RunID,
+		AgentName:    event.AgentName,
+		ThreadID:     event.ThreadID,
+		Text:         event.Text,
+		ToolName:     event.ToolName,
+		ToolCallID:   event.ToolCallID,
+		InterruptID:  event.InterruptID,
+		Reason:       event.Reason,
+		ErrorMessage: event.ErrorMessage,
+		Payload:      event.Payload,
+		Actions:      actions,
+	}
+	if !event.Timestamp.IsZero() {
+		response.Timestamp = event.Timestamp.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")
+	}
+	return response
+}
+
+func newHTTPHealthResponse(resp runtimeclient.HealthResponse) healthResponse {
+	return healthResponse{
+		Status:              resp.Status,
+		AssembledAgentCount: resp.AssembledAgentCount,
+		InstalledAgentCount: resp.InstalledAgentCount,
+		RunningAgentCount:   resp.RunningAgentCount,
+		UptimeSeconds:       resp.UptimeSeconds,
+		Ready:               resp.Ready,
+	}
+}
+
+func newHTTPSessionSummaryResponse(session domain.SessionSummary) sessionSummaryResponse {
+	return sessionSummaryResponse{
+		ThreadID:           session.ThreadID,
+		AgentName:          session.AgentName,
+		LatestCheckpointID: session.LatestCheckpointID,
+		MessageCount:       session.MessageCount,
+		CheckpointCount:    session.CheckpointCount,
+		InitialPrompt:      session.InitialPrompt,
+		HistoryMode:        string(session.HistoryMode),
+		AgentStatus:        string(session.AgentStatus),
+		UpdatedAt:          formatOptionalTime(session.UpdatedAt),
+	}
+}
+
+func newHTTPSessionSummaryResponses(sessions []domain.SessionSummary) []sessionSummaryResponse {
+	responses := make([]sessionSummaryResponse, 0, len(sessions))
+	for _, session := range sessions {
+		responses = append(responses, newHTTPSessionSummaryResponse(session))
+	}
+	return responses
+}
+
+func newHTTPSessionMessageResponse(message domain.SessionMessage) sessionMessageResponse {
+	return sessionMessageResponse{
+		Index:        message.Index,
+		CheckpointID: message.CheckpointID,
+		Role:         string(message.Role),
+		Text:         message.Text,
+		Content:      message.Content,
+		ToolCallID:   message.ToolCallID,
+		ToolName:     message.ToolName,
+		IsError:      message.IsError,
+		Raw:          message.Raw,
+		CreatedAt:    formatOptionalTime(message.CreatedAt),
+	}
+}
+
+func newHTTPSessionMessageResponses(messages []domain.SessionMessage) []sessionMessageResponse {
+	responses := make([]sessionMessageResponse, 0, len(messages))
+	for _, message := range messages {
+		responses = append(responses, newHTTPSessionMessageResponse(message))
+	}
+	return responses
+}
+
+func newHTTPSessionMessagePageResponse(page domain.SessionMessagePage) sessionMessagePageResponse {
+	return sessionMessagePageResponse{
+		ThreadID:             page.ThreadID,
+		ResolvedCheckpointID: page.ResolvedCheckpointID,
+		ActualMode:           string(page.ActualMode),
+		TotalMessageCount:    page.TotalMessageCount,
+		Messages:             newHTTPSessionMessageResponses(page.Messages),
+		NextPageToken:        page.NextPageToken,
+	}
+}
+
+func newHTTPSkillResponse(skill domain.Skill) skillResponse {
+	return skillResponse{
+		Name:        skill.Name,
+		Description: skill.Description,
+		Tags:        skill.Tags,
+		Content:     skill.Content,
+		Files:       newHTTPSkillFiles(skill.Files),
+		Status:      string(skill.Status),
+		CreatedAt:   formatOptionalTime(skill.CreatedAt),
+		UpdatedAt:   formatOptionalTime(skill.UpdatedAt),
+	}
+}
+
+func newHTTPSkillResponses(skills []domain.Skill) []skillResponse {
+	responses := make([]skillResponse, 0, len(skills))
+	for _, skill := range skills {
+		responses = append(responses, newHTTPSkillResponse(skill))
+	}
+	return responses
+}
+
+func newHTTPSkillFiles(files []domain.SkillFile) []skillFilePayload {
+	payloads := make([]skillFilePayload, 0, len(files))
+	for _, file := range files {
+		payloads = append(payloads, skillFilePayload{
+			Path:    file.Path,
+			Content: file.Content,
+		})
+	}
+	return payloads
+}
+
+func newHTTPMCPConfigResponse(config domain.MCPConfig) mcpConfigResponse {
+	return mcpConfigResponse{
+		Name:        config.Name,
+		Command:     config.Command,
+		Args:        config.Args,
+		Env:         config.Env,
+		Transport:   config.Transport,
+		Description: config.Description,
+		Status:      string(config.Status),
+		CreatedAt:   formatOptionalTime(config.CreatedAt),
+		UpdatedAt:   formatOptionalTime(config.UpdatedAt),
+	}
+}
+
+func newHTTPMCPConfigResponses(configs []domain.MCPConfig) []mcpConfigResponse {
+	responses := make([]mcpConfigResponse, 0, len(configs))
+	for _, config := range configs {
+		responses = append(responses, newHTTPMCPConfigResponse(config))
+	}
+	return responses
+}
+
+func newHTTPAgentSpecResponse(spec domain.AuthoredAgentSpec) agentSpecResponse {
+	return agentSpecResponse{
+		Name:        spec.Name,
+		Version:     spec.Version,
+		Description: spec.Description,
+		Tags:        spec.Tags,
+		Model:       newHTTPModelSpec(spec.Model),
+		Prompt:      promptSpecPayload{System: spec.Prompt.System},
+		SkillRefs:   spec.SkillRefs,
+		MCPRefs:     spec.MCPRefs,
+		Subagents:   newHTTPSubagentSpecs(spec.Subagents),
+		Sandbox:     newHTTPSandboxSpec(spec.Sandbox),
+		InterruptOn: spec.InterruptOn,
+		Status:      string(spec.Status),
+		CreatedAt:   formatOptionalTime(spec.CreatedAt),
+		UpdatedAt:   formatOptionalTime(spec.UpdatedAt),
+	}
+}
+
+func newHTTPAgentSpecResponses(specs []domain.AuthoredAgentSpec) []agentSpecResponse {
+	responses := make([]agentSpecResponse, 0, len(specs))
+	for _, spec := range specs {
+		responses = append(responses, newHTTPAgentSpecResponse(spec))
+	}
+	return responses
+}
+
+func newHTTPModelSpec(spec domain.ModelSpec) modelSpecPayload {
+	return modelSpecPayload{
+		Provider:    spec.Provider,
+		Model:       spec.Model,
+		BaseURL:     spec.BaseURL,
+		APIKeyEnv:   spec.APIKeyEnv,
+		ExtraParams: spec.ExtraParams,
+	}
+}
+
+func newHTTPSubagentSpecs(specs []domain.SubagentSpec) []subagentSpecPayload {
+	payloads := make([]subagentSpecPayload, 0, len(specs))
+	for _, spec := range specs {
+		payloads = append(payloads, subagentSpecPayload{
+			Name:         spec.Name,
+			Description:  spec.Description,
+			SystemPrompt: spec.SystemPrompt,
+			Model:        newHTTPModelSpec(spec.Model),
+		})
+	}
+	return payloads
+}
+
+func newHTTPSandboxSpec(spec domain.SandboxSpec) sandboxSpecPayload {
+	return sandboxSpecPayload{
+		Image:     spec.Image,
+		Resources: spec.Resources,
+		Init:      spec.Init,
+	}
+}
+
+func newDomainModelSpec(spec modelSpecPayload) domain.ModelSpec {
+	return domain.ModelSpec{
+		Provider:    strings.TrimSpace(spec.Provider),
+		Model:       strings.TrimSpace(spec.Model),
+		BaseURL:     strings.TrimSpace(spec.BaseURL),
+		APIKeyEnv:   strings.TrimSpace(spec.APIKeyEnv),
+		ExtraParams: spec.ExtraParams,
+	}
+}
+
+func newDomainSandboxSpec(spec sandboxSpecPayload) domain.SandboxSpec {
+	return domain.SandboxSpec{
+		Image:     strings.TrimSpace(spec.Image),
+		Resources: spec.Resources,
+		Init:      trimStrings(spec.Init),
+	}
+}
+
+func trimStrings(values []string) []string {
+	trimmed := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed = append(trimmed, strings.TrimSpace(value))
+	}
+	return trimmed
+}
+
+func formatOptionalTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339Nano)
+}
+
+func newRunSessionID() (string, error) {
+	buffer := make([]byte, 16)
+	if _, err := rand.Read(buffer); err != nil {
+		return "", fmt.Errorf("generate run session id: %w", err)
+	}
+	return hex.EncodeToString(buffer), nil
+}
