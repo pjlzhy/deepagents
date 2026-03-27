@@ -1,7 +1,7 @@
 # Control Layer Architecture Design
 
-> 状态：进行中
-> 最后更新：2026-03-26
+> 状态：当前范围完成
+> 最后更新：2026-03-27
 > 目标实现语言：Go
 > 当前实现范围：single `default_target`
 
@@ -14,15 +14,15 @@
 - data layer 持有 compiled runtime、MCP runtime、sandbox runtime、checkpoint/session state
 - control plane 与 data plane 的唯一边界已经收敛为 `proto/runtime.proto`
 
-下一步需要补齐 control layer，使系统具备完整的 control plane / data plane 分层。
+当前 `libs/control` 已经完成 single `default_target` 范围内的主链路落地。
 
-本设计文档的目标是定义一版可落地的 Go control layer 架构，使其与当前 data layer 的边界保持一致，并为后续 CLI、gateway、scheduler、K8s 部署提供稳定控制面。
+本设计文档的目标，已经从“提出一版可落地的 Go control layer 架构”收敛为“记录当前已落地的 control layer 边界与模块职责”，使其与当前 data layer 的边界保持一致，并为后续 CLI、gateway、scheduler、K8s 部署提供稳定控制面。
 
 ## 2. 设计目标
 
 control layer 的目标是：
 
-- 作为 skills、MCP configs、AgentSpecs 的 authoritative registry
+- 作为 model configs、skills、MCP configs、AgentSpecs 的 authoritative registry
 - 负责 authored resources 的引用解析和 runtime-ready packaging
 - 负责 `install / compile / execute / cancel / uninstall` 的 southbound 编排
 - 负责 northbound HTTP / SSE API
@@ -138,6 +138,7 @@ libs/control/
 
 当前主资源与预留模型包括：
 
+- `ModelConfig`
 - `Skill`
 - `McpConfig`
 - `AuthoredAgentSpec`
@@ -151,9 +152,11 @@ authoritative resource registry。
 
 负责：
 
+- model configs CRUD
 - skills CRUD
 - MCP configs CRUD
 - authored agent specs CRUD
+- 通用分页查询
 - 引用存在性校验
 - authored 结构化校验
 - 删除前引用检查
@@ -165,6 +168,7 @@ authoritative resource registry。
 负责：
 
 - 读取 `AuthoredAgentSpec`
+- 解析 `model_ref`
 - 解析 skill refs
 - 解析 MCP refs
 
@@ -180,7 +184,8 @@ authoritative resource registry。
 
 负责：
 
-- prompt / model 合成
+- 将解析后的 `ModelConfig` 展开为 runtime `ModelSpec`
+- prompt 合成
 - skill 目录快照打包
 - MCP configs 嵌入
 - subagent metadata 展开
@@ -213,7 +218,7 @@ control layer 的核心 service 层。
 - `RunAgent`
 - `Health`
 - session 查询 / 删除
-- 对 northbound 资源 CRUD 的 service 封装
+- 对 northbound 资源 CRUD / 分页查询的 service 封装
 
 ### 6.7 `pkg/api`
 
@@ -244,9 +249,10 @@ northbound API。
 
 | 资源 | 说明 | authoritative owner |
 |------|------|---------------------|
+| `ModelConfig` | 可复用 model 配置模板 | control layer |
 | `Skill` | 技能目录快照与元数据 | control layer |
 | `McpConfig` | MCP server 配置模板 | control layer |
-| `AuthoredAgentSpec` | 用户编写的 agent 定义 | control layer |
+| `AuthoredAgentSpec` | 用户编写的 agent 定义；通过 `model_ref` / `skill_refs` / `mcp_refs` 引用其他资源 | control layer |
 
 以下模型当前仍保留在 `domain` / `registry`，但不属于当前 northbound contract：
 
@@ -288,6 +294,7 @@ northbound API。
 
 | 表 | 用途 |
 |----|------|
+| `model_configs` | model 配置模板 |
 | `skills` | skill 元数据与 `files_json` |
 | `mcp_configs` | MCP 配置 |
 | `agent_specs` | authored agent specs |
@@ -298,6 +305,8 @@ northbound API。
 说明：
 
 - skill files 当前不拆独立表
+- 所有主表当前都以自增 `id` 作为主键，并对 `name` 建唯一索引
+- `agent_specs.model_ref` 额外建立索引，支持引用校验与查询
 - `workspaces` / `workspace_resources` 已移除
 - `runtime_targets` / `deployments` 当前不属于 northbound 主资源
 
@@ -310,8 +319,9 @@ control layer 的核心能力不是执行，而是 packaging。
 packager 的输入包括：
 
 - `AuthoredAgentSpec`
-- skill 引用
-- MCP config 引用
+- resolver 展开的 `ModelConfig`
+- skill 引用及其快照
+- MCP config 引用及其展开结果
 
 ### 9.2 输出
 
@@ -321,7 +331,7 @@ packager 的输出是 runtime-ready `SyncAgentSpecRequest`。
 
 - `skills` 使用嵌入式目录快照
 - `mcp_servers` 使用完整 runtime 配置
-- `model` 与 `model_config` 收敛成可执行形式
+- `model_ref` 在 control layer 被解析，并收敛为 runtime 可执行 `model`
 - `subagents` 使用结构化定义
 - `sandbox` 明确传给 data plane
 
@@ -350,7 +360,7 @@ packager 的输出是 runtime-ready `SyncAgentSpecRequest`。
 control layer 内部建议提供 `EnsureRunnable(agent_name)`：
 
 1. 读取 authored spec
-2. 解析 skill refs 与 MCP refs
+2. 解析 `model_ref`、skill refs 与 MCP refs
 3. packaging 为 runtime-ready `AgentSpec`
 4. 调用 `SyncAgentSpec`
 5. 调用 `Assemble`
@@ -383,17 +393,19 @@ control layer 内部建议提供 `EnsureRunnable(agent_name)`：
 control layer 提供 northbound 查询接口，但 southbound 直接代理：
 
 - `Health`
-- `ListSessions`
-- `GetSession`
-- `GetSessionMessages`
-- `GetLatestSession`
-- `DeleteSession`
+- `ListSessions(agent_name?, page_size, page_token)`
+- `GetLatestSession(agent_name?)`
+- `GetSession(agent_name, thread_id)`
+- `GetSessionMessages(agent_name, thread_id, checkpoint_id?, page_size, page_token, mode, include_raw?)`
+- `DeleteSession(agent_name, thread_id)`
 
 这样可以保证：
 
 - session 真相仍然来自 data plane checkpoint store
 - control layer 只做统一入口和必要聚合
 - 不引入第二套 session source of truth
+
+当前 northbound HTTP 仍保留以 `thread_id` 为 path 的资源路径，但 thread-scoped 查询 / 删除必须额外提供 `agent_name` query 参数。也就是说，control layer 对外的 session detail / history / delete 已经与 data plane southbound 一起收缩为 `agent_name + thread_id` 双键定位。
 
 ## 12. Routing 与 Deployment 设计
 
@@ -428,6 +440,10 @@ control layer 提供 northbound 查询接口，但 southbound 直接代理：
 
 ### 13.1 资源管理接口
 
+- `GET /api/v1/models`
+- `PUT /api/v1/models/{name}`
+- `GET /api/v1/models/{name}`
+- `DELETE /api/v1/models/{name}`
 - `GET /api/v1/skills`
 - `PUT /api/v1/skills/{name}`
 - `GET /api/v1/skills/{name}`
@@ -441,6 +457,15 @@ control layer 提供 northbound 查询接口，但 southbound 直接代理：
 - `GET /api/v1/agents/{name}`
 - `DELETE /api/v1/agents/{name}`
 
+其中：
+
+- `GET /api/v1/models`
+- `GET /api/v1/skills`
+- `GET /api/v1/mcps`
+- `GET /api/v1/agents`
+
+统一支持 `page_size` 与 `page_number` 分页参数。
+
 ### 13.2 生命周期接口
 
 - `POST /api/v1/agents/{agent}/ensure_runnable`
@@ -453,10 +478,17 @@ control layer 提供 northbound 查询接口，但 southbound 直接代理：
 - `GET /api/v1/health`
 - `GET /api/v1/sessions`
 - `GET /api/v1/sessions/latest`
-- `GET /api/v1/sessions/{thread_id}`
-- `GET /api/v1/sessions/{thread_id}/message_page`
-- `GET /api/v1/sessions/{thread_id}/messages`
-- `DELETE /api/v1/sessions/{thread_id}`
+- `GET /api/v1/sessions/{thread_id}?agent_name=...`
+- `GET /api/v1/sessions/{thread_id}/message_page?agent_name=...`
+- `GET /api/v1/sessions/{thread_id}/messages?agent_name=...`
+- `DELETE /api/v1/sessions/{thread_id}?agent_name=...`
+
+其中：
+
+- `GET /api/v1/sessions` 支持 `agent_name`、`page_size`、`page_token`
+- `GET /api/v1/sessions/latest` 支持可选 `agent_name`
+- `message_page` 额外支持 `checkpoint_id`、`mode`、`page_size`、`page_token`、`include_raw`
+- `messages` 额外支持 `mode`、`page_size`、`page_token`
 
 ### 13.4 当前未暴露的接口
 
@@ -518,7 +550,7 @@ control layer 提供 northbound 查询接口，但 southbound 直接代理：
 状态：已完成
 
 - 落地 SQLite schema
-- 实现 skills / MCP configs / agent specs CRUD
+- 实现 model configs / skills / MCP configs / agent specs CRUD
 - 实现引用存在性校验与 authored 结构化校验
 
 ### Phase 3：Packager
@@ -553,6 +585,8 @@ control layer 提供 northbound 查询接口，但 southbound 直接代理：
 
 - 接入 `SessionQuery` 与 `Health`
 - 提供 northbound HTTP / SSE 资源管理 / 生命周期 / 查询接口
+- 提供资源列表的 `page_size / page_number` 分页能力
+- 将 thread-scoped session 查询 / 删除统一收敛为 `agent_name + thread_id`
 
 ### Phase 7：Routing 与调度扩展
 

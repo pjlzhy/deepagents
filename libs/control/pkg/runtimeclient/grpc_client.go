@@ -196,10 +196,11 @@ func (c *GRPCClient) ListSessions(
 // GetSession returns one session summary plus checkpoint count.
 func (c *GRPCClient) GetSession(
 	ctx context.Context,
-	threadID string,
+	locator domain.SessionLocator,
 ) (domain.SessionSummary, error) {
 	response, err := c.sessions.GetSession(ctx, &runtimev1.GetSessionRequest{
-		ThreadId: threadID,
+		ThreadId:  locator.ThreadID,
+		AgentName: locator.AgentName,
 	})
 	if err != nil {
 		return domain.SessionSummary{}, normalizeRPCError("get session", err)
@@ -215,18 +216,10 @@ func (c *GRPCClient) GetSession(
 // GetSessionMessages returns one page of checkpoint-backed session messages.
 func (c *GRPCClient) GetSessionMessages(
 	ctx context.Context,
-	threadID string,
-	mode domain.SessionHistoryMode,
-	pageSize int32,
-	pageToken string,
+	query domain.SessionMessageQuery,
 ) ([]domain.SessionMessage, string, error) {
-	page, err := c.GetSessionMessagePage(ctx, domain.SessionMessageQuery{
-		ThreadID:   threadID,
-		Mode:       mode,
-		PageSize:   pageSize,
-		PageToken:  pageToken,
-		IncludeRaw: true,
-	})
+	query.IncludeRaw = true
+	page, err := c.GetSessionMessagePage(ctx, query)
 	if err != nil {
 		return nil, "", err
 	}
@@ -239,6 +232,7 @@ func (c *GRPCClient) GetSessionMessagePage(
 	query domain.SessionMessageQuery,
 ) (domain.SessionMessagePage, error) {
 	response, err := c.sessions.GetSessionMessages(ctx, &runtimev1.GetSessionMessagesRequest{
+		AgentName:     query.AgentName,
 		ThreadId:      query.ThreadID,
 		CheckpointId:  query.CheckpointID,
 		PageSize:      query.PageSize,
@@ -272,9 +266,10 @@ func (c *GRPCClient) GetLatestSession(
 }
 
 // DeleteSession deletes one runtime-local session.
-func (c *GRPCClient) DeleteSession(ctx context.Context, threadID string) error {
+func (c *GRPCClient) DeleteSession(ctx context.Context, locator domain.SessionLocator) error {
 	response, err := c.sessions.DeleteSession(ctx, &runtimev1.DeleteSessionRequest{
-		ThreadId: threadID,
+		ThreadId:  locator.ThreadID,
+		AgentName: locator.AgentName,
 	})
 	if err != nil {
 		return normalizeRPCError("delete session", err)

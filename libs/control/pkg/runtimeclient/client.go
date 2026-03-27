@@ -119,15 +119,9 @@ type AgentExecutorClient interface {
 // SessionQueryClient 封装 session 相关 southbound 查询。
 type SessionQueryClient interface {
 	ListSessions(ctx context.Context, agentName string, pageSize int32, pageToken string) ([]domain.SessionSummary, string, error)
-	GetSession(ctx context.Context, threadID string) (domain.SessionSummary, error)
+	GetSession(ctx context.Context, locator domain.SessionLocator) (domain.SessionSummary, error)
 	GetSessionMessagePage(ctx context.Context, query domain.SessionMessageQuery) (domain.SessionMessagePage, error)
-	GetSessionMessages(
-		ctx context.Context,
-		threadID string,
-		mode domain.SessionHistoryMode,
-		pageSize int32,
-		pageToken string,
-	) ([]domain.SessionMessage, string, error)
+	GetSessionMessages(ctx context.Context, query domain.SessionMessageQuery) ([]domain.SessionMessage, string, error)
 	GetLatestSession(ctx context.Context, agentName string) (domain.SessionSummary, error)
-	DeleteSession(ctx context.Context, threadID string) error
+	DeleteSession(ctx context.Context, locator domain.SessionLocator) error
 }

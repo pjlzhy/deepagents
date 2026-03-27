@@ -41,10 +41,6 @@ func (r *SQLiteRegistry) UpsertAgentSpec(ctx context.Context, spec domain.Author
 	if err != nil {
 		return fmt.Errorf("marshal agent spec tags: %w", err)
 	}
-	modelJSON, err := marshalJSON(spec.Model)
-	if err != nil {
-		return fmt.Errorf("marshal agent spec model: %w", err)
-	}
 	promptJSON, err := marshalJSON(spec.Prompt)
 	if err != nil {
 		return fmt.Errorf("marshal agent spec prompt: %w", err)
@@ -73,7 +69,7 @@ func (r *SQLiteRegistry) UpsertAgentSpec(ctx context.Context, spec domain.Author
 	_, err = r.db.ExecContext(
 		ctx,
 		`INSERT INTO agent_specs (
-            name, version, description, tags_json, model_json, prompt_json,
+            name, version, description, tags_json, model_ref, prompt_json,
             skill_refs_json, mcp_refs_json, subagents_json, sandbox_json,
             interrupt_on_json, status, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -81,7 +77,7 @@ func (r *SQLiteRegistry) UpsertAgentSpec(ctx context.Context, spec domain.Author
             version = excluded.version,
             description = excluded.description,
             tags_json = excluded.tags_json,
-            model_json = excluded.model_json,
+            model_ref = excluded.model_ref,
             prompt_json = excluded.prompt_json,
             skill_refs_json = excluded.skill_refs_json,
             mcp_refs_json = excluded.mcp_refs_json,
@@ -95,7 +91,7 @@ func (r *SQLiteRegistry) UpsertAgentSpec(ctx context.Context, spec domain.Author
 		spec.Version,
 		spec.Description,
 		tagsJSON,
-		modelJSON,
+		spec.ModelRef,
 		promptJSON,
 		skillRefsJSON,
 		mcpRefsJSON,
@@ -118,8 +114,8 @@ func normalizeAuthoredAgentSpec(spec domain.AuthoredAgentSpec) (domain.AuthoredA
 		return domain.AuthoredAgentSpec{}, err
 	}
 	spec.Version = strings.TrimSpace(spec.Version)
-	spec.Model = normalizeModelSpec(spec.Model)
-	if err := validateModelSpec(spec.Model, "agent model", true); err != nil {
+	spec.ModelRef = strings.TrimSpace(spec.ModelRef)
+	if err := validateRequiredSimpleName(spec.ModelRef, "agent model_ref"); err != nil {
 		return domain.AuthoredAgentSpec{}, err
 	}
 
@@ -173,6 +169,14 @@ func (r *SQLiteRegistry) ensureAgentSpecReferencesExist(
 	ctx context.Context,
 	spec domain.AuthoredAgentSpec,
 ) error {
+	if err := ensureExists(ctx, r.db, "model_configs", spec.ModelRef, "model config"); err != nil {
+		return fmt.Errorf(
+			"validate agent spec %q model ref %q: %w",
+			spec.Name,
+			spec.ModelRef,
+			err,
+		)
+	}
 	for _, name := range spec.SkillRefs {
 		if err := ensureExists(ctx, r.db, "skills", name, "skill"); err != nil {
 			return fmt.Errorf(
@@ -320,7 +324,7 @@ func validateRequiredNonEmpty(value string, fieldName string) error {
 func (r *SQLiteRegistry) GetAgentSpec(ctx context.Context, name string) (domain.AuthoredAgentSpec, error) {
 	row := r.db.QueryRowContext(
 		ctx,
-		`SELECT version, description, tags_json, model_json, prompt_json, skill_refs_json,
+		`SELECT version, description, tags_json, model_ref, prompt_json, skill_refs_json,
         mcp_refs_json, subagents_json, sandbox_json, interrupt_on_json, status,
         created_at, updated_at
         FROM agent_specs WHERE name = ?`,
@@ -329,7 +333,7 @@ func (r *SQLiteRegistry) GetAgentSpec(ctx context.Context, name string) (domain.
 
 	var spec domain.AuthoredAgentSpec
 	var tagsJSON string
-	var modelJSON string
+	var modelRef string
 	var promptJSON string
 	var skillRefsJSON string
 	var mcpRefsJSON string
@@ -343,7 +347,7 @@ func (r *SQLiteRegistry) GetAgentSpec(ctx context.Context, name string) (domain.
 		&spec.Version,
 		&spec.Description,
 		&tagsJSON,
-		&modelJSON,
+		&modelRef,
 		&promptJSON,
 		&skillRefsJSON,
 		&mcpRefsJSON,
@@ -360,12 +364,10 @@ func (r *SQLiteRegistry) GetAgentSpec(ctx context.Context, name string) (domain.
 		return domain.AuthoredAgentSpec{}, fmt.Errorf("scan agent spec %q: %w", name, err)
 	}
 	spec.Name = name
+	spec.ModelRef = strings.TrimSpace(modelRef)
 	spec.Status = domain.AuthoredStatus(status)
 	if err := unmarshalJSON(tagsJSON, &spec.Tags); err != nil {
 		return domain.AuthoredAgentSpec{}, fmt.Errorf("decode agent tags: %w", err)
-	}
-	if err := unmarshalJSON(modelJSON, &spec.Model); err != nil {
-		return domain.AuthoredAgentSpec{}, fmt.Errorf("decode agent model: %w", err)
 	}
 	if err := unmarshalJSON(promptJSON, &spec.Prompt); err != nil {
 		return domain.AuthoredAgentSpec{}, fmt.Errorf("decode agent prompt: %w", err)
@@ -400,28 +402,36 @@ func (r *SQLiteRegistry) GetAgentSpec(ctx context.Context, name string) (domain.
 
 // ListAgentSpecs lists all authored agent specs ordered by name.
 func (r *SQLiteRegistry) ListAgentSpecs(ctx context.Context) ([]domain.AuthoredAgentSpec, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT name FROM agent_specs ORDER BY name ASC`)
+	page, err := r.ListAgentSpecsPage(ctx, domain.PageQuery{})
 	if err != nil {
-		return nil, fmt.Errorf("query agent spec names: %w", err)
+		return nil, err
 	}
-	defer rows.Close()
+	return page.Items, nil
+}
 
-	specs := make([]domain.AuthoredAgentSpec, 0)
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			return nil, fmt.Errorf("scan agent spec name: %w", err)
-		}
+// ListAgentSpecsPage lists one page of authored agent specs ordered by name.
+func (r *SQLiteRegistry) ListAgentSpecsPage(
+	ctx context.Context,
+	query domain.PageQuery,
+) (domain.ResourcePage[domain.AuthoredAgentSpec], error) {
+	names, metadata, err := listNamesPage(ctx, r.db, "agent_specs", query)
+	if err != nil {
+		return domain.ResourcePage[domain.AuthoredAgentSpec]{}, err
+	}
+
+	specs := make([]domain.AuthoredAgentSpec, 0, len(names))
+	for _, name := range names {
 		spec, err := r.GetAgentSpec(ctx, name)
 		if err != nil {
-			return nil, err
+			return domain.ResourcePage[domain.AuthoredAgentSpec]{}, err
 		}
 		specs = append(specs, spec)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate agent spec names: %w", err)
-	}
-	return specs, nil
+
+	return domain.ResourcePage[domain.AuthoredAgentSpec]{
+		Items:        specs,
+		PageMetadata: metadata,
+	}, nil
 }
 
 // DeleteAgentSpec deletes one authored agent spec and the bound deployment.

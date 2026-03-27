@@ -594,9 +594,11 @@ def test_checkpoint_resume_and_session_continuity_survive_manager_restart() -> N
                         await manager_two.shutdown()
                         session_detail = await runtime_sessions.get_session(
                             "thread-resume-1",
+                            agent_name="resume-agent",
                         )
                         session_messages = await runtime_sessions.get_session_messages(
                             "thread-resume-1",
+                            agent_name="resume-agent",
                         )
                         return (
                             first_events,

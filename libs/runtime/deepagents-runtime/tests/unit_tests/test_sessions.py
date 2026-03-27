@@ -233,14 +233,16 @@ def test_get_session_and_messages_use_latest_checkpoint_view() -> None:
             )
 
             with patch.object(runtime_sessions, "_connect", _patched_connect(conn)):
-                detail = await get_session("thread-a")
+                detail = await get_session("thread-a", agent_name="alpha")
                 first_page = await get_session_messages(
                     "thread-a",
+                    agent_name="alpha",
                     page_size=2,
                     include_raw=True,
                 )
                 second_page = await get_session_messages(
                     "thread-a",
+                    agent_name="alpha",
                     page_token=first_page.next_page_token if first_page else "",
                     page_size=2,
                     include_raw=True,
@@ -280,6 +282,81 @@ def test_get_session_and_messages_use_latest_checkpoint_view() -> None:
     assert second_page.next_page_token == ""
 
 
+def test_session_queries_filter_by_agent_before_thread() -> None:
+    """Session detail and message history should be scoped by agent name first."""
+
+    async def scenario() -> tuple[object, object, object]:
+        conn = await _open_memory_conn()
+        try:
+            await _insert_checkpoint(
+                conn,
+                thread_id="shared-thread",
+                checkpoint_id="cp-001",
+                metadata={
+                    "agent_name": "alpha",
+                    "updated_at": "2026-03-24T10:00:00+00:00",
+                },
+                messages=[
+                    {"type": "human", "content": "alpha start"},
+                    {"type": "ai", "content": "alpha reply"},
+                ],
+            )
+            await _insert_checkpoint(
+                conn,
+                thread_id="shared-thread",
+                checkpoint_id="cp-002",
+                metadata={
+                    "agent_name": "beta",
+                    "updated_at": "2026-03-24T10:10:00+00:00",
+                },
+                messages=[
+                    {"type": "human", "content": "beta start"},
+                    {"type": "ai", "content": "beta reply"},
+                    {"type": "human", "content": "beta followup"},
+                ],
+            )
+
+            with patch.object(runtime_sessions, "_connect", _patched_connect(conn)):
+                alpha_detail = await get_session(
+                    "shared-thread",
+                    agent_name="alpha",
+                )
+                beta_detail = await get_session(
+                    "shared-thread",
+                    agent_name="beta",
+                )
+                alpha_messages = await get_session_messages(
+                    "shared-thread",
+                    agent_name="alpha",
+                    include_raw=True,
+                )
+            return alpha_detail, beta_detail, alpha_messages
+        finally:
+            await conn.close()
+
+    alpha_detail, beta_detail, alpha_messages = asyncio.run(scenario())
+
+    assert alpha_detail is not None
+    assert alpha_detail.summary.agent_name == "alpha"
+    assert alpha_detail.summary.latest_checkpoint_id == "cp-001"
+    assert alpha_detail.summary.message_count == 2
+    assert alpha_detail.checkpoint_count == 1
+
+    assert beta_detail is not None
+    assert beta_detail.summary.agent_name == "beta"
+    assert beta_detail.summary.latest_checkpoint_id == "cp-002"
+    assert beta_detail.summary.message_count == 3
+    assert beta_detail.checkpoint_count == 1
+
+    assert alpha_messages is not None
+    assert alpha_messages.resolved_checkpoint_id == "cp-001"
+    assert alpha_messages.total_message_count == 2
+    assert [message.text for message in alpha_messages.messages] == [
+        "alpha start",
+        "alpha reply",
+    ]
+
+
 def test_delete_thread_removes_checkpoint_and_write_rows() -> None:
     """Deleting a thread should clean both checkpoints and writes."""
 
@@ -310,10 +387,10 @@ def test_delete_thread_removes_checkpoint_and_write_rows() -> None:
             await _insert_write(conn, thread_id="thread-b", value="b")
 
             with patch.object(runtime_sessions, "_connect", _patched_connect(conn)):
-                deleted = await delete_thread("thread-a")
-                missing = await delete_thread("missing")
-                exists_a = await thread_exists("thread-a")
-                exists_b = await thread_exists("thread-b")
+                deleted = await delete_thread("thread-a", agent_name="alpha")
+                missing = await delete_thread("missing", agent_name="alpha")
+                exists_a = await thread_exists("thread-a", agent_name="alpha")
+                exists_b = await thread_exists("thread-b", agent_name="beta")
 
             async with conn.execute(
                 "SELECT COUNT(*) FROM writes WHERE thread_id = ?",
@@ -347,3 +424,70 @@ def test_delete_thread_removes_checkpoint_and_write_rows() -> None:
     assert exists_b is True
     assert thread_a_writes == 0
     assert thread_b_writes == 1
+
+
+def test_delete_thread_preserves_shared_writes_when_other_agent_same_thread_remains() -> None:
+    """Agent-scoped deletes should not clear writes when another agent still owns the thread id."""
+
+    async def scenario() -> tuple[bool, bool, bool, bool, int]:
+        conn = await _open_memory_conn()
+        try:
+            await _insert_checkpoint(
+                conn,
+                thread_id="shared-thread",
+                checkpoint_id="cp-001",
+                metadata={
+                    "agent_name": "alpha",
+                    "updated_at": "2026-03-24T10:00:00+00:00",
+                },
+                messages=[{"type": "human", "content": "alpha"}],
+            )
+            await _insert_checkpoint(
+                conn,
+                thread_id="shared-thread",
+                checkpoint_id="cp-002",
+                metadata={
+                    "agent_name": "beta",
+                    "updated_at": "2026-03-24T10:01:00+00:00",
+                },
+                messages=[{"type": "human", "content": "beta"}],
+            )
+            await _insert_write(conn, thread_id="shared-thread", value="shared")
+
+            with patch.object(runtime_sessions, "_connect", _patched_connect(conn)):
+                deleted = await delete_thread("shared-thread", agent_name="alpha")
+                alpha_exists = await thread_exists(
+                    "shared-thread",
+                    agent_name="alpha",
+                )
+                beta_exists = await thread_exists(
+                    "shared-thread",
+                    agent_name="beta",
+                )
+                any_exists = await thread_exists("shared-thread")
+
+            async with conn.execute(
+                "SELECT COUNT(*) FROM writes WHERE thread_id = ?",
+                ("shared-thread",),
+            ) as cursor:
+                writes_row = await cursor.fetchone()
+
+            return (
+                deleted,
+                alpha_exists,
+                beta_exists,
+                any_exists,
+                int(writes_row[0]),
+            )
+        finally:
+            await conn.close()
+
+    deleted, alpha_exists, beta_exists, any_exists, writes_count = asyncio.run(
+        scenario()
+    )
+
+    assert deleted is True
+    assert alpha_exists is False
+    assert beta_exists is True
+    assert any_exists is True
+    assert writes_count == 1

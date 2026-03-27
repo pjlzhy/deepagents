@@ -161,11 +161,19 @@ func (s *Service) ListSessions(
 	return sessions, nextPageToken, nil
 }
 
-// GetSession returns one session summary and checkpoint count by thread ID.
-func (s *Service) GetSession(ctx context.Context, threadID string) (domain.SessionSummary, error) {
-	session, err := s.sessions.GetSession(ctx, threadID)
+// GetSession returns one session summary and checkpoint count by agent-scoped thread ID.
+func (s *Service) GetSession(
+	ctx context.Context,
+	locator domain.SessionLocator,
+) (domain.SessionSummary, error) {
+	session, err := s.sessions.GetSession(ctx, locator)
 	if err != nil {
-		return domain.SessionSummary{}, fmt.Errorf("get session %q: %w", threadID, err)
+		return domain.SessionSummary{}, fmt.Errorf(
+			"get session %q/%q: %w",
+			locator.AgentName,
+			locator.ThreadID,
+			err,
+		)
 	}
 	return session, nil
 }
@@ -178,7 +186,8 @@ func (s *Service) GetSessionMessagePage(
 	page, err := s.sessions.GetSessionMessagePage(ctx, query)
 	if err != nil {
 		return domain.SessionMessagePage{}, fmt.Errorf(
-			"get session message page for thread %q: %w",
+			"get session message page for agent %q thread %q: %w",
+			query.AgentName,
 			query.ThreadID,
 			err,
 		)
@@ -189,20 +198,16 @@ func (s *Service) GetSessionMessagePage(
 // GetSessionMessages keeps the legacy convenience view for callers that only need messages.
 func (s *Service) GetSessionMessages(
 	ctx context.Context,
-	threadID string,
-	mode domain.SessionHistoryMode,
-	pageSize int32,
-	pageToken string,
+	query domain.SessionMessageQuery,
 ) ([]domain.SessionMessage, string, error) {
-	messages, nextPageToken, err := s.sessions.GetSessionMessages(
-		ctx,
-		threadID,
-		mode,
-		pageSize,
-		pageToken,
-	)
+	messages, nextPageToken, err := s.sessions.GetSessionMessages(ctx, query)
 	if err != nil {
-		return nil, "", fmt.Errorf("get session messages for thread %q: %w", threadID, err)
+		return nil, "", fmt.Errorf(
+			"get session messages for agent %q thread %q: %w",
+			query.AgentName,
+			query.ThreadID,
+			err,
+		)
 	}
 	return messages, nextPageToken, nil
 }
@@ -216,10 +221,79 @@ func (s *Service) GetLatestSession(ctx context.Context, agentName string) (domai
 	return session, nil
 }
 
-// DeleteSession removes one runtime-local session by thread ID.
-func (s *Service) DeleteSession(ctx context.Context, threadID string) error {
-	if err := s.sessions.DeleteSession(ctx, threadID); err != nil {
-		return fmt.Errorf("delete session %q: %w", threadID, err)
+// DeleteSession removes one runtime-local session by agent-scoped thread ID.
+func (s *Service) DeleteSession(ctx context.Context, locator domain.SessionLocator) error {
+	if err := s.sessions.DeleteSession(ctx, locator); err != nil {
+		return fmt.Errorf("delete session %q/%q: %w", locator.AgentName, locator.ThreadID, err)
+	}
+	return nil
+}
+
+// UpsertModelConfig persists one reusable model config and returns the stored value.
+func (s *Service) UpsertModelConfig(
+	ctx context.Context,
+	config domain.ModelConfig,
+) (domain.ModelConfig, error) {
+	reg, err := s.registryOrError()
+	if err != nil {
+		return domain.ModelConfig{}, err
+	}
+	if err := reg.UpsertModelConfig(ctx, config); err != nil {
+		return domain.ModelConfig{}, fmt.Errorf("upsert model config %q: %w", config.Name, err)
+	}
+	stored, err := reg.GetModelConfig(ctx, config.Name)
+	if err != nil {
+		return domain.ModelConfig{}, fmt.Errorf("get model config %q after upsert: %w", config.Name, err)
+	}
+	return stored, nil
+}
+
+// GetModelConfig returns one model config by name.
+func (s *Service) GetModelConfig(ctx context.Context, name string) (domain.ModelConfig, error) {
+	reg, err := s.registryOrError()
+	if err != nil {
+		return domain.ModelConfig{}, err
+	}
+	config, err := reg.GetModelConfig(ctx, name)
+	if err != nil {
+		return domain.ModelConfig{}, fmt.Errorf("get model config %q: %w", name, err)
+	}
+	return config, nil
+}
+
+// ListModelConfigs returns all model configs ordered by name.
+func (s *Service) ListModelConfigs(ctx context.Context) ([]domain.ModelConfig, error) {
+	page, err := s.ListModelConfigsPage(ctx, domain.PageQuery{})
+	if err != nil {
+		return nil, err
+	}
+	return page.Items, nil
+}
+
+// ListModelConfigsPage returns one page of model configs ordered by name.
+func (s *Service) ListModelConfigsPage(
+	ctx context.Context,
+	query domain.PageQuery,
+) (domain.ResourcePage[domain.ModelConfig], error) {
+	reg, err := s.registryOrError()
+	if err != nil {
+		return domain.ResourcePage[domain.ModelConfig]{}, err
+	}
+	page, err := reg.ListModelConfigsPage(ctx, query)
+	if err != nil {
+		return domain.ResourcePage[domain.ModelConfig]{}, fmt.Errorf("list model config page: %w", err)
+	}
+	return page, nil
+}
+
+// DeleteModelConfig removes one model config.
+func (s *Service) DeleteModelConfig(ctx context.Context, name string) error {
+	reg, err := s.registryOrError()
+	if err != nil {
+		return err
+	}
+	if err := reg.DeleteModelConfig(ctx, name); err != nil {
+		return fmt.Errorf("delete model config %q: %w", name, err)
 	}
 	return nil
 }
@@ -255,15 +329,27 @@ func (s *Service) GetSkill(ctx context.Context, name string) (domain.Skill, erro
 
 // ListSkills returns all skills ordered by name.
 func (s *Service) ListSkills(ctx context.Context) ([]domain.Skill, error) {
-	reg, err := s.registryOrError()
+	page, err := s.ListSkillsPage(ctx, domain.PageQuery{})
 	if err != nil {
 		return nil, err
 	}
-	skills, err := reg.ListSkills(ctx)
+	return page.Items, nil
+}
+
+// ListSkillsPage returns one page of skills ordered by name.
+func (s *Service) ListSkillsPage(
+	ctx context.Context,
+	query domain.PageQuery,
+) (domain.ResourcePage[domain.Skill], error) {
+	reg, err := s.registryOrError()
 	if err != nil {
-		return nil, fmt.Errorf("list skills: %w", err)
+		return domain.ResourcePage[domain.Skill]{}, err
 	}
-	return skills, nil
+	page, err := reg.ListSkillsPage(ctx, query)
+	if err != nil {
+		return domain.ResourcePage[domain.Skill]{}, fmt.Errorf("list skill page: %w", err)
+	}
+	return page, nil
 }
 
 // DeleteSkill removes one skill.
@@ -309,15 +395,27 @@ func (s *Service) GetMCPConfig(ctx context.Context, name string) (domain.MCPConf
 
 // ListMCPConfigs returns all MCP configs ordered by name.
 func (s *Service) ListMCPConfigs(ctx context.Context) ([]domain.MCPConfig, error) {
-	reg, err := s.registryOrError()
+	page, err := s.ListMCPConfigsPage(ctx, domain.PageQuery{})
 	if err != nil {
 		return nil, err
 	}
-	configs, err := reg.ListMCPConfigs(ctx)
+	return page.Items, nil
+}
+
+// ListMCPConfigsPage returns one page of MCP configs ordered by name.
+func (s *Service) ListMCPConfigsPage(
+	ctx context.Context,
+	query domain.PageQuery,
+) (domain.ResourcePage[domain.MCPConfig], error) {
+	reg, err := s.registryOrError()
 	if err != nil {
-		return nil, fmt.Errorf("list mcp configs: %w", err)
+		return domain.ResourcePage[domain.MCPConfig]{}, err
 	}
-	return configs, nil
+	page, err := reg.ListMCPConfigsPage(ctx, query)
+	if err != nil {
+		return domain.ResourcePage[domain.MCPConfig]{}, fmt.Errorf("list mcp config page: %w", err)
+	}
+	return page, nil
 }
 
 // DeleteMCPConfig removes one MCP config.
@@ -366,15 +464,27 @@ func (s *Service) GetAgentSpec(ctx context.Context, name string) (domain.Authore
 
 // ListAgentSpecs returns all authored agent specs ordered by name.
 func (s *Service) ListAgentSpecs(ctx context.Context) ([]domain.AuthoredAgentSpec, error) {
-	reg, err := s.registryOrError()
+	page, err := s.ListAgentSpecsPage(ctx, domain.PageQuery{})
 	if err != nil {
 		return nil, err
 	}
-	specs, err := reg.ListAgentSpecs(ctx)
+	return page.Items, nil
+}
+
+// ListAgentSpecsPage returns one page of authored agent specs ordered by name.
+func (s *Service) ListAgentSpecsPage(
+	ctx context.Context,
+	query domain.PageQuery,
+) (domain.ResourcePage[domain.AuthoredAgentSpec], error) {
+	reg, err := s.registryOrError()
 	if err != nil {
-		return nil, fmt.Errorf("list agent specs: %w", err)
+		return domain.ResourcePage[domain.AuthoredAgentSpec]{}, err
 	}
-	return specs, nil
+	page, err := reg.ListAgentSpecsPage(ctx, query)
+	if err != nil {
+		return domain.ResourcePage[domain.AuthoredAgentSpec]{}, fmt.Errorf("list agent spec page: %w", err)
+	}
+	return page, nil
 }
 
 // DeleteAgentSpec removes one authored agent spec.

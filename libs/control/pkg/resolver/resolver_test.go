@@ -28,10 +28,17 @@ func TestRegistryResolverAggregatesAgentInput(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("upsert mcp config: %v", err)
 	}
+	if err := reg.UpsertModelConfig(ctx, domain.ModelConfig{
+		Name:   "default-openai",
+		Spec:   domain.ModelSpec{Provider: "openai", Model: "gpt-4o"},
+		Status: domain.AuthoredStatusPublished,
+	}); err != nil {
+		t.Fatalf("upsert model config: %v", err)
+	}
 	if err := reg.UpsertAgentSpec(ctx, domain.AuthoredAgentSpec{
 		Name:      "demo-agent",
 		Prompt:    domain.PromptSpec{System: "You are helpful."},
-		Model:     domain.ModelSpec{Provider: "openai", Model: "gpt-4o"},
+		ModelRef:  "default-openai",
 		SkillRefs: []string{"research"},
 		MCPRefs:   []string{"github"},
 		Status:    domain.AuthoredStatusPublished,
@@ -56,6 +63,50 @@ func TestRegistryResolverAggregatesAgentInput(t *testing.T) {
 	}
 	if len(resolved.MCPConfigs) != 1 || resolved.MCPConfigs[0].Name != "github" {
 		t.Fatalf("unexpected mcp configs: %#v", resolved.MCPConfigs)
+	}
+	if resolved.ModelConfig.Name != "default-openai" || resolved.ModelConfig.Spec.Model != "gpt-4o" {
+		t.Fatalf("unexpected model config: %#v", resolved.ModelConfig)
+	}
+}
+
+func TestRegistryResolverHydratesReferencedModelConfig(t *testing.T) {
+	ctx := context.Background()
+	reg := newResolverRegistry(t)
+
+	if err := reg.UpsertModelConfig(ctx, domain.ModelConfig{
+		Name:   "default-openai",
+		Spec:   domain.ModelSpec{Provider: "openai", Model: "gpt-5"},
+		Status: domain.AuthoredStatusPublished,
+	}); err != nil {
+		t.Fatalf("upsert model config: %v", err)
+	}
+	if err := reg.UpsertAgentSpec(ctx, domain.AuthoredAgentSpec{
+		Name:     "demo-agent",
+		Prompt:   domain.PromptSpec{System: "You are helpful."},
+		ModelRef: "default-openai",
+		Status:   domain.AuthoredStatusPublished,
+	}); err != nil {
+		t.Fatalf("upsert agent spec: %v", err)
+	}
+	if err := reg.UpsertModelConfig(ctx, domain.ModelConfig{
+		Name:   "default-openai",
+		Spec:   domain.ModelSpec{Provider: "openai", Model: "gpt-5-mini"},
+		Status: domain.AuthoredStatusPublished,
+	}); err != nil {
+		t.Fatalf("update model config: %v", err)
+	}
+
+	resolver, err := NewRegistryResolver(reg)
+	if err != nil {
+		t.Fatalf("new resolver: %v", err)
+	}
+
+	resolved, err := resolver.ResolveAgent(ctx, "demo-agent")
+	if err != nil {
+		t.Fatalf("resolve agent: %v", err)
+	}
+	if resolved.Agent.ModelRef != "default-openai" || resolved.ModelConfig.Spec.Model != "gpt-5-mini" {
+		t.Fatalf("expected resolved model config to use latest referenced model, got: %#v %#v", resolved.Agent, resolved.ModelConfig)
 	}
 }
 

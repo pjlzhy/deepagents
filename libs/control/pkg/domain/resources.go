@@ -6,6 +6,7 @@ import "time"
 type ResourceKind string
 
 const (
+	ResourceKindModelConfig   ResourceKind = "model_config"
 	ResourceKindSkill         ResourceKind = "skill"
 	ResourceKindMCPConfig     ResourceKind = "mcp_config"
 	ResourceKindAgentSpec     ResourceKind = "agent_spec"
@@ -58,6 +59,16 @@ type ModelSpec struct {
 	ExtraParams map[string]string
 }
 
+// ModelConfig describes one reusable authored model configuration.
+type ModelConfig struct {
+	Name        string
+	Description string
+	Spec        ModelSpec
+	Status      AuthoredStatus
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
 // SubagentSpec describes one authored subagent definition.
 type SubagentSpec struct {
 	Name         string
@@ -79,7 +90,7 @@ type AuthoredAgentSpec struct {
 	Version     string
 	Description string
 	Tags        []string
-	Model       ModelSpec
+	ModelRef    string
 	Prompt      PromptSpec
 	SkillRefs   []string
 	MCPRefs     []string

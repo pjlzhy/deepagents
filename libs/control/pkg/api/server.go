@@ -14,28 +14,30 @@ type AgentService interface {
 	RunAgent(ctx context.Context, req domain.RunRequest) (runtimeclient.RunStream, error)
 	Health(ctx context.Context) (runtimeclient.HealthResponse, error)
 	ListSessions(ctx context.Context, agentName string, pageSize int32, pageToken string) ([]domain.SessionSummary, string, error)
-	GetSession(ctx context.Context, threadID string) (domain.SessionSummary, error)
+	GetSession(ctx context.Context, locator domain.SessionLocator) (domain.SessionSummary, error)
 	GetSessionMessagePage(ctx context.Context, query domain.SessionMessageQuery) (domain.SessionMessagePage, error)
-	GetSessionMessages(
-		ctx context.Context,
-		threadID string,
-		mode domain.SessionHistoryMode,
-		pageSize int32,
-		pageToken string,
-	) ([]domain.SessionMessage, string, error)
+	GetSessionMessages(ctx context.Context, query domain.SessionMessageQuery) ([]domain.SessionMessage, string, error)
 	GetLatestSession(ctx context.Context, agentName string) (domain.SessionSummary, error)
-	DeleteSession(ctx context.Context, threadID string) error
+	DeleteSession(ctx context.Context, locator domain.SessionLocator) error
+	UpsertModelConfig(ctx context.Context, config domain.ModelConfig) (domain.ModelConfig, error)
+	GetModelConfig(ctx context.Context, name string) (domain.ModelConfig, error)
+	ListModelConfigs(ctx context.Context) ([]domain.ModelConfig, error)
+	ListModelConfigsPage(ctx context.Context, query domain.PageQuery) (domain.ResourcePage[domain.ModelConfig], error)
+	DeleteModelConfig(ctx context.Context, name string) error
 	UpsertSkill(ctx context.Context, skill domain.Skill) (domain.Skill, error)
 	GetSkill(ctx context.Context, name string) (domain.Skill, error)
 	ListSkills(ctx context.Context) ([]domain.Skill, error)
+	ListSkillsPage(ctx context.Context, query domain.PageQuery) (domain.ResourcePage[domain.Skill], error)
 	DeleteSkill(ctx context.Context, name string) error
 	UpsertMCPConfig(ctx context.Context, config domain.MCPConfig) (domain.MCPConfig, error)
 	GetMCPConfig(ctx context.Context, name string) (domain.MCPConfig, error)
 	ListMCPConfigs(ctx context.Context) ([]domain.MCPConfig, error)
+	ListMCPConfigsPage(ctx context.Context, query domain.PageQuery) (domain.ResourcePage[domain.MCPConfig], error)
 	DeleteMCPConfig(ctx context.Context, name string) error
 	UpsertAgentSpec(ctx context.Context, spec domain.AuthoredAgentSpec) (domain.AuthoredAgentSpec, error)
 	GetAgentSpec(ctx context.Context, name string) (domain.AuthoredAgentSpec, error)
 	ListAgentSpecs(ctx context.Context) ([]domain.AuthoredAgentSpec, error)
+	ListAgentSpecsPage(ctx context.Context, query domain.PageQuery) (domain.ResourcePage[domain.AuthoredAgentSpec], error)
 	DeleteAgentSpec(ctx context.Context, name string) error
 }
 
@@ -80,9 +82,9 @@ func (s *Server) ListSessions(
 	return s.service.ListSessions(ctx, agentName, pageSize, pageToken)
 }
 
-// GetSession forwards one session lookup to the backing service.
-func (s *Server) GetSession(ctx context.Context, threadID string) (domain.SessionSummary, error) {
-	return s.service.GetSession(ctx, threadID)
+// GetSession forwards one agent-scoped session lookup to the backing service.
+func (s *Server) GetSession(ctx context.Context, locator domain.SessionLocator) (domain.SessionSummary, error) {
+	return s.service.GetSession(ctx, locator)
 }
 
 // GetSessionMessagePage forwards one paged session-history query to the backing service.
@@ -93,15 +95,12 @@ func (s *Server) GetSessionMessagePage(
 	return s.service.GetSessionMessagePage(ctx, query)
 }
 
-// GetSessionMessages forwards the legacy session-message convenience query.
+// GetSessionMessages forwards the agent-scoped session-message convenience query.
 func (s *Server) GetSessionMessages(
 	ctx context.Context,
-	threadID string,
-	mode domain.SessionHistoryMode,
-	pageSize int32,
-	pageToken string,
+	query domain.SessionMessageQuery,
 ) ([]domain.SessionMessage, string, error) {
-	return s.service.GetSessionMessages(ctx, threadID, mode, pageSize, pageToken)
+	return s.service.GetSessionMessages(ctx, query)
 }
 
 // GetLatestSession forwards the latest-session lookup to the backing service.
@@ -109,9 +108,40 @@ func (s *Server) GetLatestSession(ctx context.Context, agentName string) (domain
 	return s.service.GetLatestSession(ctx, agentName)
 }
 
-// DeleteSession forwards the runtime-local session delete request.
-func (s *Server) DeleteSession(ctx context.Context, threadID string) error {
-	return s.service.DeleteSession(ctx, threadID)
+// DeleteSession forwards one runtime-local agent-scoped session delete request.
+func (s *Server) DeleteSession(ctx context.Context, locator domain.SessionLocator) error {
+	return s.service.DeleteSession(ctx, locator)
+}
+
+// UpsertModelConfig forwards one model config upsert request.
+func (s *Server) UpsertModelConfig(
+	ctx context.Context,
+	config domain.ModelConfig,
+) (domain.ModelConfig, error) {
+	return s.service.UpsertModelConfig(ctx, config)
+}
+
+// GetModelConfig forwards one model config lookup.
+func (s *Server) GetModelConfig(ctx context.Context, name string) (domain.ModelConfig, error) {
+	return s.service.GetModelConfig(ctx, name)
+}
+
+// ListModelConfigs forwards the model config list query.
+func (s *Server) ListModelConfigs(ctx context.Context) ([]domain.ModelConfig, error) {
+	return s.service.ListModelConfigs(ctx)
+}
+
+// ListModelConfigsPage forwards the model config page query.
+func (s *Server) ListModelConfigsPage(
+	ctx context.Context,
+	query domain.PageQuery,
+) (domain.ResourcePage[domain.ModelConfig], error) {
+	return s.service.ListModelConfigsPage(ctx, query)
+}
+
+// DeleteModelConfig forwards one model config delete request.
+func (s *Server) DeleteModelConfig(ctx context.Context, name string) error {
+	return s.service.DeleteModelConfig(ctx, name)
 }
 
 // UpsertSkill forwards one skill upsert request.
@@ -127,6 +157,14 @@ func (s *Server) GetSkill(ctx context.Context, name string) (domain.Skill, error
 // ListSkills forwards the skill list query.
 func (s *Server) ListSkills(ctx context.Context) ([]domain.Skill, error) {
 	return s.service.ListSkills(ctx)
+}
+
+// ListSkillsPage forwards the skill page query.
+func (s *Server) ListSkillsPage(
+	ctx context.Context,
+	query domain.PageQuery,
+) (domain.ResourcePage[domain.Skill], error) {
+	return s.service.ListSkillsPage(ctx, query)
 }
 
 // DeleteSkill forwards one skill delete request.
@@ -147,6 +185,14 @@ func (s *Server) GetMCPConfig(ctx context.Context, name string) (domain.MCPConfi
 // ListMCPConfigs forwards the MCP config list query.
 func (s *Server) ListMCPConfigs(ctx context.Context) ([]domain.MCPConfig, error) {
 	return s.service.ListMCPConfigs(ctx)
+}
+
+// ListMCPConfigsPage forwards the MCP config page query.
+func (s *Server) ListMCPConfigsPage(
+	ctx context.Context,
+	query domain.PageQuery,
+) (domain.ResourcePage[domain.MCPConfig], error) {
+	return s.service.ListMCPConfigsPage(ctx, query)
 }
 
 // DeleteMCPConfig forwards one MCP config delete request.
@@ -170,6 +216,14 @@ func (s *Server) GetAgentSpec(ctx context.Context, name string) (domain.Authored
 // ListAgentSpecs forwards the agent spec list query.
 func (s *Server) ListAgentSpecs(ctx context.Context) ([]domain.AuthoredAgentSpec, error) {
 	return s.service.ListAgentSpecs(ctx)
+}
+
+// ListAgentSpecsPage forwards the agent spec page query.
+func (s *Server) ListAgentSpecsPage(
+	ctx context.Context,
+	query domain.PageQuery,
+) (domain.ResourcePage[domain.AuthoredAgentSpec], error) {
+	return s.service.ListAgentSpecsPage(ctx, query)
 }
 
 // DeleteAgentSpec forwards one agent spec delete request.

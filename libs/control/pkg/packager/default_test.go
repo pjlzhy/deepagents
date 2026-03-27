@@ -14,16 +14,10 @@ func TestDefaultPackagerPackagesResolvedAgentInput(t *testing.T) {
 			Version:     "1.2.3",
 			Description: "demo agent",
 			Tags:        []string{"assistant", "demo"},
-			Model: domain.ModelSpec{
-				Provider:    "openai",
-				Model:       "gpt-5",
-				BaseURL:     "https://api.example.com",
-				APIKeyEnv:   "OPENAI_API_KEY",
-				ExtraParams: map[string]string{"temperature": "0.2"},
-			},
-			Prompt:    domain.PromptSpec{System: "You are helpful."},
-			SkillRefs: []string{"research", "ops"},
-			MCPRefs:   []string{"github", "docs"},
+			ModelRef:    "default-openai",
+			Prompt:      domain.PromptSpec{System: "You are helpful."},
+			SkillRefs:   []string{"research", "ops"},
+			MCPRefs:     []string{"github", "docs"},
 			Subagents: []domain.SubagentSpec{
 				{
 					Name:         "planner",
@@ -46,6 +40,16 @@ func TestDefaultPackagerPackagesResolvedAgentInput(t *testing.T) {
 				Init:      []string{"echo ready"},
 			},
 			InterruptOn: []string{"approval"},
+		},
+		ModelConfig: domain.ModelConfig{
+			Name: "default-openai",
+			Spec: domain.ModelSpec{
+				Provider:    "openai",
+				Model:       "gpt-5",
+				BaseURL:     "https://api.example.com",
+				APIKeyEnv:   "OPENAI_API_KEY",
+				ExtraParams: map[string]string{"temperature": "0.2"},
+			},
 		},
 		Skills: []domain.Skill{
 			{
@@ -114,7 +118,7 @@ func TestDefaultPackagerPackagesResolvedAgentInput(t *testing.T) {
 	}
 
 	input.Agent.Tags[0] = "changed"
-	input.Agent.Model.ExtraParams["temperature"] = "0.9"
+	input.ModelConfig.Spec.ExtraParams["temperature"] = "0.9"
 	input.Skills[0].Files[0].Content = "mutated"
 	input.MCPConfigs[0].Env["GITHUB_TOKEN"] = "mutated"
 	input.Agent.Sandbox.Resources["backend"] = "local"
@@ -141,10 +145,11 @@ func TestDefaultPackagerOrdersResolvedResourcesByRefs(t *testing.T) {
 	input := domain.ResolvedAgentInput{
 		Agent: domain.AuthoredAgentSpec{
 			Name:      "demo-agent",
-			Model:     domain.ModelSpec{Provider: "openai", Model: "gpt-5"},
+			ModelRef:  "default-openai",
 			SkillRefs: []string{"ops", "research"},
 			MCPRefs:   []string{"docs", "github"},
 		},
+		ModelConfig: domain.ModelConfig{Name: "default-openai", Spec: domain.ModelSpec{Provider: "openai", Model: "gpt-5"}},
 		Skills: []domain.Skill{
 			{Name: "research", Content: "# Research"},
 			{Name: "ops", Content: "# Ops"},
@@ -173,9 +178,10 @@ func TestDefaultPackagerRejectsUnresolvedSkillRef(t *testing.T) {
 	input := domain.ResolvedAgentInput{
 		Agent: domain.AuthoredAgentSpec{
 			Name:      "demo-agent",
-			Model:     domain.ModelSpec{Provider: "openai", Model: "gpt-5"},
+			ModelRef:  "default-openai",
 			SkillRefs: []string{"research"},
 		},
+		ModelConfig: domain.ModelConfig{Name: "default-openai", Spec: domain.ModelSpec{Provider: "openai", Model: "gpt-5"}},
 	}
 
 	if _, err := p.Package(context.Background(), input); err == nil {
@@ -188,9 +194,10 @@ func TestDefaultPackagerRejectsEscapingSkillFilePath(t *testing.T) {
 	input := domain.ResolvedAgentInput{
 		Agent: domain.AuthoredAgentSpec{
 			Name:      "demo-agent",
-			Model:     domain.ModelSpec{Provider: "openai", Model: "gpt-5"},
+			ModelRef:  "default-openai",
 			SkillRefs: []string{"research"},
 		},
+		ModelConfig: domain.ModelConfig{Name: "default-openai", Spec: domain.ModelSpec{Provider: "openai", Model: "gpt-5"}},
 		Skills: []domain.Skill{
 			{
 				Name:    "research",

@@ -52,7 +52,8 @@ func (p *DefaultPackager) Package(
 	if err := validateRequiredSimpleName(agent.Name, "agent name"); err != nil {
 		return domain.RuntimeAgentSpec{}, err
 	}
-	if err := validateModelSpec(agent.Model, "agent model", true); err != nil {
+	model := cloneModelSpec(input.ModelConfig.Spec)
+	if err := validateModelSpec(model, "resolved agent model", true); err != nil {
 		return domain.RuntimeAgentSpec{}, err
 	}
 
@@ -86,7 +87,7 @@ func (p *DefaultPackager) Package(
 		Version:     agent.Version,
 		Description: agent.Description,
 		Tags:        slices.Clone(agent.Tags),
-		Model:       cloneModelSpec(agent.Model),
+		Model:       model,
 		Prompt:      domain.PromptSpec{System: agent.Prompt.System},
 		Skills:      skills,
 		MCPServers:  mcpServers,

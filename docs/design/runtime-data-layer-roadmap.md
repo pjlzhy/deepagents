@@ -1,7 +1,7 @@
 ﻿# Runtime Data 层 Roadmap
 
 > 状态：核心闭环完成，剩余事项延期
-> 最后更新：2026-03-25
+> 最后更新：2026-03-27
 
 ## 概述
 
@@ -18,7 +18,7 @@ control plane 负责 registry CRUD、资源打包和资源分发。data plane �
 - 已实现 `Run`、`SyncAgentSpec`、`Assemble`、`Health` 等 gRPC 服务
 - 已实现 protobuf 请求到内部 runtime spec 的转换
 - 已实现 `AgentSpec -> AgentTemplate -> graph` 的装配主链路
-- 已实现 agent 本地运行目录，包括 skills、memory、workspace 等
+- 已实现 agent 本地运行目录、skills 快照和 sandbox workspace 等本地 runtime 物料管理
 - 已接入基于 SQLite 的 checkpoint 持久化
 - 已具备基础的流式执行、HITL 和 cancel 能力
 - 已让 gRPC `Run` 走统一的 manager 执行路径
@@ -26,6 +26,7 @@ control plane 负责 registry CRUD、资源打包和资源分发。data plane �
 - 已完成 agent-owned sandbox lifecycle 管理
 - 已让 `SandboxSpec` 真正驱动 backend 选择
 - 已完成 `SessionQuery` gRPC 服务（ListSessions / GetSession / GetSessionMessages / GetLatestSession / DeleteSession）
+- 已将 thread-scoped `SessionQuery` 请求收缩为 `agent_name + thread_id` 双键过滤，并下沉到 checkpoint 查询层
 - 已完成 health / readiness 准确状态输出：`installed / assembled / running / ready`
 - 已完成 `SessionSummary.agent_status` 的 live runtime 状态覆盖
 - 已统一 CLI `run` 和 gRPC `Run` 的执行路径，统一走 `AgentManager` lifecycle（setup -> define -> assemble -> invoke -> shutdown）
@@ -67,8 +68,8 @@ control plane 负责 registry CRUD、资源打包和资源分发。data plane �
 data layer 内部主链路已经收口，但文档和上层接入仍需持续同步：
 
 - roadmap / 设计文档状态持续回填
-- control plane / client 对新 health 字段和 `SessionSummary.agent_status` 的消费
-- proto 注释与上层调用约定保持一致
+- control plane / 上层调用对 session 查询约定持续同步
+- 如后续补充 transcript / event ledger，需要另立协议与文档
 
 ## 时间表
 
@@ -132,6 +133,7 @@ data layer 内部主链路已经收口，但文档和上层接入仍需持续同
 
 - `SessionQuery` service 全量落地
 - thread / session metadata 完善：`agent_name`、`updated_at`、`latest_checkpoint_id`、`message_count`、`checkpoint_count`
+- thread-scoped `GetSession / GetSessionMessages / DeleteSession` 已收缩为 `agent_name + thread_id` 查询语义，并与 control plane 对齐
 - `message_count` 与 latest checkpoint `channel_values.messages` 语义对齐
 - `GetSessionMessages` 的 snapshot pinning / page token 行为收口
 - `HealthResponse` 反映真实 `installed / assembled / running / ready` 状态

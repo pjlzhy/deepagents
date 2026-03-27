@@ -149,12 +149,16 @@ def test_list_sessions_and_get_messages_return_proto_payloads() -> None:
                     None,
                 )
                 session_response = await servicer.GetSession(
-                    pb2.GetSessionRequest(thread_id="thread-a"),
+                    pb2.GetSessionRequest(
+                        thread_id="thread-a",
+                        agent_name="alpha",
+                    ),
                     None,
                 )
                 messages_response = await servicer.GetSessionMessages(
                     pb2.GetSessionMessagesRequest(
                         thread_id="thread-a",
+                        agent_name="alpha",
                         page_size=1,
                         include_raw=True,
                     ),
@@ -163,6 +167,7 @@ def test_list_sessions_and_get_messages_return_proto_payloads() -> None:
                 next_messages_response = await servicer.GetSessionMessages(
                     pb2.GetSessionMessagesRequest(
                         thread_id="thread-a",
+                        agent_name="alpha",
                         page_size=1,
                         page_token=messages_response.next_page_token,
                     ),
@@ -247,7 +252,10 @@ def test_delete_session_and_get_latest_session_follow_runtime_state() -> None:
                     None,
                 )
                 delete_response = await servicer.DeleteSession(
-                    pb2.DeleteSessionRequest(thread_id="thread-a"),
+                    pb2.DeleteSessionRequest(
+                        thread_id="thread-a",
+                        agent_name="alpha",
+                    ),
                     None,
                 )
                 latest_after = await servicer.GetLatestSession(

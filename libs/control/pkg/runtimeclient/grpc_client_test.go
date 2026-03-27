@@ -38,10 +38,12 @@ type testRuntimeServer struct {
 
 	listSessionsResponse  *runtimev1.ListSessionsResponse
 	getSessionResponse    *runtimev1.GetSessionResponse
+	getSessionRequest     *runtimev1.GetSessionRequest
 	getMessagesResponse   *runtimev1.GetSessionMessagesResponse
 	getMessagesRequest    *runtimev1.GetSessionMessagesRequest
 	getLatestResponse     *runtimev1.GetLatestSessionResponse
 	deleteSessionResponse *runtimev1.DeleteSessionResponse
+	deleteSessionRequest  *runtimev1.DeleteSessionRequest
 
 	receivedRunRequest   *runtimev1.RunRequest
 	receivedHITLDecision *runtimev1.HITLDecision
@@ -99,8 +101,9 @@ func (s *testRuntimeServer) ListSessions(
 
 func (s *testRuntimeServer) GetSession(
 	_ context.Context,
-	_ *runtimev1.GetSessionRequest,
+	request *runtimev1.GetSessionRequest,
 ) (*runtimev1.GetSessionResponse, error) {
+	s.getSessionRequest = request
 	if s.getSessionResponse == nil {
 		return &runtimev1.GetSessionResponse{Found: false}, nil
 	}
@@ -130,8 +133,9 @@ func (s *testRuntimeServer) GetLatestSession(
 
 func (s *testRuntimeServer) DeleteSession(
 	_ context.Context,
-	_ *runtimev1.DeleteSessionRequest,
+	request *runtimev1.DeleteSessionRequest,
 ) (*runtimev1.DeleteSessionResponse, error) {
+	s.deleteSessionRequest = request
 	if s.deleteSessionResponse == nil {
 		return &runtimev1.DeleteSessionResponse{Deleted: false}, nil
 	}
@@ -458,15 +462,24 @@ func TestGRPCClientSessionQueries(t *testing.T) {
 		t.Fatalf("unexpected session summary mapping: %#v", sessions[0])
 	}
 
-	session, err := client.GetSession(context.Background(), "thread-1")
+	session, err := client.GetSession(context.Background(), domain.SessionLocator{
+		AgentName: "assistant",
+		ThreadID:  "thread-1",
+	})
 	if err != nil {
 		t.Fatalf("GetSession returned error: %v", err)
 	}
 	if session.CheckpointCount != 3 || session.HistoryMode != domain.SessionHistoryModeFullTranscript {
 		t.Fatalf("unexpected session detail mapping: %#v", session)
 	}
+	if server.getSessionRequest == nil ||
+		server.getSessionRequest.GetAgentName() != "assistant" ||
+		server.getSessionRequest.GetThreadId() != "thread-1" {
+		t.Fatalf("unexpected session request capture: %#v", server.getSessionRequest)
+	}
 
 	page, err := client.GetSessionMessagePage(context.Background(), domain.SessionMessageQuery{
+		AgentName:    "assistant",
 		ThreadID:     "thread-1",
 		CheckpointID: "cp-2",
 		Mode:         domain.SessionHistoryModeResumeView,
@@ -487,19 +500,19 @@ func TestGRPCClientSessionQueries(t *testing.T) {
 		t.Fatal("expected GetSessionMessages request capture")
 	}
 	if server.getMessagesRequest.GetCheckpointId() != "cp-2" ||
+		server.getMessagesRequest.GetAgentName() != "assistant" ||
 		server.getMessagesRequest.GetPageToken() != "page-2" ||
 		server.getMessagesRequest.GetRequestedMode() != runtimev1.SessionHistoryMode_SESSION_HISTORY_MODE_RESUME_VIEW ||
 		!server.getMessagesRequest.GetIncludeRaw() {
 		t.Fatalf("unexpected page request capture: %#v", server.getMessagesRequest)
 	}
 
-	messages, token, err := client.GetSessionMessages(
-		context.Background(),
-		"thread-1",
-		domain.SessionHistoryModeResumeView,
-		20,
-		"",
-	)
+	messages, token, err := client.GetSessionMessages(context.Background(), domain.SessionMessageQuery{
+		AgentName: "assistant",
+		ThreadID:  "thread-1",
+		Mode:      domain.SessionHistoryModeResumeView,
+		PageSize:  20,
+	})
 	if err != nil {
 		t.Fatalf("GetSessionMessages returned error: %v", err)
 	}
@@ -521,8 +534,16 @@ func TestGRPCClientSessionQueries(t *testing.T) {
 		t.Fatalf("unexpected latest session mapping: %#v", latest)
 	}
 
-	if err := client.DeleteSession(context.Background(), "thread-1"); err != nil {
+	if err := client.DeleteSession(context.Background(), domain.SessionLocator{
+		AgentName: "assistant",
+		ThreadID:  "thread-1",
+	}); err != nil {
 		t.Fatalf("DeleteSession returned error: %v", err)
+	}
+	if server.deleteSessionRequest == nil ||
+		server.deleteSessionRequest.GetAgentName() != "assistant" ||
+		server.deleteSessionRequest.GetThreadId() != "thread-1" {
+		t.Fatalf("unexpected delete session request: %#v", server.deleteSessionRequest)
 	}
 }
 
@@ -606,22 +627,27 @@ func TestGRPCClientMapsNotFound(t *testing.T) {
 	client, cleanup := newTestClient(t, &testRuntimeServer{})
 	defer cleanup()
 
-	if _, err := client.GetSession(context.Background(), "missing"); err == nil || err != ErrNotFound {
+	if _, err := client.GetSession(context.Background(), domain.SessionLocator{
+		AgentName: "assistant",
+		ThreadID:  "missing",
+	}); err == nil || err != ErrNotFound {
 		t.Fatalf("expected GetSession ErrNotFound, got %v", err)
 	}
 	if _, err := client.GetLatestSession(context.Background(), "assistant"); err == nil || err != ErrNotFound {
 		t.Fatalf("expected GetLatestSession ErrNotFound, got %v", err)
 	}
-	if err := client.DeleteSession(context.Background(), "missing"); err == nil || err != ErrNotFound {
+	if err := client.DeleteSession(context.Background(), domain.SessionLocator{
+		AgentName: "assistant",
+		ThreadID:  "missing",
+	}); err == nil || err != ErrNotFound {
 		t.Fatalf("expected DeleteSession ErrNotFound, got %v", err)
 	}
-	if _, _, err := client.GetSessionMessages(
-		context.Background(),
-		"missing",
-		domain.SessionHistoryModeResumeView,
-		20,
-		"",
-	); err == nil || !errors.Is(err, ErrNotFound) {
+	if _, _, err := client.GetSessionMessages(context.Background(), domain.SessionMessageQuery{
+		AgentName: "assistant",
+		ThreadID:  "missing",
+		Mode:      domain.SessionHistoryModeResumeView,
+		PageSize:  20,
+	}); err == nil || !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected GetSessionMessages error, got %v", err)
 	}
 }

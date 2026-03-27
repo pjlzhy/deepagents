@@ -279,10 +279,10 @@ service SessionQuery {
   // List recent sessions ordered by latest checkpoint update time.
   rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
 
-  // Get one session summary by thread_id.
+  // Get one session summary by agent_name + thread_id.
   rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
 
-  // Read checkpoint-backed session messages for one thread.
+  // Read checkpoint-backed session messages for one agent-scoped thread.
   rpc GetSessionMessages(GetSessionMessagesRequest)
       returns (GetSessionMessagesResponse);
 
@@ -290,7 +290,7 @@ service SessionQuery {
   rpc GetLatestSession(GetLatestSessionRequest)
       returns (GetLatestSessionResponse);
 
-  // Delete one local session from checkpoint storage.
+  // Delete one local session from checkpoint storage by agent_name + thread_id.
   rpc DeleteSession(DeleteSessionRequest) returns (DeleteSessionResponse);
 }
 
@@ -511,6 +511,7 @@ message ListSessionsResponse {
 
 message GetSessionRequest {
   string thread_id = 1;
+  string agent_name = 2;
 }
 
 message GetSessionResponse {
@@ -529,6 +530,7 @@ message GetLatestSessionResponse {
 
 message DeleteSessionRequest {
   string thread_id = 1;
+  string agent_name = 2;
 }
 
 message DeleteSessionResponse {
@@ -542,6 +544,7 @@ message GetSessionMessagesRequest {
   string page_token = 4;
   SessionHistoryMode requested_mode = 5;
   bool include_raw = 6;
+  string agent_name = 7;
 }
 
 message GetSessionMessagesResponse {

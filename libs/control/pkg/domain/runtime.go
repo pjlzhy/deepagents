@@ -36,10 +36,11 @@ type Deployment struct {
 
 // ResolvedAgentInput contains the authored resources needed by the packager.
 type ResolvedAgentInput struct {
-	Agent      AuthoredAgentSpec
-	Skills     []Skill
-	MCPConfigs []MCPConfig
-	Target     RuntimeTarget
+	Agent       AuthoredAgentSpec
+	ModelConfig ModelConfig
+	Skills      []Skill
+	MCPConfigs  []MCPConfig
+	Target      RuntimeTarget
 }
 
 // RunRequest is shared across northbound and southbound run flows.
@@ -81,6 +82,12 @@ type SessionSummary struct {
 	UpdatedAt          time.Time
 }
 
+// SessionLocator identifies one session within one agent namespace.
+type SessionLocator struct {
+	AgentName string
+	ThreadID  string
+}
+
 // SessionMessage describes one session-history message.
 type SessionMessage struct {
 	Index        int32
@@ -97,6 +104,7 @@ type SessionMessage struct {
 
 // SessionMessageQuery describes one paged session-history query.
 type SessionMessageQuery struct {
+	AgentName    string
 	ThreadID     string
 	CheckpointID string
 	Mode         SessionHistoryMode

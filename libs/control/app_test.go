@@ -57,7 +57,10 @@ func (*stubBootstrapRuntimeClient) ListSessions(
 	return nil, "", nil
 }
 
-func (*stubBootstrapRuntimeClient) GetSession(context.Context, string) (domain.SessionSummary, error) {
+func (*stubBootstrapRuntimeClient) GetSession(
+	context.Context,
+	domain.SessionLocator,
+) (domain.SessionSummary, error) {
 	return domain.SessionSummary{}, nil
 }
 
@@ -70,10 +73,7 @@ func (*stubBootstrapRuntimeClient) GetSessionMessagePage(
 
 func (*stubBootstrapRuntimeClient) GetSessionMessages(
 	context.Context,
-	string,
-	domain.SessionHistoryMode,
-	int32,
-	string,
+	domain.SessionMessageQuery,
 ) ([]domain.SessionMessage, string, error) {
 	return nil, "", nil
 }
@@ -85,7 +85,7 @@ func (*stubBootstrapRuntimeClient) GetLatestSession(
 	return domain.SessionSummary{}, nil
 }
 
-func (*stubBootstrapRuntimeClient) DeleteSession(context.Context, string) error {
+func (*stubBootstrapRuntimeClient) DeleteSession(context.Context, domain.SessionLocator) error {
 	return nil
 }
 

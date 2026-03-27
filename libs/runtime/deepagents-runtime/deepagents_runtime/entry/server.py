@@ -577,12 +577,20 @@ class SessionQueryServicer(runtime_pb2_grpc.SessionQueryServicer):
         context: grpc.aio.ServicerContext,
     ) -> pb2.GetSessionResponse:
         """Return one session summary and checkpoint count."""
+        agent_name = request.agent_name.strip()
         thread_id = request.thread_id.strip()
+        if not agent_name:
+            await _abort_invalid_argument(context, "agent_name is required")
+            return pb2.GetSessionResponse(found=False)
         if not thread_id:
             await _abort_invalid_argument(context, "thread_id is required")
             return pb2.GetSessionResponse(found=False)
 
-        session = await get_session(thread_id, db_path=self._db_path)
+        session = await get_session(
+            thread_id,
+            agent_name=agent_name,
+            db_path=self._db_path,
+        )
         if session is None:
             return pb2.GetSessionResponse(found=False)
 
@@ -607,7 +615,11 @@ class SessionQueryServicer(runtime_pb2_grpc.SessionQueryServicer):
         context: grpc.aio.ServicerContext,
     ) -> pb2.GetSessionMessagesResponse:
         """Return checkpoint-backed message history for one thread."""
+        agent_name = request.agent_name.strip()
         thread_id = request.thread_id.strip()
+        if not agent_name:
+            await _abort_invalid_argument(context, "agent_name is required")
+            return pb2.GetSessionMessagesResponse()
         if not thread_id:
             await _abort_invalid_argument(context, "thread_id is required")
             return pb2.GetSessionMessagesResponse()
@@ -615,6 +627,7 @@ class SessionQueryServicer(runtime_pb2_grpc.SessionQueryServicer):
         try:
             page = await get_session_messages(
                 thread_id,
+                agent_name=agent_name,
                 checkpoint_id=request.checkpoint_id or None,
                 page_size=request.page_size,
                 page_token=request.page_token,
@@ -631,7 +644,7 @@ class SessionQueryServicer(runtime_pb2_grpc.SessionQueryServicer):
         if page is None:
             await _abort_not_found(
                 context,
-                f"Session '{thread_id}' not found",
+                f"Session '{agent_name}/{thread_id}' not found",
             )
             return pb2.GetSessionMessagesResponse()
 
@@ -677,12 +690,20 @@ class SessionQueryServicer(runtime_pb2_grpc.SessionQueryServicer):
         context: grpc.aio.ServicerContext,
     ) -> pb2.DeleteSessionResponse:
         """Delete one session from local checkpoint storage."""
+        agent_name = request.agent_name.strip()
         thread_id = request.thread_id.strip()
+        if not agent_name:
+            await _abort_invalid_argument(context, "agent_name is required")
+            return pb2.DeleteSessionResponse(deleted=False)
         if not thread_id:
             await _abort_invalid_argument(context, "thread_id is required")
             return pb2.DeleteSessionResponse(deleted=False)
 
-        deleted = await delete_thread(thread_id, db_path=self._db_path)
+        deleted = await delete_thread(
+            thread_id,
+            agent_name=agent_name,
+            db_path=self._db_path,
+        )
         return pb2.DeleteSessionResponse(deleted=deleted)
 
 

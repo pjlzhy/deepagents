@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"agentctl/pkg/domain"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -107,6 +108,26 @@ func ensureMCPDeleteAllowed(ctx context.Context, tx *sql.Tx, name string) error 
 	return rows.Err()
 }
 
+func ensureModelConfigDeleteAllowed(ctx context.Context, tx *sql.Tx, name string) error {
+	rows, err := tx.QueryContext(ctx, `SELECT name, model_ref FROM agent_specs`)
+	if err != nil {
+		return fmt.Errorf("query model references: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var agentName string
+		var modelRef string
+		if err := rows.Scan(&agentName, &modelRef); err != nil {
+			return fmt.Errorf("scan model references: %w", err)
+		}
+		if modelRef == name {
+			return fmt.Errorf("%w: model config %q is referenced by agent %q", ErrConflict, name, agentName)
+		}
+	}
+	return rows.Err()
+}
+
 func ensureExists(ctx context.Context, db *sql.DB, table string, name string, resourceType string) error {
 	var existing string
 	err := db.QueryRowContext(
@@ -121,4 +142,89 @@ func ensureExists(ctx context.Context, db *sql.DB, table string, name string, re
 		return fmt.Errorf("check %s existence %q: %w", resourceType, name, err)
 	}
 	return nil
+}
+
+func normalizePageQuery(query domain.PageQuery) (domain.PageQuery, error) {
+	if query.PageSize < 0 {
+		return domain.PageQuery{}, fmt.Errorf("%w: page_size must be non-negative", ErrInvalid)
+	}
+	if query.PageNumber < 0 {
+		return domain.PageQuery{}, fmt.Errorf("%w: page_number must be non-negative", ErrInvalid)
+	}
+	if query.PageSize == 0 {
+		if query.PageNumber > 0 {
+			return domain.PageQuery{}, fmt.Errorf("%w: page_number requires page_size", ErrInvalid)
+		}
+		return domain.PageQuery{}, nil
+	}
+	if query.PageNumber == 0 {
+		query.PageNumber = 1
+	}
+	return query, nil
+}
+
+func countRows(ctx context.Context, db *sql.DB, table string) (int32, error) {
+	var total int32
+	if err := db.QueryRowContext(
+		ctx,
+		fmt.Sprintf("SELECT COUNT(*) FROM %s", table),
+	).Scan(&total); err != nil {
+		return 0, fmt.Errorf("count rows in %s: %w", table, err)
+	}
+	return total, nil
+}
+
+func totalPages(totalSize int32, pageSize int32) int32 {
+	if totalSize <= 0 || pageSize <= 0 {
+		return 0
+	}
+	return (totalSize + pageSize - 1) / pageSize
+}
+
+func listNamesPage(
+	ctx context.Context,
+	db *sql.DB,
+	table string,
+	query domain.PageQuery,
+) ([]string, domain.PageMetadata, error) {
+	normalizedQuery, err := normalizePageQuery(query)
+	if err != nil {
+		return nil, domain.PageMetadata{}, err
+	}
+
+	totalSize, err := countRows(ctx, db, table)
+	if err != nil {
+		return nil, domain.PageMetadata{}, err
+	}
+
+	metadata := domain.PageMetadata{TotalSize: totalSize}
+	sqlQuery := fmt.Sprintf("SELECT name FROM %s ORDER BY name ASC", table)
+	args := make([]any, 0, 2)
+	if normalizedQuery.PageSize > 0 {
+		metadata.PageSize = normalizedQuery.PageSize
+		metadata.PageNumber = normalizedQuery.PageNumber
+		metadata.TotalPages = totalPages(totalSize, normalizedQuery.PageSize)
+		offset := int64(normalizedQuery.PageSize) * int64(normalizedQuery.PageNumber-1)
+		sqlQuery += " LIMIT ? OFFSET ?"
+		args = append(args, normalizedQuery.PageSize, offset)
+	}
+
+	rows, err := db.QueryContext(ctx, sqlQuery, args...)
+	if err != nil {
+		return nil, domain.PageMetadata{}, fmt.Errorf("query names from %s: %w", table, err)
+	}
+	defer rows.Close()
+
+	names := make([]string, 0)
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, domain.PageMetadata{}, fmt.Errorf("scan name from %s: %w", table, err)
+		}
+		names = append(names, name)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, domain.PageMetadata{}, fmt.Errorf("iterate names from %s: %w", table, err)
+	}
+	return names, metadata, nil
 }

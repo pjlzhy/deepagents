@@ -246,7 +246,7 @@ func (r *SQLiteRegistry) CreateOperation(ctx context.Context, operation domain.O
 	_, err := r.db.ExecContext(
 		ctx,
 		`INSERT INTO operations (
-			id, agent_name, target_name, kind, status, error_message, created_at, updated_at
+			operation_id, agent_name, target_name, kind, status, error_message, created_at, updated_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		operation.ID,
 		operation.AgentName,

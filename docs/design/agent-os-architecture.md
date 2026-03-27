@@ -19,14 +19,14 @@ Agent OS treats AI agents the way an operating system treats processes. The plat
 
 ### 1.2 Prompt as Orchestration
 
-Agent orchestration is not encoded as a fixed DAG. It lives in prompt inputs, skills, memory, tools, and sub-agents. The platform is responsible for assembly and runtime management, not workflow authoring.
+Agent orchestration is not encoded as a fixed DAG. It lives in prompt inputs, skills, MCP-backed tools, sandbox policy, and sub-agents. The platform is responsible for assembly and runtime management, not workflow authoring.
 
 ### 1.3 Declarative Assembly
 
 An agent is assembled from declarative inputs:
 
 ```text
-Agent = Model + Prompt + Skills + Memory + Tools + SubAgents
+Agent = Model + Prompt + Skills + MCP + SubAgents + SandboxPolicy
 ```
 
 The control plane owns resource management and packages runtime-ready inputs. The data plane consumes those inputs and builds the executable graph.
@@ -59,7 +59,7 @@ Agent OS uses a unified separated architecture: control plane and data plane are
 | **SDK** (`deepagents`) | Build agent graphs from components | Models, tools, backends, middleware |
 | **Control Plane** (`deepagents-control`) | Own registry, package resources, and orchestrate runtime lifecycle | Registry, packaging, HTTP/SSE API, southbound orchestration |
 | **Data Plane** (`deepagents-runtime`) | Consume rich `AgentSpec` inputs, assemble agents, execute runs | Assembly, orchestration, sandbox, MCP, sessions |
-| **gRPC Protocol** (`proto/`) | Control <-> Data plane communication | `AgentExecutor`, `ResourceSync` |
+| **gRPC Protocol** (`proto/`) | Control <-> Data plane communication | `AgentExecutor`, `ResourceSync`, `SessionQuery` |
 
 ### 2.2 Unified Runtime Code
 
@@ -89,7 +89,7 @@ Control plane and data plane are always separate processes.
 
 The control plane is responsible for:
 
-- registry CRUD for skills, MCP configs, and agent definitions
+- registry CRUD for model configs, skills, MCP configs, and agent definitions
 - packaging runtime-ready agent inputs
 - `SyncAgentSpec -> Assemble -> Run` orchestration
 - lifecycle and status management
@@ -112,6 +112,7 @@ All control-plane to data-plane communication uses gRPC:
 
 - `AgentExecutor.Run`: bidirectional streaming agent invocation with HITL support
 - `ResourceSync.*`: unary RPCs for syncing rich `AgentSpec` inputs and runtime directives
+- `SessionQuery.*`: runtime-local session / health read APIs and session delete
 
 `SyncAgentSpec` is the primary sync unit. `SyncSkill` and `SyncMcp` are compatibility RPCs and are not the preferred packaging path for new flows.
 
@@ -125,6 +126,7 @@ Resources are owned by the control plane Registry. The data plane consumes a run
 
 The control plane remains the source of truth for:
 
+- **Model configs**: reusable model configuration templates
 - **Skills**: reusable prompt instructions (`SKILL.md` content)
 - **MCP configs**: reusable server connection definitions
 - **AgentSpecs**: declarative agent definitions authored by users
@@ -212,12 +214,12 @@ The data plane `AgentManager` owns runtime resources:
 
 ## 6. Control Plane Registry
 
-The Registry lives in the control plane and remains the system source of truth for skills, MCP configs, and agent definitions.
+The Registry lives in the control plane and remains the system source of truth for model configs, skills, MCP configs, and agent definitions.
 
 Its responsibilities are:
 
-- CRUD for skills, MCP configs, and authored `AgentSpec`
-- resolve skill and MCP references from the registry
+- CRUD for model configs, skills, MCP configs, and authored `AgentSpec`
+- resolve model / skill / MCP references from the registry
 - packaging runtime-ready `AgentSpec` payloads for the data plane
 - dependency tracking and safe deletion checks
 
@@ -263,6 +265,7 @@ All communication between control plane and data plane uses `proto/runtime.proto
 |---------|-----------|---------|
 | `AgentExecutor` | Control -> Data | Agent invocation with bidirectional streaming |
 | `ResourceSync` | Control -> Data | Sync rich `AgentSpec` inputs and runtime directives |
+| `SessionQuery` | Control -> Data | Health and checkpoint-backed session query / delete |
 
 ### 8.2 `AgentExecutor.Run`
 
@@ -307,9 +310,11 @@ Launch mode is runtime configuration, not part of the authored agent definition.
 
 The current control plane exposes a northbound API rather than a workspace-centric contract.
 
-- management APIs use HTTP for registry CRUD and session queries
+- management APIs use HTTP for model / skill / MCP / agent CRUD, paginated resource lists, and session queries
 - execution uses SSE over a shared southbound `AgentExecutor.Run` bridge
 - all runnable requests currently flow through the bootstrapped `default_target`
+
+For thread-scoped session detail / history / delete, the current contract uses `agent_name + thread_id` together, even though `thread_id` remains the stable session identifier.
 
 CLI commands may be added on top of this northbound API, but they are not the authoritative contract described here.
 

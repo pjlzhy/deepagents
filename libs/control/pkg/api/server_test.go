@@ -27,28 +27,38 @@ type fakeAgentService struct {
 	listSessionsPageSize  int32
 	listSessionsPageToken string
 
-	getSessionResp     domain.SessionSummary
-	getSessionErr      error
-	getSessionThreadID string
+	getSessionResp    domain.SessionSummary
+	getSessionErr     error
+	getSessionLocator domain.SessionLocator
 
 	getPageResp  domain.SessionMessagePage
 	getPageErr   error
 	getPageQuery domain.SessionMessageQuery
 
-	getMessagesResp      []domain.SessionMessage
-	getMessagesToken     string
-	getMessagesErr       error
-	getMessagesThreadID  string
-	getMessagesMode      domain.SessionHistoryMode
-	getMessagesPageSize  int32
-	getMessagesPageToken string
+	getMessagesResp  []domain.SessionMessage
+	getMessagesToken string
+	getMessagesErr   error
+	getMessagesQuery domain.SessionMessageQuery
 
 	getLatestResp      domain.SessionSummary
 	getLatestErr       error
 	getLatestAgentName string
 
-	deleteErr      error
-	deleteThreadID string
+	deleteErr     error
+	deleteLocator domain.SessionLocator
+
+	upsertModelResp domain.ModelConfig
+	upsertModelErr  error
+	upsertModelReq  domain.ModelConfig
+	getModelResp    domain.ModelConfig
+	getModelErr     error
+	getModelName    string
+	listModelsResp  []domain.ModelConfig
+	listModelsPage  domain.ResourcePage[domain.ModelConfig]
+	listModelsQuery domain.PageQuery
+	listModelsErr   error
+	deleteModelErr  error
+	deleteModelName string
 
 	upsertSkillResp domain.Skill
 	upsertSkillErr  error
@@ -57,6 +67,8 @@ type fakeAgentService struct {
 	getSkillErr     error
 	getSkillName    string
 	listSkillsResp  []domain.Skill
+	listSkillsPage  domain.ResourcePage[domain.Skill]
+	listSkillsQuery domain.PageQuery
 	listSkillsErr   error
 	deleteSkillErr  error
 	deleteSkillName string
@@ -68,6 +80,8 @@ type fakeAgentService struct {
 	getMCPErr     error
 	getMCPName    string
 	listMCPsResp  []domain.MCPConfig
+	listMCPsPage  domain.ResourcePage[domain.MCPConfig]
+	listMCPsQuery domain.PageQuery
 	listMCPsErr   error
 	deleteMCPErr  error
 	deleteMCPName string
@@ -79,6 +93,8 @@ type fakeAgentService struct {
 	getAgentErr     error
 	getAgentName    string
 	listAgentsResp  []domain.AuthoredAgentSpec
+	listAgentsPage  domain.ResourcePage[domain.AuthoredAgentSpec]
+	listAgentsQuery domain.PageQuery
 	listAgentsErr   error
 	deleteAgentErr  error
 	deleteAgentName string
@@ -110,8 +126,11 @@ func (f *fakeAgentService) ListSessions(
 	return f.listSessionsResp, f.listSessionsToken, f.listSessionsErr
 }
 
-func (f *fakeAgentService) GetSession(_ context.Context, threadID string) (domain.SessionSummary, error) {
-	f.getSessionThreadID = threadID
+func (f *fakeAgentService) GetSession(
+	_ context.Context,
+	locator domain.SessionLocator,
+) (domain.SessionSummary, error) {
+	f.getSessionLocator = locator
 	return f.getSessionResp, f.getSessionErr
 }
 
@@ -125,15 +144,9 @@ func (f *fakeAgentService) GetSessionMessagePage(
 
 func (f *fakeAgentService) GetSessionMessages(
 	_ context.Context,
-	threadID string,
-	mode domain.SessionHistoryMode,
-	pageSize int32,
-	pageToken string,
+	query domain.SessionMessageQuery,
 ) ([]domain.SessionMessage, string, error) {
-	f.getMessagesThreadID = threadID
-	f.getMessagesMode = mode
-	f.getMessagesPageSize = pageSize
-	f.getMessagesPageToken = pageToken
+	f.getMessagesQuery = query
 	return f.getMessagesResp, f.getMessagesToken, f.getMessagesErr
 }
 
@@ -142,9 +155,39 @@ func (f *fakeAgentService) GetLatestSession(_ context.Context, agentName string)
 	return f.getLatestResp, f.getLatestErr
 }
 
-func (f *fakeAgentService) DeleteSession(_ context.Context, threadID string) error {
-	f.deleteThreadID = threadID
+func (f *fakeAgentService) DeleteSession(_ context.Context, locator domain.SessionLocator) error {
+	f.deleteLocator = locator
 	return f.deleteErr
+}
+
+func (f *fakeAgentService) UpsertModelConfig(
+	_ context.Context,
+	config domain.ModelConfig,
+) (domain.ModelConfig, error) {
+	f.upsertModelReq = config
+	return f.upsertModelResp, f.upsertModelErr
+}
+
+func (f *fakeAgentService) GetModelConfig(_ context.Context, name string) (domain.ModelConfig, error) {
+	f.getModelName = name
+	return f.getModelResp, f.getModelErr
+}
+
+func (f *fakeAgentService) ListModelConfigs(context.Context) ([]domain.ModelConfig, error) {
+	return f.listModelsResp, f.listModelsErr
+}
+
+func (f *fakeAgentService) ListModelConfigsPage(
+	_ context.Context,
+	query domain.PageQuery,
+) (domain.ResourcePage[domain.ModelConfig], error) {
+	f.listModelsQuery = query
+	return f.listModelsPage, f.listModelsErr
+}
+
+func (f *fakeAgentService) DeleteModelConfig(_ context.Context, name string) error {
+	f.deleteModelName = name
+	return f.deleteModelErr
 }
 
 func (f *fakeAgentService) UpsertSkill(_ context.Context, skill domain.Skill) (domain.Skill, error) {
@@ -159,6 +202,14 @@ func (f *fakeAgentService) GetSkill(_ context.Context, name string) (domain.Skil
 
 func (f *fakeAgentService) ListSkills(context.Context) ([]domain.Skill, error) {
 	return f.listSkillsResp, f.listSkillsErr
+}
+
+func (f *fakeAgentService) ListSkillsPage(
+	_ context.Context,
+	query domain.PageQuery,
+) (domain.ResourcePage[domain.Skill], error) {
+	f.listSkillsQuery = query
+	return f.listSkillsPage, f.listSkillsErr
 }
 
 func (f *fakeAgentService) DeleteSkill(_ context.Context, name string) error {
@@ -183,6 +234,14 @@ func (f *fakeAgentService) ListMCPConfigs(context.Context) ([]domain.MCPConfig, 
 	return f.listMCPsResp, f.listMCPsErr
 }
 
+func (f *fakeAgentService) ListMCPConfigsPage(
+	_ context.Context,
+	query domain.PageQuery,
+) (domain.ResourcePage[domain.MCPConfig], error) {
+	f.listMCPsQuery = query
+	return f.listMCPsPage, f.listMCPsErr
+}
+
 func (f *fakeAgentService) DeleteMCPConfig(_ context.Context, name string) error {
 	f.deleteMCPName = name
 	return f.deleteMCPErr
@@ -203,6 +262,14 @@ func (f *fakeAgentService) GetAgentSpec(_ context.Context, name string) (domain.
 
 func (f *fakeAgentService) ListAgentSpecs(context.Context) ([]domain.AuthoredAgentSpec, error) {
 	return f.listAgentsResp, f.listAgentsErr
+}
+
+func (f *fakeAgentService) ListAgentSpecsPage(
+	_ context.Context,
+	query domain.PageQuery,
+) (domain.ResourcePage[domain.AuthoredAgentSpec], error) {
+	f.listAgentsQuery = query
+	return f.listAgentsPage, f.listAgentsErr
 }
 
 func (f *fakeAgentService) DeleteAgentSpec(_ context.Context, name string) error {
@@ -267,6 +334,7 @@ func TestServerDelegatesLifecycleAndHealth(t *testing.T) {
 
 func TestServerDelegatesSessionQueries(t *testing.T) {
 	pageQuery := domain.SessionMessageQuery{
+		AgentName:  "assistant",
 		ThreadID:   "thread-1",
 		PageSize:   20,
 		PageToken:  "page-1",
@@ -301,12 +369,18 @@ func TestServerDelegatesSessionQueries(t *testing.T) {
 		t.Fatalf("unexpected list sessions response: %#v %q", sessions, token)
 	}
 
-	session, err := server.GetSession(context.Background(), "thread-1")
+	session, err := server.GetSession(context.Background(), domain.SessionLocator{
+		AgentName: "assistant",
+		ThreadID:  "thread-1",
+	})
 	if err != nil {
 		t.Fatalf("GetSession: %v", err)
 	}
 	if session.ThreadID != "thread-1" {
 		t.Fatalf("unexpected session: %#v", session)
+	}
+	if service.getSessionLocator != (domain.SessionLocator{AgentName: "assistant", ThreadID: "thread-1"}) {
+		t.Fatalf("unexpected session locator input: %#v", service.getSessionLocator)
 	}
 
 	page, err := server.GetSessionMessagePage(context.Background(), pageQuery)
@@ -320,18 +394,27 @@ func TestServerDelegatesSessionQueries(t *testing.T) {
 		t.Fatalf("unexpected page query input: %#v", service.getPageQuery)
 	}
 
-	messages, nextPageToken, err := server.GetSessionMessages(
-		context.Background(),
-		"thread-1",
-		domain.SessionHistoryModeResumeView,
-		20,
-		"page-1",
-	)
+	messages, nextPageToken, err := server.GetSessionMessages(context.Background(), domain.SessionMessageQuery{
+		AgentName: "assistant",
+		ThreadID:  "thread-1",
+		Mode:      domain.SessionHistoryModeResumeView,
+		PageSize:  20,
+		PageToken: "page-1",
+	})
 	if err != nil {
 		t.Fatalf("GetSessionMessages: %v", err)
 	}
 	if len(messages) != 1 || nextPageToken != "page-2" {
 		t.Fatalf("unexpected messages response: %#v %q", messages, nextPageToken)
+	}
+	if service.getMessagesQuery != (domain.SessionMessageQuery{
+		AgentName: "assistant",
+		ThreadID:  "thread-1",
+		Mode:      domain.SessionHistoryModeResumeView,
+		PageSize:  20,
+		PageToken: "page-1",
+	}) {
+		t.Fatalf("unexpected messages query input: %#v", service.getMessagesQuery)
 	}
 
 	latest, err := server.GetLatestSession(context.Background(), "assistant")
@@ -342,25 +425,67 @@ func TestServerDelegatesSessionQueries(t *testing.T) {
 		t.Fatalf("unexpected latest session: %#v", latest)
 	}
 
-	if err := server.DeleteSession(context.Background(), "thread-1"); err != nil {
+	if err := server.DeleteSession(context.Background(), domain.SessionLocator{
+		AgentName: "assistant",
+		ThreadID:  "thread-1",
+	}); err != nil {
 		t.Fatalf("DeleteSession: %v", err)
 	}
-	if service.deleteThreadID != "thread-1" {
+	if service.deleteLocator != (domain.SessionLocator{AgentName: "assistant", ThreadID: "thread-1"}) {
 		t.Fatalf("unexpected delete input: %#v", service)
 	}
 }
 
 func TestServerDelegatesResourceCRUD(t *testing.T) {
 	service := &fakeAgentService{
+		upsertModelResp: domain.ModelConfig{Name: "default-openai"},
+		getModelResp:    domain.ModelConfig{Name: "default-openai"},
+		listModelsResp:  []domain.ModelConfig{{Name: "default-openai"}},
+		listModelsPage: domain.ResourcePage[domain.ModelConfig]{
+			Items: []domain.ModelConfig{{Name: "default-openai"}},
+			PageMetadata: domain.PageMetadata{
+				PageSize:   10,
+				PageNumber: 2,
+				TotalSize:  11,
+				TotalPages: 2,
+			},
+		},
 		upsertSkillResp: domain.Skill{Name: "research"},
 		getSkillResp:    domain.Skill{Name: "research"},
 		listSkillsResp:  []domain.Skill{{Name: "research"}},
-		upsertMCPResp:   domain.MCPConfig{Name: "github"},
-		getMCPResp:      domain.MCPConfig{Name: "github"},
-		listMCPsResp:    []domain.MCPConfig{{Name: "github"}},
+		listSkillsPage: domain.ResourcePage[domain.Skill]{
+			Items: []domain.Skill{{Name: "research"}},
+			PageMetadata: domain.PageMetadata{
+				PageSize:   10,
+				PageNumber: 2,
+				TotalSize:  11,
+				TotalPages: 2,
+			},
+		},
+		upsertMCPResp: domain.MCPConfig{Name: "github"},
+		getMCPResp:    domain.MCPConfig{Name: "github"},
+		listMCPsResp:  []domain.MCPConfig{{Name: "github"}},
+		listMCPsPage: domain.ResourcePage[domain.MCPConfig]{
+			Items: []domain.MCPConfig{{Name: "github"}},
+			PageMetadata: domain.PageMetadata{
+				PageSize:   10,
+				PageNumber: 2,
+				TotalSize:  11,
+				TotalPages: 2,
+			},
+		},
 		upsertAgentResp: domain.AuthoredAgentSpec{Name: "assistant"},
 		getAgentResp:    domain.AuthoredAgentSpec{Name: "assistant"},
 		listAgentsResp:  []domain.AuthoredAgentSpec{{Name: "assistant"}},
+		listAgentsPage: domain.ResourcePage[domain.AuthoredAgentSpec]{
+			Items: []domain.AuthoredAgentSpec{{Name: "assistant"}},
+			PageMetadata: domain.PageMetadata{
+				PageSize:   10,
+				PageNumber: 2,
+				TotalSize:  11,
+				TotalPages: 2,
+			},
+		},
 	}
 	server, err := NewServer(service)
 	if err != nil {
@@ -376,8 +501,27 @@ func TestServerDelegatesResourceCRUD(t *testing.T) {
 	if _, err := server.ListSkills(context.Background()); err != nil {
 		t.Fatalf("ListSkills: %v", err)
 	}
+	if page, err := server.ListSkillsPage(context.Background(), domain.PageQuery{PageSize: 10, PageNumber: 2}); err != nil || len(page.Items) != 1 {
+		t.Fatalf("ListSkillsPage: %#v err=%v", page, err)
+	}
 	if err := server.DeleteSkill(context.Background(), "research"); err != nil {
 		t.Fatalf("DeleteSkill: %v", err)
+	}
+
+	if _, err := server.UpsertModelConfig(context.Background(), domain.ModelConfig{Name: "default-openai"}); err != nil {
+		t.Fatalf("UpsertModelConfig: %v", err)
+	}
+	if _, err := server.GetModelConfig(context.Background(), "default-openai"); err != nil {
+		t.Fatalf("GetModelConfig: %v", err)
+	}
+	if _, err := server.ListModelConfigs(context.Background()); err != nil {
+		t.Fatalf("ListModelConfigs: %v", err)
+	}
+	if page, err := server.ListModelConfigsPage(context.Background(), domain.PageQuery{PageSize: 10, PageNumber: 2}); err != nil || len(page.Items) != 1 {
+		t.Fatalf("ListModelConfigsPage: %#v err=%v", page, err)
+	}
+	if err := server.DeleteModelConfig(context.Background(), "default-openai"); err != nil {
+		t.Fatalf("DeleteModelConfig: %v", err)
 	}
 
 	if _, err := server.UpsertMCPConfig(context.Background(), domain.MCPConfig{Name: "github"}); err != nil {
@@ -388,6 +532,9 @@ func TestServerDelegatesResourceCRUD(t *testing.T) {
 	}
 	if _, err := server.ListMCPConfigs(context.Background()); err != nil {
 		t.Fatalf("ListMCPConfigs: %v", err)
+	}
+	if page, err := server.ListMCPConfigsPage(context.Background(), domain.PageQuery{PageSize: 10, PageNumber: 2}); err != nil || len(page.Items) != 1 {
+		t.Fatalf("ListMCPConfigsPage: %#v err=%v", page, err)
 	}
 	if err := server.DeleteMCPConfig(context.Background(), "github"); err != nil {
 		t.Fatalf("DeleteMCPConfig: %v", err)
@@ -402,6 +549,9 @@ func TestServerDelegatesResourceCRUD(t *testing.T) {
 	if _, err := server.ListAgentSpecs(context.Background()); err != nil {
 		t.Fatalf("ListAgentSpecs: %v", err)
 	}
+	if page, err := server.ListAgentSpecsPage(context.Background(), domain.PageQuery{PageSize: 10, PageNumber: 2}); err != nil || len(page.Items) != 1 {
+		t.Fatalf("ListAgentSpecsPage: %#v err=%v", page, err)
+	}
 	if err := server.DeleteAgentSpec(context.Background(), "assistant"); err != nil {
 		t.Fatalf("DeleteAgentSpec: %v", err)
 	}
@@ -409,11 +559,26 @@ func TestServerDelegatesResourceCRUD(t *testing.T) {
 	if service.upsertSkillReq.Name != "research" || service.getSkillName != "research" || service.deleteSkillName != "research" {
 		t.Fatalf("unexpected skill delegation: %#v", service)
 	}
+	if service.listSkillsQuery != (domain.PageQuery{PageSize: 10, PageNumber: 2}) {
+		t.Fatalf("unexpected skill page delegation: %#v", service.listSkillsQuery)
+	}
+	if service.upsertModelReq.Name != "default-openai" || service.getModelName != "default-openai" || service.deleteModelName != "default-openai" {
+		t.Fatalf("unexpected model delegation: %#v", service)
+	}
+	if service.listModelsQuery != (domain.PageQuery{PageSize: 10, PageNumber: 2}) {
+		t.Fatalf("unexpected model page delegation: %#v", service.listModelsQuery)
+	}
 	if service.upsertMCPReq.Name != "github" || service.getMCPName != "github" || service.deleteMCPName != "github" {
 		t.Fatalf("unexpected mcp delegation: %#v", service)
 	}
+	if service.listMCPsQuery != (domain.PageQuery{PageSize: 10, PageNumber: 2}) {
+		t.Fatalf("unexpected mcp page delegation: %#v", service.listMCPsQuery)
+	}
 	if service.upsertAgentReq.Name != "assistant" || service.getAgentName != "assistant" || service.deleteAgentName != "assistant" {
 		t.Fatalf("unexpected agent delegation: %#v", service)
+	}
+	if service.listAgentsQuery != (domain.PageQuery{PageSize: 10, PageNumber: 2}) {
+		t.Fatalf("unexpected agent page delegation: %#v", service.listAgentsQuery)
 	}
 }
 
@@ -429,6 +594,10 @@ func TestServerPropagatesServiceErrors(t *testing.T) {
 		getMessagesErr:    expectedErr,
 		getLatestErr:      expectedErr,
 		deleteErr:         expectedErr,
+		upsertModelErr:    expectedErr,
+		getModelErr:       expectedErr,
+		listModelsErr:     expectedErr,
+		deleteModelErr:    expectedErr,
 		upsertSkillErr:    expectedErr,
 		getSkillErr:       expectedErr,
 		listSkillsErr:     expectedErr,
@@ -459,26 +628,46 @@ func TestServerPropagatesServiceErrors(t *testing.T) {
 	if _, _, err := server.ListSessions(context.Background(), "", 0, ""); !errors.Is(err, expectedErr) {
 		t.Fatalf("expected ListSessions error, got %v", err)
 	}
-	if _, err := server.GetSession(context.Background(), "thread-1"); !errors.Is(err, expectedErr) {
+	if _, err := server.GetSession(context.Background(), domain.SessionLocator{
+		AgentName: "assistant",
+		ThreadID:  "thread-1",
+	}); !errors.Is(err, expectedErr) {
 		t.Fatalf("expected GetSession error, got %v", err)
 	}
 	if _, err := server.GetSessionMessagePage(context.Background(), domain.SessionMessageQuery{}); !errors.Is(err, expectedErr) {
 		t.Fatalf("expected GetSessionMessagePage error, got %v", err)
 	}
-	if _, _, err := server.GetSessionMessages(
-		context.Background(),
-		"thread-1",
-		domain.SessionHistoryModeResumeView,
-		20,
-		"",
-	); !errors.Is(err, expectedErr) {
+	if _, _, err := server.GetSessionMessages(context.Background(), domain.SessionMessageQuery{
+		AgentName: "assistant",
+		ThreadID:  "thread-1",
+		Mode:      domain.SessionHistoryModeResumeView,
+		PageSize:  20,
+	}); !errors.Is(err, expectedErr) {
 		t.Fatalf("expected GetSessionMessages error, got %v", err)
 	}
 	if _, err := server.GetLatestSession(context.Background(), "assistant"); !errors.Is(err, expectedErr) {
 		t.Fatalf("expected GetLatestSession error, got %v", err)
 	}
-	if err := server.DeleteSession(context.Background(), "thread-1"); !errors.Is(err, expectedErr) {
+	if err := server.DeleteSession(context.Background(), domain.SessionLocator{
+		AgentName: "assistant",
+		ThreadID:  "thread-1",
+	}); !errors.Is(err, expectedErr) {
 		t.Fatalf("expected DeleteSession error, got %v", err)
+	}
+	if _, err := server.UpsertModelConfig(context.Background(), domain.ModelConfig{}); !errors.Is(err, expectedErr) {
+		t.Fatalf("expected UpsertModelConfig error, got %v", err)
+	}
+	if _, err := server.GetModelConfig(context.Background(), "default-openai"); !errors.Is(err, expectedErr) {
+		t.Fatalf("expected GetModelConfig error, got %v", err)
+	}
+	if _, err := server.ListModelConfigs(context.Background()); !errors.Is(err, expectedErr) {
+		t.Fatalf("expected ListModelConfigs error, got %v", err)
+	}
+	if _, err := server.ListModelConfigsPage(context.Background(), domain.PageQuery{}); !errors.Is(err, expectedErr) {
+		t.Fatalf("expected ListModelConfigsPage error, got %v", err)
+	}
+	if err := server.DeleteModelConfig(context.Background(), "default-openai"); !errors.Is(err, expectedErr) {
+		t.Fatalf("expected DeleteModelConfig error, got %v", err)
 	}
 	if _, err := server.UpsertSkill(context.Background(), domain.Skill{}); !errors.Is(err, expectedErr) {
 		t.Fatalf("expected UpsertSkill error, got %v", err)
@@ -488,6 +677,9 @@ func TestServerPropagatesServiceErrors(t *testing.T) {
 	}
 	if _, err := server.ListSkills(context.Background()); !errors.Is(err, expectedErr) {
 		t.Fatalf("expected ListSkills error, got %v", err)
+	}
+	if _, err := server.ListSkillsPage(context.Background(), domain.PageQuery{}); !errors.Is(err, expectedErr) {
+		t.Fatalf("expected ListSkillsPage error, got %v", err)
 	}
 	if err := server.DeleteSkill(context.Background(), "research"); !errors.Is(err, expectedErr) {
 		t.Fatalf("expected DeleteSkill error, got %v", err)
@@ -501,6 +693,9 @@ func TestServerPropagatesServiceErrors(t *testing.T) {
 	if _, err := server.ListMCPConfigs(context.Background()); !errors.Is(err, expectedErr) {
 		t.Fatalf("expected ListMCPConfigs error, got %v", err)
 	}
+	if _, err := server.ListMCPConfigsPage(context.Background(), domain.PageQuery{}); !errors.Is(err, expectedErr) {
+		t.Fatalf("expected ListMCPConfigsPage error, got %v", err)
+	}
 	if err := server.DeleteMCPConfig(context.Background(), "github"); !errors.Is(err, expectedErr) {
 		t.Fatalf("expected DeleteMCPConfig error, got %v", err)
 	}
@@ -512,6 +707,9 @@ func TestServerPropagatesServiceErrors(t *testing.T) {
 	}
 	if _, err := server.ListAgentSpecs(context.Background()); !errors.Is(err, expectedErr) {
 		t.Fatalf("expected ListAgentSpecs error, got %v", err)
+	}
+	if _, err := server.ListAgentSpecsPage(context.Background(), domain.PageQuery{}); !errors.Is(err, expectedErr) {
+		t.Fatalf("expected ListAgentSpecsPage error, got %v", err)
 	}
 	if err := server.DeleteAgentSpec(context.Background(), "assistant"); !errors.Is(err, expectedErr) {
 		t.Fatalf("expected DeleteAgentSpec error, got %v", err)

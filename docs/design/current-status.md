@@ -1,7 +1,7 @@
 # Agent OS 当前状态
 
-> 快照日期：2026-03-26
-> 状态：单机版主闭环完成，扩展能力与迁移收口进行中
+> 快照日期：2026-03-27
+> 状态：单机版主闭环完成，control/data 文档与协议口径已同步
 
 ## 1. 结论
 
@@ -11,7 +11,7 @@
 - `control plane` 已完成 single `default_target` 模型下的 registry、packaging、orchestration、northbound API 主路径
 - 当前剩余事项主要分为两类：
   - 延期 backlog：真实部署验证、多 target、scheduler、K8s 等扩展能力
-  - 在途收口：`proto/` 目录迁移、生成链统一、工作区改动正式入库
+  - 收尾事项：working tree 正式入库与后续 backlog 排序
 
 ## 2. 总体状态
 
@@ -19,8 +19,8 @@
 |------|----------|------|
 | Data Layer | 核心闭环完成 | Phase 1-5 完成，Phase 6 已达到“核心闭环完成，剩余延期” |
 | Control Plane | 当前范围完成 | Phase 1-6 完成，当前实现范围是 single `default_target` |
-| 架构文档 | 基本同步 | control / data / overall architecture 已收缩到当前实现口径 |
-| Proto 迁移 | 在途 | 新 `proto/runtime.proto` 已落地，生成链和入库仍在收口 |
+| 架构文档 | 已同步 | control / data / overall architecture 已回填到当前实现口径 |
+| Proto 结构与生成链 | 已完成 | `proto/runtime.proto`、Go/Python generated 与生成脚本已统一 |
 
 ## 3. 已完成事项
 
@@ -35,7 +35,9 @@
 - agent-owned sandbox lifecycle
 - `SandboxSpec` 驱动 backend 选择
 - `SessionQuery` 全量查询能力
+- thread-scoped session 查询 / 删除收缩为 `agent_name + thread_id`
 - health / readiness / live runtime status 输出
+- protobuf 生成链固定到根目录 `proto/`
 - 关键单元测试、process-local 集成测试、进程内 gRPC 集成测试
 
 对应状态基准以 [runtime-data-layer-roadmap.md](./runtime-data-layer-roadmap.md) 为准。
@@ -46,7 +48,8 @@
 
 - Go module 骨架与领域模型
 - SQLite-backed registry
-- skills / MCP configs / authored agent specs CRUD
+- model configs / skills / MCP configs / authored agent specs CRUD
+- 资源 list page 分页查询（`page_size / page_number`）
 - 引用存在性校验与 authored validation
 - authored resources -> runtime-ready `AgentSpec` packager
 - `EnsureRunnable` southbound orchestration
@@ -57,12 +60,18 @@
 当前 northbound contract 已覆盖：
 
 - `health`
+- `models` CRUD
 - `skills` CRUD
 - `mcps` CRUD
 - `agents` CRUD
 - `ensure_runnable`
 - `runs/stream`
 - `sessions` list / latest / detail / message page / delete
+
+补充说明：
+
+- `models / skills / mcps / agents` 的 list API 已统一支持 `page_size / page_number`
+- thread-scoped session detail / message / delete 已要求 `agent_name + thread_id`
 
 对应状态基准以 [control-plane-architecture.md](./control-plane-architecture.md) 为准。
 
@@ -96,23 +105,21 @@
 
 ## 5. 当前在途事项
 
-以下事项不是 backlog，而是当前工作区中已经开始、但尚未正式收口的改动：
+当前这轮主闭环已经完成协议和文档收口。仍需留意的只是工程交付层面的尾项：
 
-- `proto` 结构从旧路径迁移到新的 [runtime.proto](../../proto/runtime.proto)
-- Go 侧生成产物已经落到 `libs/control/pkg/proto/`
-- Python runtime 侧 generated 文件和 `proto_codegen.py` 正在跟随新 proto 结构调整
-- control / data / overall architecture 文档都已同步到当前实现口径，但仍处于未提交状态
+- 当前 working tree 仍需正式入库
+- backlog 优先级仍需在“部署验证 / multi-target / UI”之间排定
+- UI 文档本轮未纳入同步范围
 
-这一阶段的目标不是新增功能，而是把协议路径、代码生成链、生成产物和文档一次性统一下来。
+这一阶段的重点已经不再是补协议，而是决定下一轮 backlog 的推进顺序。
 
 ## 6. 建议的下一步顺序
 
 建议按以下顺序推进：
 
-1. 先收口 `proto` 迁移和生成链，避免后续继续生成到错误目录。
-2. 跑一轮 control/runtime 相关测试，确认新 proto 路径下的编译和调用链稳定。
-3. 完成当前 working tree 改动的正式入库。
-4. 再评估是否进入 Phase 7，而不是提前展开 multi-target 设计。
+1. 完成当前 working tree 改动的正式入库。
+2. 补真实 `client -> server` gRPC 下的 `HITL / cancel / timeout` 深度回归。
+3. 再在 `multi-target`、`scheduler`、`UI` 之间确定下一轮优先级。
 
 ## 7. 当前判断
 
@@ -120,6 +127,6 @@
 
 - 核心系统已经可用
 - 协议与实现边界已经清晰
-- 后续工作重心从“补主链路功能”转向“协议收口、部署验证和扩展能力”
+- 后续工作重心从“补主链路功能”转向“部署验证和扩展能力”
 
-因此，当前最重要的不是继续加功能，而是先把这轮主闭环对应的协议、生成链、文档和测试全部收口。
+因此，当前最重要的不是继续加功能，而是基于已经收口的协议与文档，开始处理部署验证和下一阶段能力扩展。

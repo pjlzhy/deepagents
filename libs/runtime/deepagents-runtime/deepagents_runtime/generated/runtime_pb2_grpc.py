@@ -26,13 +26,13 @@ if _version_not_supported:
 
 
 class AgentExecutorStub(object):
-    """鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
+    """-----------------------------------------------------------------------------
     Service 1: AgentExecutor
 
     Bidirectional streaming RPC for agent execution.
     Client = Control Plane (sends control messages)
     Server = Data Plane   (streams agent events)
-    鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
+    -----------------------------------------------------------------------------
 
     """
 
@@ -50,13 +50,13 @@ class AgentExecutorStub(object):
 
 
 class AgentExecutorServicer(object):
-    """鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
+    """-----------------------------------------------------------------------------
     Service 1: AgentExecutor
 
     Bidirectional streaming RPC for agent execution.
     Client = Control Plane (sends control messages)
     Server = Data Plane   (streams agent events)
-    鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
+    -----------------------------------------------------------------------------
 
     """
 
@@ -92,13 +92,13 @@ def add_AgentExecutorServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class AgentExecutor(object):
-    """鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
+    """-----------------------------------------------------------------------------
     Service 1: AgentExecutor
 
     Bidirectional streaming RPC for agent execution.
     Client = Control Plane (sends control messages)
     Server = Data Plane   (streams agent events)
-    鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
+    -----------------------------------------------------------------------------
 
     """
 
@@ -131,14 +131,14 @@ class AgentExecutor(object):
 
 
 class ResourceSyncStub(object):
-    """鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
+    """-----------------------------------------------------------------------------
     Service 2: ResourceSync
 
     Unary RPCs for syncing runtime-ready inputs from Control Plane to Data Plane.
     The control plane owns registry CRUD and packaging.
     The data plane consumes rich AgentSpecs and runtime directives for
     assembly, execution, and local runtime state management.
-    鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
+    -----------------------------------------------------------------------------
 
     """
 
@@ -181,14 +181,14 @@ class ResourceSyncStub(object):
 
 
 class ResourceSyncServicer(object):
-    """鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
+    """-----------------------------------------------------------------------------
     Service 2: ResourceSync
 
     Unary RPCs for syncing runtime-ready inputs from Control Plane to Data Plane.
     The control plane owns registry CRUD and packaging.
     The data plane consumes rich AgentSpecs and runtime directives for
     assembly, execution, and local runtime state management.
-    鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
+    -----------------------------------------------------------------------------
 
     """
 
@@ -277,14 +277,14 @@ def add_ResourceSyncServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class ResourceSync(object):
-    """鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
+    """-----------------------------------------------------------------------------
     Service 2: ResourceSync
 
     Unary RPCs for syncing runtime-ready inputs from Control Plane to Data Plane.
     The control plane owns registry CRUD and packaging.
     The data plane consumes rich AgentSpecs and runtime directives for
     assembly, execution, and local runtime state management.
-    鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
+    -----------------------------------------------------------------------------
 
     """
 
@@ -452,7 +452,14 @@ class ResourceSync(object):
 
 
 class SessionQueryStub(object):
-    """Query runtime-local session state derived from checkpoint storage.
+    """-----------------------------------------------------------------------------
+    Service 3: SessionQuery
+
+    Unary RPCs for reading runtime-local session state derived from
+    checkpoint storage.
+    -----------------------------------------------------------------------------
+
+    Query runtime-local session state derived from checkpoint storage.
     """
 
     def __init__(self, channel):
@@ -489,7 +496,14 @@ class SessionQueryStub(object):
 
 
 class SessionQueryServicer(object):
-    """Query runtime-local session state derived from checkpoint storage.
+    """-----------------------------------------------------------------------------
+    Service 3: SessionQuery
+
+    Unary RPCs for reading runtime-local session state derived from
+    checkpoint storage.
+    -----------------------------------------------------------------------------
+
+    Query runtime-local session state derived from checkpoint storage.
     """
 
     def ListSessions(self, request, context):
@@ -500,14 +514,14 @@ class SessionQueryServicer(object):
         raise NotImplementedError('Method not implemented!')
 
     def GetSession(self, request, context):
-        """Get one session summary by thread_id.
+        """Get one session summary by agent_name + thread_id.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def GetSessionMessages(self, request, context):
-        """Read checkpoint-backed session messages for one thread.
+        """Read checkpoint-backed session messages for one agent-scoped thread.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -521,7 +535,7 @@ class SessionQueryServicer(object):
         raise NotImplementedError('Method not implemented!')
 
     def DeleteSession(self, request, context):
-        """Delete one local session from checkpoint storage.
+        """Delete one local session from checkpoint storage by agent_name + thread_id.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -564,7 +578,14 @@ def add_SessionQueryServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class SessionQuery(object):
-    """Query runtime-local session state derived from checkpoint storage.
+    """-----------------------------------------------------------------------------
+    Service 3: SessionQuery
+
+    Unary RPCs for reading runtime-local session state derived from
+    checkpoint storage.
+    -----------------------------------------------------------------------------
+
+    Query runtime-local session state derived from checkpoint storage.
     """
 
     @staticmethod

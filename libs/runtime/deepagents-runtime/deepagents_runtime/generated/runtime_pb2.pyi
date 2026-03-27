@@ -486,10 +486,12 @@ class ListSessionsResponse(_message.Message):
     def __init__(self, sessions: _Optional[_Iterable[_Union[SessionSummary, _Mapping]]] = ..., next_page_token: _Optional[str] = ...) -> None: ...
 
 class GetSessionRequest(_message.Message):
-    __slots__ = ("thread_id",)
+    __slots__ = ("thread_id", "agent_name")
     THREAD_ID_FIELD_NUMBER: _ClassVar[int]
+    AGENT_NAME_FIELD_NUMBER: _ClassVar[int]
     thread_id: str
-    def __init__(self, thread_id: _Optional[str] = ...) -> None: ...
+    agent_name: str
+    def __init__(self, thread_id: _Optional[str] = ..., agent_name: _Optional[str] = ...) -> None: ...
 
 class GetSessionResponse(_message.Message):
     __slots__ = ("found", "session")
@@ -514,10 +516,12 @@ class GetLatestSessionResponse(_message.Message):
     def __init__(self, found: bool = ..., session: _Optional[_Union[SessionSummary, _Mapping]] = ...) -> None: ...
 
 class DeleteSessionRequest(_message.Message):
-    __slots__ = ("thread_id",)
+    __slots__ = ("thread_id", "agent_name")
     THREAD_ID_FIELD_NUMBER: _ClassVar[int]
+    AGENT_NAME_FIELD_NUMBER: _ClassVar[int]
     thread_id: str
-    def __init__(self, thread_id: _Optional[str] = ...) -> None: ...
+    agent_name: str
+    def __init__(self, thread_id: _Optional[str] = ..., agent_name: _Optional[str] = ...) -> None: ...
 
 class DeleteSessionResponse(_message.Message):
     __slots__ = ("deleted",)
@@ -526,20 +530,22 @@ class DeleteSessionResponse(_message.Message):
     def __init__(self, deleted: bool = ...) -> None: ...
 
 class GetSessionMessagesRequest(_message.Message):
-    __slots__ = ("thread_id", "checkpoint_id", "page_size", "page_token", "requested_mode", "include_raw")
+    __slots__ = ("thread_id", "checkpoint_id", "page_size", "page_token", "requested_mode", "include_raw", "agent_name")
     THREAD_ID_FIELD_NUMBER: _ClassVar[int]
     CHECKPOINT_ID_FIELD_NUMBER: _ClassVar[int]
     PAGE_SIZE_FIELD_NUMBER: _ClassVar[int]
     PAGE_TOKEN_FIELD_NUMBER: _ClassVar[int]
     REQUESTED_MODE_FIELD_NUMBER: _ClassVar[int]
     INCLUDE_RAW_FIELD_NUMBER: _ClassVar[int]
+    AGENT_NAME_FIELD_NUMBER: _ClassVar[int]
     thread_id: str
     checkpoint_id: str
     page_size: int
     page_token: str
     requested_mode: SessionHistoryMode
     include_raw: bool
-    def __init__(self, thread_id: _Optional[str] = ..., checkpoint_id: _Optional[str] = ..., page_size: _Optional[int] = ..., page_token: _Optional[str] = ..., requested_mode: _Optional[_Union[SessionHistoryMode, str]] = ..., include_raw: bool = ...) -> None: ...
+    agent_name: str
+    def __init__(self, thread_id: _Optional[str] = ..., checkpoint_id: _Optional[str] = ..., page_size: _Optional[int] = ..., page_token: _Optional[str] = ..., requested_mode: _Optional[_Union[SessionHistoryMode, str]] = ..., include_raw: bool = ..., agent_name: _Optional[str] = ...) -> None: ...
 
 class GetSessionMessagesResponse(_message.Message):
     __slots__ = ("thread_id", "resolved_checkpoint_id", "actual_mode", "total_message_count", "messages", "next_page_token")

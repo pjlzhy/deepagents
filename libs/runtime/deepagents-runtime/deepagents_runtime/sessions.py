@@ -31,6 +31,12 @@ _DEFAULT_SESSION_PAGE_SIZE = 20
 _DEFAULT_MESSAGE_PAGE_SIZE = 100
 _MAX_SESSION_PAGE_SIZE = 200
 _MAX_MESSAGE_PAGE_SIZE = 1000
+_AGENT_NAME_SQL = """
+COALESCE(
+    json_extract(metadata, '$.agent_name'),
+    json_extract(metadata, '$.assistant_id')
+)
+"""
 
 
 @dataclass
@@ -223,30 +229,41 @@ async def _list_session_rows(
     ]
 
 
+def _checkpoint_agent_filter(
+    agent_name: str | None,
+) -> tuple[str, tuple[str, ...]]:
+    """Return one fixed SQL fragment and args for agent-scoped checkpoint queries."""
+    if not agent_name:
+        return "", ()
+    return f" AND {_AGENT_NAME_SQL} = ?", (agent_name,)
+
+
 async def _load_checkpoint_row(
     conn: Any,
     *,
     thread_id: str,
+    agent_name: str | None = None,
     checkpoint_id: str | None = None,
 ) -> tuple[str, str, bytes, str | None] | None:
     """Load one checkpoint row for a thread."""
+    agent_filter_sql, agent_params = _checkpoint_agent_filter(agent_name)
     if checkpoint_id:
-        query = """
+        query = f"""
             SELECT checkpoint_id, type, checkpoint, metadata
             FROM checkpoints
-            WHERE thread_id = ? AND checkpoint_id = ?
+            WHERE thread_id = ? {agent_filter_sql} AND checkpoint_id = ?
             LIMIT 1
-        """
-        params: tuple[str, ...] = (thread_id, checkpoint_id)
+        """  # noqa: S608  # agent_filter_sql is selected from a fixed internal clause
+        params: tuple[str, ...] = (thread_id, *agent_params, checkpoint_id)
     else:
-        query = """
+        query = f"""
             SELECT checkpoint_id, type, checkpoint, metadata
             FROM checkpoints
-            WHERE thread_id = ?
+            WHERE thread_id = ? {agent_filter_sql}
             ORDER BY checkpoint_id DESC
             LIMIT 1
-        """
-        params = (thread_id,)
+        """  # noqa: S608  # agent_filter_sql is selected from a fixed internal clause
+        params = (thread_id, *agent_params)
 
     async with conn.execute(query, params) as cursor:
         row = await cursor.fetchone()
@@ -331,12 +348,14 @@ async def _summarize_checkpoint_row(
     conn: Any,
     *,
     thread_id: str,
+    agent_name: str | None = None,
     checkpoint_id: str | None = None,
 ) -> tuple[str | None, int, str | None]:
     """Summarize the resolved checkpoint for a thread."""
     row = await _load_checkpoint_row(
         conn,
         thread_id=thread_id,
+        agent_name=agent_name,
         checkpoint_id=checkpoint_id,
     )
     if row is None:
@@ -358,11 +377,18 @@ async def _summarize_checkpoint_row(
     return resolved_checkpoint_id, message_count, initial_prompt
 
 
-async def _checkpoint_count(conn: Any, *, thread_id: str) -> int:
+async def _checkpoint_count(
+    conn: Any,
+    *,
+    thread_id: str,
+    agent_name: str | None = None,
+) -> int:
     """Count persisted checkpoint rows for a thread."""
+    agent_filter_sql, agent_params = _checkpoint_agent_filter(agent_name)
+    query = f"SELECT COUNT(*) FROM checkpoints WHERE thread_id = ?{agent_filter_sql}"
     async with conn.execute(
-        "SELECT COUNT(*) FROM checkpoints WHERE thread_id = ?",
-        (thread_id,),
+        query,  # noqa: S608  # agent_filter_sql is selected from a fixed internal clause
+        (thread_id, *agent_params),
     ) as cursor:
         row = await cursor.fetchone()
     return int(row[0]) if row else 0
@@ -588,6 +614,8 @@ async def get_latest_session(
 
 async def get_session(
     thread_id: str,
+    *,
+    agent_name: str | None = None,
     db_path: Path | None = None,
 ) -> SessionDetailRecord | None:
     """Get one session summary plus checkpoint count."""
@@ -595,7 +623,8 @@ async def get_session(
         if not await _table_exists(conn, "checkpoints"):
             return None
 
-        query = """
+        agent_filter_sql, agent_params = _checkpoint_agent_filter(agent_name)
+        query = f"""
             SELECT thread_id,
                    COALESCE(
                        json_extract(metadata, '$.agent_name'),
@@ -604,11 +633,11 @@ async def get_session(
                    json_extract(metadata, '$.updated_at') AS updated_at,
                    checkpoint_id AS latest_checkpoint_id
             FROM checkpoints
-            WHERE thread_id = ?
+            WHERE thread_id = ?{agent_filter_sql}
             ORDER BY checkpoint_id DESC
             LIMIT 1
-        """
-        async with conn.execute(query, (thread_id,)) as cursor:
+        """  # noqa: S608  # agent_filter_sql is selected from a fixed internal clause
+        async with conn.execute(query, (thread_id, *agent_params)) as cursor:
             row = await cursor.fetchone()
         if row is None:
             return None
@@ -617,9 +646,14 @@ async def get_session(
         _, message_count, initial_prompt = await _summarize_checkpoint_row(
             conn,
             thread_id=thread_id,
+            agent_name=agent_name,
             checkpoint_id=latest_checkpoint_id,
         )
-        checkpoint_count = await _checkpoint_count(conn, thread_id=thread_id)
+        checkpoint_count = await _checkpoint_count(
+            conn,
+            thread_id=thread_id,
+            agent_name=agent_name,
+        )
 
         summary = SessionSummaryRecord(
             thread_id=str(row[0]),
@@ -638,6 +672,7 @@ async def get_session(
 async def get_session_messages(
     thread_id: str,
     *,
+    agent_name: str | None = None,
     checkpoint_id: str | None = None,
     page_size: int = _DEFAULT_MESSAGE_PAGE_SIZE,
     page_token: str = "",
@@ -677,6 +712,7 @@ async def get_session_messages(
         row = await _load_checkpoint_row(
             conn,
             thread_id=thread_id,
+            agent_name=agent_name,
             checkpoint_id=resolved_checkpoint_id,
         )
         if row is None:
@@ -763,20 +799,31 @@ async def get_most_recent(
     return session.thread_id if session is not None else None
 
 
-async def thread_exists(thread_id: str, db_path: Path | None = None) -> bool:
+async def thread_exists(
+    thread_id: str,
+    *,
+    agent_name: str | None = None,
+    db_path: Path | None = None,
+) -> bool:
     """Check if a thread exists in checkpoints."""
     async with _connect(db_path) as conn:
         if not await _table_exists(conn, "checkpoints"):
             return False
 
+        agent_filter_sql, agent_params = _checkpoint_agent_filter(agent_name)
         async with conn.execute(
-            "SELECT 1 FROM checkpoints WHERE thread_id = ? LIMIT 1",
-            (thread_id,),
+            f"SELECT 1 FROM checkpoints WHERE thread_id = ?{agent_filter_sql} LIMIT 1",  # noqa: S608  # agent_filter_sql is selected from a fixed internal clause
+            (thread_id, *agent_params),
         ) as cursor:
             return await cursor.fetchone() is not None
 
 
-async def delete_thread(thread_id: str, db_path: Path | None = None) -> bool:
+async def delete_thread(
+    thread_id: str,
+    *,
+    agent_name: str | None = None,
+    db_path: Path | None = None,
+) -> bool:
     """Delete thread checkpoints.
 
     Returns:
@@ -786,12 +833,20 @@ async def delete_thread(thread_id: str, db_path: Path | None = None) -> bool:
         if not await _table_exists(conn, "checkpoints"):
             return False
 
+        agent_filter_sql, agent_params = _checkpoint_agent_filter(agent_name)
         cursor = await conn.execute(
-            "DELETE FROM checkpoints WHERE thread_id = ?", (thread_id,)
+            f"DELETE FROM checkpoints WHERE thread_id = ?{agent_filter_sql}",  # noqa: S608  # agent_filter_sql is selected from a fixed internal clause
+            (thread_id, *agent_params),
         )
         deleted = cursor.rowcount > 0
-        if await _table_exists(conn, "writes"):
-            await conn.execute("DELETE FROM writes WHERE thread_id = ?", (thread_id,))
+        if deleted and await _table_exists(conn, "writes"):
+            async with conn.execute(
+                "SELECT 1 FROM checkpoints WHERE thread_id = ? LIMIT 1",
+                (thread_id,),
+            ) as remaining_cursor:
+                remaining = await remaining_cursor.fetchone() is not None
+            if not remaining:
+                await conn.execute("DELETE FROM writes WHERE thread_id = ?", (thread_id,))
         await conn.commit()
         return deleted
 

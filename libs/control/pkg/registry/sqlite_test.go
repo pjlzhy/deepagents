@@ -25,6 +25,22 @@ func TestSQLiteRegistryRoundTripsCoreResources(t *testing.T) {
 		t.Fatalf("upsert runtime target: %v", err)
 	}
 
+	modelConfig := domain.ModelConfig{
+		Name:        "default-openai",
+		Description: "default openai model",
+		Spec: domain.ModelSpec{
+			Provider:    "openai",
+			Model:       "gpt-5",
+			BaseURL:     "https://api.openai.com/v1",
+			APIKeyEnv:   "OPENAI_API_KEY",
+			ExtraParams: map[string]string{"temperature": "0.2"},
+		},
+		Status: domain.AuthoredStatusPublished,
+	}
+	if err := reg.UpsertModelConfig(ctx, modelConfig); err != nil {
+		t.Fatalf("upsert model config: %v", err)
+	}
+
 	skill := domain.Skill{
 		Name:        "research",
 		Description: "research skill",
@@ -55,7 +71,7 @@ func TestSQLiteRegistryRoundTripsCoreResources(t *testing.T) {
 		Version:     "1.0.0",
 		Description: "demo",
 		Tags:        []string{"assistant"},
-		Model:       domain.ModelSpec{Provider: "openai", Model: "gpt-4o"},
+		ModelRef:    "default-openai",
 		Prompt:      domain.PromptSpec{System: "You are helpful."},
 		SkillRefs:   []string{"research"},
 		MCPRefs:     []string{"github"},
@@ -89,8 +105,24 @@ func TestSQLiteRegistryRoundTripsCoreResources(t *testing.T) {
 	if len(gotSpec.SkillRefs) != 1 || gotSpec.SkillRefs[0] != "research" {
 		t.Fatalf("unexpected skill refs: %#v", gotSpec.SkillRefs)
 	}
-	if gotSpec.Model.Model != "gpt-4o" {
-		t.Fatalf("unexpected model: %#v", gotSpec.Model)
+	if gotSpec.ModelRef != "default-openai" {
+		t.Fatalf("unexpected model ref: %#v", gotSpec.ModelRef)
+	}
+
+	gotModelConfig, err := reg.GetModelConfig(ctx, "default-openai")
+	if err != nil {
+		t.Fatalf("get model config: %v", err)
+	}
+	if gotModelConfig.Spec.Model != "gpt-5" || gotModelConfig.Spec.ExtraParams["temperature"] != "0.2" {
+		t.Fatalf("unexpected model config: %#v", gotModelConfig)
+	}
+
+	modelConfigs, err := reg.ListModelConfigs(ctx)
+	if err != nil {
+		t.Fatalf("list model configs: %v", err)
+	}
+	if len(modelConfigs) != 1 || modelConfigs[0].Name != "default-openai" {
+		t.Fatalf("unexpected model config list: %#v", modelConfigs)
 	}
 
 	skills, err := reg.ListSkills(ctx)
@@ -134,10 +166,112 @@ func TestSQLiteRegistryRoundTripsCoreResources(t *testing.T) {
 	}
 }
 
+func TestUpsertModelConfigRejectsIncompleteSpec(t *testing.T) {
+	ctx := context.Background()
+	reg := newTestRegistry(t)
+
+	err := reg.UpsertModelConfig(ctx, domain.ModelConfig{
+		Name: "broken-model",
+		Spec: domain.ModelSpec{Provider: "openai"},
+	})
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("expected invalid model config error, got: %v", err)
+	}
+}
+
+func TestSQLiteRegistryListsResourcePages(t *testing.T) {
+	ctx := context.Background()
+	reg := newTestRegistry(t)
+
+	mustUpsertModelConfig(t, ctx, reg, "model-a", "gpt-4o")
+	mustUpsertModelConfig(t, ctx, reg, "model-b", "gpt-4.1")
+	mustUpsertModelConfig(t, ctx, reg, "model-c", "gpt-5")
+
+	for _, name := range []string{"skill-a", "skill-b", "skill-c"} {
+		if err := reg.UpsertSkill(ctx, domain.Skill{
+			Name:    name,
+			Content: "# skill",
+			Status:  domain.AuthoredStatusPublished,
+		}); err != nil {
+			t.Fatalf("upsert skill %q: %v", name, err)
+		}
+	}
+
+	for _, name := range []string{"mcp-a", "mcp-b", "mcp-c"} {
+		if err := reg.UpsertMCPConfig(ctx, domain.MCPConfig{
+			Name:      name,
+			Command:   "npx",
+			Transport: "stdio",
+			Status:    domain.AuthoredStatusPublished,
+		}); err != nil {
+			t.Fatalf("upsert mcp %q: %v", name, err)
+		}
+	}
+
+	for _, name := range []string{"agent-a", "agent-b", "agent-c"} {
+		if err := reg.UpsertAgentSpec(ctx, domain.AuthoredAgentSpec{
+			Name:     name,
+			ModelRef: "model-a",
+			Prompt:   domain.PromptSpec{System: "test"},
+			Status:   domain.AuthoredStatusPublished,
+		}); err != nil {
+			t.Fatalf("upsert agent %q: %v", name, err)
+		}
+	}
+
+	modelPage, err := reg.ListModelConfigsPage(ctx, domain.PageQuery{PageSize: 2, PageNumber: 2})
+	if err != nil {
+		t.Fatalf("ListModelConfigsPage: %v", err)
+	}
+	if len(modelPage.Items) != 1 || modelPage.Items[0].Name != "model-c" ||
+		modelPage.PageSize != 2 || modelPage.PageNumber != 2 ||
+		modelPage.TotalSize != 3 || modelPage.TotalPages != 2 {
+		t.Fatalf("unexpected model page: %#v", modelPage)
+	}
+
+	skillPage, err := reg.ListSkillsPage(ctx, domain.PageQuery{PageSize: 2, PageNumber: 2})
+	if err != nil {
+		t.Fatalf("ListSkillsPage: %v", err)
+	}
+	if len(skillPage.Items) != 1 || skillPage.Items[0].Name != "skill-c" ||
+		skillPage.TotalSize != 3 || skillPage.TotalPages != 2 {
+		t.Fatalf("unexpected skill page: %#v", skillPage)
+	}
+
+	mcpPage, err := reg.ListMCPConfigsPage(ctx, domain.PageQuery{PageSize: 2, PageNumber: 2})
+	if err != nil {
+		t.Fatalf("ListMCPConfigsPage: %v", err)
+	}
+	if len(mcpPage.Items) != 1 || mcpPage.Items[0].Name != "mcp-c" ||
+		mcpPage.TotalSize != 3 || mcpPage.TotalPages != 2 {
+		t.Fatalf("unexpected mcp page: %#v", mcpPage)
+	}
+
+	agentPage, err := reg.ListAgentSpecsPage(ctx, domain.PageQuery{PageSize: 2, PageNumber: 2})
+	if err != nil {
+		t.Fatalf("ListAgentSpecsPage: %v", err)
+	}
+	if len(agentPage.Items) != 1 || agentPage.Items[0].Name != "agent-c" ||
+		agentPage.TotalSize != 3 || agentPage.TotalPages != 2 {
+		t.Fatalf("unexpected agent page: %#v", agentPage)
+	}
+}
+
+func TestSQLiteRegistryRejectsInvalidPageQuery(t *testing.T) {
+	ctx := context.Background()
+	reg := newTestRegistry(t)
+
+	_, err := reg.ListModelConfigsPage(ctx, domain.PageQuery{PageNumber: 1})
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("expected invalid page query error, got: %v", err)
+	}
+}
+
 func TestDeleteSkillRejectsReferencedSkill(t *testing.T) {
 	ctx := context.Background()
 	reg := newTestRegistry(t)
 
+	mustUpsertModelConfig(t, ctx, reg, "default-openai", "gpt-4o")
 	if err := reg.UpsertSkill(ctx, domain.Skill{
 		Name:    "research",
 		Content: "# skill",
@@ -148,7 +282,7 @@ func TestDeleteSkillRejectsReferencedSkill(t *testing.T) {
 	if err := reg.UpsertAgentSpec(ctx, domain.AuthoredAgentSpec{
 		Name:      "demo-agent",
 		Prompt:    domain.PromptSpec{System: "test"},
-		Model:     domain.ModelSpec{Provider: "openai", Model: "gpt-4o"},
+		ModelRef:  "default-openai",
 		SkillRefs: []string{"research"},
 		Status:    domain.AuthoredStatusPublished,
 	}); err != nil {
@@ -161,14 +295,41 @@ func TestDeleteSkillRejectsReferencedSkill(t *testing.T) {
 	}
 }
 
+func TestDeleteModelConfigRejectsReferencedModel(t *testing.T) {
+	ctx := context.Background()
+	reg := newTestRegistry(t)
+
+	if err := reg.UpsertModelConfig(ctx, domain.ModelConfig{
+		Name:   "default-openai",
+		Spec:   domain.ModelSpec{Provider: "openai", Model: "gpt-5"},
+		Status: domain.AuthoredStatusPublished,
+	}); err != nil {
+		t.Fatalf("upsert model config: %v", err)
+	}
+	if err := reg.UpsertAgentSpec(ctx, domain.AuthoredAgentSpec{
+		Name:     "demo-agent",
+		Prompt:   domain.PromptSpec{System: "test"},
+		ModelRef: "default-openai",
+		Status:   domain.AuthoredStatusPublished,
+	}); err != nil {
+		t.Fatalf("upsert agent spec: %v", err)
+	}
+
+	err := reg.DeleteModelConfig(ctx, "default-openai")
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected conflict deleting referenced model config, got: %v", err)
+	}
+}
+
 func TestUpsertAgentSpecRejectsMissingSkillReference(t *testing.T) {
 	ctx := context.Background()
 	reg := newTestRegistry(t)
 
+	mustUpsertModelConfig(t, ctx, reg, "default-openai", "gpt-4o")
 	spec := domain.AuthoredAgentSpec{
 		Name:      "demo-agent",
 		Prompt:    domain.PromptSpec{System: "test"},
-		Model:     domain.ModelSpec{Provider: "openai", Model: "gpt-4o"},
+		ModelRef:  "default-openai",
 		SkillRefs: []string{"research"},
 		Status:    domain.AuthoredStatusPublished,
 	}
@@ -188,6 +349,7 @@ func TestUpsertAgentSpecRejectsMissingMCPReference(t *testing.T) {
 	ctx := context.Background()
 	reg := newTestRegistry(t)
 
+	mustUpsertModelConfig(t, ctx, reg, "default-openai", "gpt-4o")
 	if err := reg.UpsertSkill(ctx, domain.Skill{
 		Name:    "research",
 		Content: "# skill",
@@ -199,7 +361,7 @@ func TestUpsertAgentSpecRejectsMissingMCPReference(t *testing.T) {
 	spec := domain.AuthoredAgentSpec{
 		Name:      "demo-agent",
 		Prompt:    domain.PromptSpec{System: "test"},
-		Model:     domain.ModelSpec{Provider: "openai", Model: "gpt-4o"},
+		ModelRef:  "default-openai",
 		SkillRefs: []string{"research"},
 		MCPRefs:   []string{"github"},
 		Status:    domain.AuthoredStatusPublished,
@@ -216,10 +378,69 @@ func TestUpsertAgentSpecRejectsMissingMCPReference(t *testing.T) {
 	}
 }
 
+func TestUpsertAgentSpecRejectsMissingModelReference(t *testing.T) {
+	ctx := context.Background()
+	reg := newTestRegistry(t)
+
+	spec := domain.AuthoredAgentSpec{
+		Name:     "demo-agent",
+		Prompt:   domain.PromptSpec{System: "test"},
+		ModelRef: "default-openai",
+		Status:   domain.AuthoredStatusPublished,
+	}
+	err := reg.UpsertAgentSpec(ctx, spec)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected missing model error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), `model config "default-openai"`) {
+		t.Fatalf("expected missing model details in error, got: %v", err)
+	}
+	if _, err := reg.GetAgentSpec(ctx, spec.Name); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected agent spec to remain absent, got: %v", err)
+	}
+}
+
+func TestGetAgentSpecHydratesLatestReferencedModel(t *testing.T) {
+	ctx := context.Background()
+	reg := newTestRegistry(t)
+
+	if err := reg.UpsertModelConfig(ctx, domain.ModelConfig{
+		Name:   "default-openai",
+		Spec:   domain.ModelSpec{Provider: "openai", Model: "gpt-5"},
+		Status: domain.AuthoredStatusPublished,
+	}); err != nil {
+		t.Fatalf("upsert model config: %v", err)
+	}
+	if err := reg.UpsertAgentSpec(ctx, domain.AuthoredAgentSpec{
+		Name:     "demo-agent",
+		Prompt:   domain.PromptSpec{System: "test"},
+		ModelRef: "default-openai",
+		Status:   domain.AuthoredStatusPublished,
+	}); err != nil {
+		t.Fatalf("upsert agent spec: %v", err)
+	}
+	if err := reg.UpsertModelConfig(ctx, domain.ModelConfig{
+		Name:   "default-openai",
+		Spec:   domain.ModelSpec{Provider: "openai", Model: "gpt-5-mini"},
+		Status: domain.AuthoredStatusPublished,
+	}); err != nil {
+		t.Fatalf("update model config: %v", err)
+	}
+
+	stored, err := reg.GetAgentSpec(ctx, "demo-agent")
+	if err != nil {
+		t.Fatalf("get agent spec: %v", err)
+	}
+	if stored.ModelRef != "default-openai" {
+		t.Fatalf("expected hydrated referenced model, got: %#v", stored)
+	}
+}
+
 func TestUpsertAgentSpecNormalizesReferenceWhitespace(t *testing.T) {
 	ctx := context.Background()
 	reg := newTestRegistry(t)
 
+	mustUpsertModelConfig(t, ctx, reg, "default-openai", "gpt-4o")
 	if err := reg.UpsertSkill(ctx, domain.Skill{
 		Name:    "research",
 		Content: "# skill",
@@ -239,7 +460,7 @@ func TestUpsertAgentSpecNormalizesReferenceWhitespace(t *testing.T) {
 	spec := domain.AuthoredAgentSpec{
 		Name:      "demo-agent",
 		Prompt:    domain.PromptSpec{System: "test"},
-		Model:     domain.ModelSpec{Provider: "openai", Model: "gpt-4o"},
+		ModelRef:  " default-openai ",
 		SkillRefs: []string{" research "},
 		MCPRefs:   []string{" github "},
 		Status:    domain.AuthoredStatusPublished,
@@ -258,16 +479,20 @@ func TestUpsertAgentSpecNormalizesReferenceWhitespace(t *testing.T) {
 	if len(stored.MCPRefs) != 1 || stored.MCPRefs[0] != "github" {
 		t.Fatalf("expected normalized mcp refs, got: %#v", stored.MCPRefs)
 	}
+	if stored.ModelRef != "default-openai" {
+		t.Fatalf("expected normalized model ref, got: %#v", stored.ModelRef)
+	}
 }
 
 func TestUpsertAgentSpecRejectsEmptySkillReference(t *testing.T) {
 	ctx := context.Background()
 	reg := newTestRegistry(t)
 
+	mustUpsertModelConfig(t, ctx, reg, "default-openai", "gpt-4o")
 	spec := domain.AuthoredAgentSpec{
 		Name:      "demo-agent",
 		Prompt:    domain.PromptSpec{System: "test"},
-		Model:     domain.ModelSpec{Provider: "openai", Model: "gpt-4o"},
+		ModelRef:  "default-openai",
 		SkillRefs: []string{"   "},
 		Status:    domain.AuthoredStatusPublished,
 	}
@@ -284,12 +509,13 @@ func TestUpsertAgentSpecRejectsDuplicateMCPReference(t *testing.T) {
 	ctx := context.Background()
 	reg := newTestRegistry(t)
 
+	mustUpsertModelConfig(t, ctx, reg, "default-openai", "gpt-4o")
 	spec := domain.AuthoredAgentSpec{
-		Name:    "demo-agent",
-		Prompt:  domain.PromptSpec{System: "test"},
-		Model:   domain.ModelSpec{Provider: "openai", Model: "gpt-4o"},
-		MCPRefs: []string{"github", " github "},
-		Status:  domain.AuthoredStatusPublished,
+		Name:     "demo-agent",
+		Prompt:   domain.PromptSpec{System: "test"},
+		ModelRef: "default-openai",
+		MCPRefs:  []string{"github", " github "},
+		Status:   domain.AuthoredStatusPublished,
 	}
 	err := reg.UpsertAgentSpec(ctx, spec)
 	if !errors.Is(err, ErrInvalid) {
@@ -300,22 +526,21 @@ func TestUpsertAgentSpecRejectsDuplicateMCPReference(t *testing.T) {
 	}
 }
 
-func TestUpsertAgentSpecRejectsIncompleteModel(t *testing.T) {
+func TestUpsertAgentSpecRejectsMissingModelRef(t *testing.T) {
 	ctx := context.Background()
 	reg := newTestRegistry(t)
 
 	spec := domain.AuthoredAgentSpec{
 		Name:   "demo-agent",
 		Prompt: domain.PromptSpec{System: "test"},
-		Model:  domain.ModelSpec{Provider: "openai"},
 		Status: domain.AuthoredStatusPublished,
 	}
 	err := reg.UpsertAgentSpec(ctx, spec)
 	if !errors.Is(err, ErrInvalid) {
-		t.Fatalf("expected invalid model error, got: %v", err)
+		t.Fatalf("expected invalid model_ref error, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "agent model must include both provider and model") {
-		t.Fatalf("expected invalid model details in error, got: %v", err)
+	if !strings.Contains(err.Error(), "agent model_ref must not be empty") {
+		t.Fatalf("expected invalid model_ref details in error, got: %v", err)
 	}
 }
 
@@ -323,10 +548,11 @@ func TestUpsertAgentSpecRejectsDuplicateSubagentName(t *testing.T) {
 	ctx := context.Background()
 	reg := newTestRegistry(t)
 
+	mustUpsertModelConfig(t, ctx, reg, "default-openai", "gpt-4o")
 	spec := domain.AuthoredAgentSpec{
-		Name:   "demo-agent",
-		Prompt: domain.PromptSpec{System: "test"},
-		Model:  domain.ModelSpec{Provider: "openai", Model: "gpt-4o"},
+		Name:     "demo-agent",
+		Prompt:   domain.PromptSpec{System: "test"},
+		ModelRef: "default-openai",
 		Subagents: []domain.SubagentSpec{
 			{
 				Name:         "helper",
@@ -354,11 +580,12 @@ func TestUpsertAgentSpecRejectsInvalidStatus(t *testing.T) {
 	ctx := context.Background()
 	reg := newTestRegistry(t)
 
+	mustUpsertModelConfig(t, ctx, reg, "default-openai", "gpt-4o")
 	spec := domain.AuthoredAgentSpec{
-		Name:   "demo-agent",
-		Prompt: domain.PromptSpec{System: "test"},
-		Model:  domain.ModelSpec{Provider: "openai", Model: "gpt-4o"},
-		Status: domain.AuthoredStatus("broken"),
+		Name:     "demo-agent",
+		Prompt:   domain.PromptSpec{System: "test"},
+		ModelRef: "default-openai",
+		Status:   domain.AuthoredStatus("broken"),
 	}
 	err := reg.UpsertAgentSpec(ctx, spec)
 	if !errors.Is(err, ErrInvalid) {
@@ -373,11 +600,12 @@ func TestUpsertAgentSpecNormalizesAgentName(t *testing.T) {
 	ctx := context.Background()
 	reg := newTestRegistry(t)
 
+	mustUpsertModelConfig(t, ctx, reg, "default-openai", "gpt-4o")
 	spec := domain.AuthoredAgentSpec{
-		Name:   " demo-agent ",
-		Prompt: domain.PromptSpec{System: "test"},
-		Model:  domain.ModelSpec{Provider: "openai", Model: "gpt-4o"},
-		Status: domain.AuthoredStatusPublished,
+		Name:     " demo-agent ",
+		Prompt:   domain.PromptSpec{System: "test"},
+		ModelRef: "default-openai",
+		Status:   domain.AuthoredStatusPublished,
 	}
 	if err := reg.UpsertAgentSpec(ctx, spec); err != nil {
 		t.Fatalf("upsert agent spec: %v", err)
@@ -399,11 +627,12 @@ func TestDeleteAgentSpecDeletesBoundDeployment(t *testing.T) {
 	ctx := context.Background()
 	reg := newTestRegistry(t)
 
+	mustUpsertModelConfig(t, ctx, reg, "default-openai", "gpt-4o")
 	if err := reg.UpsertAgentSpec(ctx, domain.AuthoredAgentSpec{
-		Name:   "demo-agent",
-		Prompt: domain.PromptSpec{System: "test"},
-		Model:  domain.ModelSpec{Provider: "openai", Model: "gpt-4o"},
-		Status: domain.AuthoredStatusPublished,
+		Name:     "demo-agent",
+		Prompt:   domain.PromptSpec{System: "test"},
+		ModelRef: "default-openai",
+		Status:   domain.AuthoredStatusPublished,
 	}); err != nil {
 		t.Fatalf("upsert agent spec: %v", err)
 	}
@@ -449,4 +678,22 @@ func newTestRegistry(t *testing.T) *SQLiteRegistry {
 		t.Fatalf("new sqlite registry: %v", err)
 	}
 	return reg
+}
+
+func mustUpsertModelConfig(
+	t *testing.T,
+	ctx context.Context,
+	reg *SQLiteRegistry,
+	name string,
+	model string,
+) {
+	t.Helper()
+
+	if err := reg.UpsertModelConfig(ctx, domain.ModelConfig{
+		Name:   name,
+		Spec:   domain.ModelSpec{Provider: "openai", Model: model},
+		Status: domain.AuthoredStatusPublished,
+	}); err != nil {
+		t.Fatalf("upsert model config %q: %v", name, err)
+	}
 }

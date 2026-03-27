@@ -1,7 +1,7 @@
 # Runtime Session Query 接口设计
 
 > 状态：Final
-> 最后更新：2026-03-24
+> 最后更新：2026-03-27
 > 范围：Phase 5
 > 落地状态：已实现到 `runtime.proto`、`deepagents_runtime/sessions.py`、`deepagents_runtime/entry/server.py`
 
@@ -20,7 +20,7 @@
 - `libs/cli/deepagents_cli/sessions.py`
 - `libs/cli/deepagents_cli/app.py`
 
-但对外协议层目前仍缺少一组正式的 session 查询接口。现有 `ResourceSync` 更偏向 control plane 和 data plane 之间的资源同步 / 生命周期控制，不适合继续承载 session 查询语义。
+本设计提出时，对外协议层仍缺少一组正式的 session 查询接口。现有 `ResourceSync` 更偏向 control plane 和 data plane 之间的资源同步 / 生命周期控制，不适合继续承载 session 查询语义。
 
 本设计的目标，是在不改变当前 checkpoint 持久化模型的前提下，定义一组稳定、诚实、可落地的 session 查询接口。
 
@@ -47,7 +47,7 @@
 
 ## 4. 当前现实约束
 
-### 4.1 session 主键就是 `thread_id`
+### 4.1 session 逻辑主键仍是 `thread_id`，但线程级操作按 `agent_name + thread_id` 收缩
 
 当前 runtime 中，session 的稳定主键已经是 `thread_id`：
 
@@ -56,6 +56,13 @@
 - 当前 `sessions.py` 的查询函数也围绕 `thread_id` 组织
 
 因此本设计不再引入新的 `session_id` 概念。对外可称为 session，但协议主键继续使用 `thread_id`。
+
+不过，当前 runtime checkpoint store 会承载多个 agent 的会话数据。为避免不同 agent 复用相同 `thread_id` 时发生误匹配，线程级查询 / 删除接口已经收缩为：
+
+- 先按 `agent_name` 过滤
+- 再按 `thread_id` 过滤
+
+也就是说，`thread_id` 仍是 session 的逻辑主键，但在 thread-scoped 的 southbound RPC 中，查询键已经是 `agent_name + thread_id`。
 
 ### 4.2 可靠数据源是 checkpoint，而不是独立 messages 表
 
@@ -167,6 +174,7 @@ message ListSessionsResponse {
 
 message GetSessionRequest {
   string thread_id = 1;
+  string agent_name = 2;
 }
 
 message GetSessionResponse {
@@ -185,6 +193,7 @@ message GetLatestSessionResponse {
 
 message DeleteSessionRequest {
   string thread_id = 1;
+  string agent_name = 2;
 }
 
 message DeleteSessionResponse {
@@ -198,6 +207,7 @@ message GetSessionMessagesRequest {
   string page_token = 4;
   SessionHistoryMode requested_mode = 5;
   bool include_raw = 6;
+  string agent_name = 7;
 }
 
 message GetSessionMessagesResponse {
@@ -243,12 +253,15 @@ message SessionMessage {
 - session 的唯一稳定主键
 - 与 `RunRequest.thread_id` 语义一致
 - 与本地 checkpoint 存储主键一致
+- 在 `GetSession / GetSessionMessages / DeleteSession` 这类 thread-scoped RPC 中，它与 `agent_name` 一起组成实际查询键
 
 ### 7.2 `agent_name`
 
 - 表示 thread 当前归属 agent
 - 优先从 `checkpoints.metadata.agent_name` 读取
 - 若兼容旧数据，可回退到 `assistant_id`
+- 在 `GetSession / GetSessionMessages / DeleteSession` 中为必填，用于先过滤 agent，再过滤 thread
+- 在 `ListSessions / GetLatestSession` 中仍保留“按 agent 过滤”的语义
 
 ### 7.3 `updated_at`
 
@@ -358,11 +371,12 @@ message SessionMessage {
 
 ### 9.1 not found 处理
 
-对于 thread 不存在的情况，优先返回业务布尔值，而不是 gRPC `NOT_FOUND`：
+对于 thread 不存在的情况，多数接口优先返回业务布尔值，而不是 gRPC `NOT_FOUND`：
 
 - `GetSessionResponse.found = false`
 - `GetLatestSessionResponse.found = false`
 - `DeleteSessionResponse.deleted = false`
+- `GetSessionMessages` 在指定的 `agent_name + thread_id` 或 pinned checkpoint snapshot 不存在时返回 gRPC `NOT_FOUND`
 
 原因是：
 
@@ -373,6 +387,7 @@ message SessionMessage {
 
 以下情况建议返回 `INVALID_ARGUMENT`：
 
+- thread-scoped 请求缺少 `agent_name`
 - `thread_id` 为空
 - `page_size <= 0`
 - 非法 `page_token`
@@ -402,9 +417,12 @@ message SessionMessage {
 
 - `ListSessions` 对应现有 `list_threads()`
 - `GetLatestSession` 对应现有 `get_most_recent()`
-- `DeleteSession` 对应现有 `delete_thread()`
+- `GetSession` 对应现有 `get_session(thread_id, agent_name=...)`
+- `GetSessionMessages` 对应现有 `get_session_messages(thread_id, agent_name=...)`
+- `DeleteSession` 对应现有 `delete_thread(thread_id, agent_name=...)`
 - thread 归属信息可复用 `get_thread_agent()`
 - 当前 runtime 已经切换到 latest checkpoint `channel_values.messages` 语义来计算 `message_count`
+- 线程级 checkpoint 查询已经在 `sessions.py` 中统一下沉为 `agent_name + thread_id` 过滤
 - `SessionSummary.agent_status` 由 gRPC 层基于 `AgentManager.list_agents()` 做 live overlay
 
 ### 10.2 可复用 CLI 已验证的 checkpoint 解码逻辑
@@ -488,7 +506,8 @@ message SessionMessage {
 
 session 查询接口应被定义为 data plane 的本地运行态读取能力：
 
-- 主键使用现有 `thread_id`
+- 主键继续使用现有 `thread_id`
+- thread-scoped 查询 / 删除使用 `agent_name + thread_id`
 - 以 checkpoint 为唯一事实来源
 - 先稳定支持 `resume view`
 - 明确区分 `message_count` 与 `checkpoint_count`
@@ -501,6 +520,7 @@ session 查询接口应被定义为 data plane 的本地运行态读取能力：
 当前 Phase 5 已按本设计完成主链路落地：
 
 - `SessionQuery` service 已实现 `ListSessions / GetSession / GetSessionMessages / GetLatestSession / DeleteSession`
+- thread-scoped `GetSession / GetSessionMessages / DeleteSession` 已收缩为 `agent_name + thread_id` 双键过滤，并已下沉到 checkpoint 查询层
 - `message_count` 已与 latest checkpoint `channel_values.messages` 对齐
 - `GetSessionMessages` 已实现 snapshot pinning 和分页 token 绑定
 - `SessionSummary.agent_status` 已补齐 live runtime 状态覆盖

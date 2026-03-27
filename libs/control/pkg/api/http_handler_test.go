@@ -487,13 +487,14 @@ func TestHTTPHandlerDelegatesLifecycleAndQueries(t *testing.T) {
 		t.Fatalf("unexpected list inputs: %#v", service)
 	}
 
-	sessionResp, err := http.Get(server.URL + "/api/v1/sessions/thread-1")
+	sessionResp, err := http.Get(server.URL + "/api/v1/sessions/thread-1?agent_name=assistant")
 	if err != nil {
 		t.Fatalf("GET session: %v", err)
 	}
 	assertStatus(t, sessionResp, http.StatusOK)
 	sessionBody, sessionRaw := decodeBodyWithRaw[sessionSummaryResponse](t, sessionResp)
-	if sessionBody.ThreadID != "thread-1" || service.getSessionThreadID != "thread-1" {
+	if sessionBody.ThreadID != "thread-1" ||
+		service.getSessionLocator != (domain.SessionLocator{AgentName: "assistant", ThreadID: "thread-1"}) {
 		t.Fatalf("unexpected session body or input: %#v %#v", sessionBody, service)
 	}
 	if !strings.Contains(sessionRaw, `"thread_id":"thread-1"`) || strings.Contains(sessionRaw, `"ThreadID"`) {
@@ -501,15 +502,16 @@ func TestHTTPHandlerDelegatesLifecycleAndQueries(t *testing.T) {
 	}
 
 	pageResp, err := http.Get(
-		server.URL + "/api/v1/sessions/thread-1/message_page?checkpoint_id=cp-1&mode=resume_view&page_size=20&page_token=page-1&include_raw=true",
+		server.URL + "/api/v1/sessions/thread-1/message_page?agent_name=assistant&checkpoint_id=cp-1&mode=resume_view&page_size=20&page_token=page-1&include_raw=true",
 	)
 	if err != nil {
 		t.Fatalf("GET message page: %v", err)
 	}
 	assertStatus(t, pageResp, http.StatusOK)
 	pageBody, pageRaw := decodeBodyWithRaw[sessionMessagePageResponse](t, pageResp)
-	if pageBody.ResolvedCheckpointID != "cp-2" || service.getPageQuery.ThreadID != "thread-1" ||
-		service.getPageQuery.CheckpointID != "cp-1" || service.getPageQuery.Mode != domain.SessionHistoryModeResumeView ||
+	if pageBody.ResolvedCheckpointID != "cp-2" || service.getPageQuery.AgentName != "assistant" ||
+		service.getPageQuery.ThreadID != "thread-1" || service.getPageQuery.CheckpointID != "cp-1" ||
+		service.getPageQuery.Mode != domain.SessionHistoryModeResumeView ||
 		service.getPageQuery.PageSize != 20 || service.getPageQuery.PageToken != "page-1" || !service.getPageQuery.IncludeRaw {
 		t.Fatalf("unexpected message page body or input: %#v %#v", pageBody, service.getPageQuery)
 	}
@@ -517,7 +519,7 @@ func TestHTTPHandlerDelegatesLifecycleAndQueries(t *testing.T) {
 		t.Fatalf("expected snake_case message page response, got %s", pageRaw)
 	}
 
-	messagesResp, err := http.Get(server.URL + "/api/v1/sessions/thread-1/messages?mode=resume_view&page_size=20&page_token=page-1")
+	messagesResp, err := http.Get(server.URL + "/api/v1/sessions/thread-1/messages?agent_name=assistant&mode=resume_view&page_size=20&page_token=page-1")
 	if err != nil {
 		t.Fatalf("GET messages: %v", err)
 	}
@@ -526,8 +528,13 @@ func TestHTTPHandlerDelegatesLifecycleAndQueries(t *testing.T) {
 	if len(messagesBody.Messages) != 1 || messagesBody.Messages[0].Text != "hello" || messagesBody.NextPageToken != "page-2" {
 		t.Fatalf("unexpected messages body: %#v", messagesBody)
 	}
-	if service.getMessagesThreadID != "thread-1" || service.getMessagesMode != domain.SessionHistoryModeResumeView ||
-		service.getMessagesPageSize != 20 || service.getMessagesPageToken != "page-1" {
+	if service.getMessagesQuery != (domain.SessionMessageQuery{
+		AgentName: "assistant",
+		ThreadID:  "thread-1",
+		Mode:      domain.SessionHistoryModeResumeView,
+		PageSize:  20,
+		PageToken: "page-1",
+	}) {
 		t.Fatalf("unexpected messages input: %#v", service)
 	}
 
@@ -541,7 +548,7 @@ func TestHTTPHandlerDelegatesLifecycleAndQueries(t *testing.T) {
 		t.Fatalf("unexpected latest session body or input: %#v %#v", latestBody, service)
 	}
 
-	deleteReq, err := http.NewRequest(http.MethodDelete, server.URL+"/api/v1/sessions/thread-1", nil)
+	deleteReq, err := http.NewRequest(http.MethodDelete, server.URL+"/api/v1/sessions/thread-1?agent_name=assistant", nil)
 	if err != nil {
 		t.Fatalf("NewRequest delete: %v", err)
 	}
@@ -551,13 +558,36 @@ func TestHTTPHandlerDelegatesLifecycleAndQueries(t *testing.T) {
 	}
 	assertStatus(t, deleteResp, http.StatusNoContent)
 	deleteResp.Body.Close()
-	if service.deleteThreadID != "thread-1" {
+	if service.deleteLocator != (domain.SessionLocator{AgentName: "assistant", ThreadID: "thread-1"}) {
 		t.Fatalf("unexpected delete input: %#v", service)
 	}
 }
 
 func TestHTTPHandlerDelegatesResourceCRUD(t *testing.T) {
 	service := &fakeAgentService{
+		upsertModelResp: domain.ModelConfig{
+			Name:        "default-openai",
+			Description: "default openai model",
+			Spec: domain.ModelSpec{
+				Provider:    "openai",
+				Model:       "gpt-5",
+				BaseURL:     "https://api.openai.com/v1",
+				APIKeyEnv:   "OPENAI_API_KEY",
+				ExtraParams: map[string]string{"temperature": "0.2"},
+			},
+			Status: domain.AuthoredStatusPublished,
+		},
+		getModelResp:   domain.ModelConfig{Name: "default-openai", Spec: domain.ModelSpec{Provider: "openai", Model: "gpt-5"}},
+		listModelsResp: []domain.ModelConfig{{Name: "default-openai"}},
+		listModelsPage: domain.ResourcePage[domain.ModelConfig]{
+			Items: []domain.ModelConfig{{Name: "default-openai"}},
+			PageMetadata: domain.PageMetadata{
+				PageSize:   1,
+				PageNumber: 2,
+				TotalSize:  3,
+				TotalPages: 3,
+			},
+		},
 		upsertSkillResp: domain.Skill{
 			Name:        "research",
 			Description: "research skill",
@@ -568,6 +598,15 @@ func TestHTTPHandlerDelegatesResourceCRUD(t *testing.T) {
 		},
 		getSkillResp:   domain.Skill{Name: "research", Description: "research skill"},
 		listSkillsResp: []domain.Skill{{Name: "research"}},
+		listSkillsPage: domain.ResourcePage[domain.Skill]{
+			Items: []domain.Skill{{Name: "research"}},
+			PageMetadata: domain.PageMetadata{
+				PageSize:   1,
+				PageNumber: 2,
+				TotalSize:  3,
+				TotalPages: 3,
+			},
+		},
 		upsertMCPResp: domain.MCPConfig{
 			Name:      "github",
 			Command:   "npx",
@@ -578,17 +617,35 @@ func TestHTTPHandlerDelegatesResourceCRUD(t *testing.T) {
 		},
 		getMCPResp:   domain.MCPConfig{Name: "github", Command: "npx"},
 		listMCPsResp: []domain.MCPConfig{{Name: "github"}},
+		listMCPsPage: domain.ResourcePage[domain.MCPConfig]{
+			Items: []domain.MCPConfig{{Name: "github"}},
+			PageMetadata: domain.PageMetadata{
+				PageSize:   1,
+				PageNumber: 2,
+				TotalSize:  3,
+				TotalPages: 3,
+			},
+		},
 		upsertAgentResp: domain.AuthoredAgentSpec{
 			Name:      "assistant",
 			Version:   "1.0.0",
-			Model:     domain.ModelSpec{Provider: "openai", Model: "gpt-4o"},
+			ModelRef:  "default-openai",
 			Prompt:    domain.PromptSpec{System: "You are helpful."},
 			SkillRefs: []string{"research"},
 			MCPRefs:   []string{"github"},
 			Status:    domain.AuthoredStatusPublished,
 		},
-		getAgentResp:   domain.AuthoredAgentSpec{Name: "assistant"},
-		listAgentsResp: []domain.AuthoredAgentSpec{{Name: "assistant"}},
+		getAgentResp:   domain.AuthoredAgentSpec{Name: "assistant", ModelRef: "default-openai"},
+		listAgentsResp: []domain.AuthoredAgentSpec{{Name: "assistant", ModelRef: "default-openai"}},
+		listAgentsPage: domain.ResourcePage[domain.AuthoredAgentSpec]{
+			Items: []domain.AuthoredAgentSpec{{Name: "assistant", ModelRef: "default-openai"}},
+			PageMetadata: domain.PageMetadata{
+				PageSize:   1,
+				PageNumber: 2,
+				TotalSize:  3,
+				TotalPages: 3,
+			},
+		},
 	}
 	handler, err := NewHTTPHandler(service, nil)
 	if err != nil {
@@ -597,6 +654,66 @@ func TestHTTPHandlerDelegatesResourceCRUD(t *testing.T) {
 
 	server := httptest.NewServer(handler)
 	defer server.Close()
+
+	modelReq, err := http.NewRequest(
+		http.MethodPut,
+		server.URL+"/api/v1/models/default-openai",
+		strings.NewReader(`{"description":"default openai model","provider":"openai","model":"gpt-5","base_url":"https://api.openai.com/v1","api_key_env":"OPENAI_API_KEY","extra_params":{"temperature":"0.2"},"status":"published"}`),
+	)
+	if err != nil {
+		t.Fatalf("NewRequest model: %v", err)
+	}
+	modelReq.Header.Set("Content-Type", "application/json")
+	modelResp, err := http.DefaultClient.Do(modelReq)
+	if err != nil {
+		t.Fatalf("PUT model: %v", err)
+	}
+	assertStatus(t, modelResp, http.StatusOK)
+	modelBody, modelRaw := decodeBodyWithRaw[modelConfigResponse](t, modelResp)
+	if modelBody.Name != "default-openai" || service.upsertModelReq.Name != "default-openai" || service.upsertModelReq.Spec.Model != "gpt-5" {
+		t.Fatalf("unexpected model body or input: %#v %#v", modelBody, service.upsertModelReq)
+	}
+	if !strings.Contains(modelRaw, `"name":"default-openai"`) || strings.Contains(modelRaw, `"Name"`) {
+		t.Fatalf("expected snake_case model response, got %s", modelRaw)
+	}
+
+	modelsResp, err := http.Get(server.URL + "/api/v1/models?page_size=1&page_number=2")
+	if err != nil {
+		t.Fatalf("GET models: %v", err)
+	}
+	assertStatus(t, modelsResp, http.StatusOK)
+	modelsBody := decodeBody[modelConfigsListResponse](t, modelsResp)
+	if len(modelsBody.Models) != 1 || modelsBody.Models[0].Name != "default-openai" ||
+		modelsBody.PageSize != 1 || modelsBody.PageNumber != 2 ||
+		modelsBody.TotalSize != 3 || modelsBody.TotalPages != 3 {
+		t.Fatalf("unexpected models body: %#v", modelsBody)
+	}
+	if service.listModelsQuery != (domain.PageQuery{PageSize: 1, PageNumber: 2}) {
+		t.Fatalf("unexpected model page query: %#v", service.listModelsQuery)
+	}
+
+	getModelResp, err := http.Get(server.URL + "/api/v1/models/default-openai")
+	if err != nil {
+		t.Fatalf("GET model: %v", err)
+	}
+	assertStatus(t, getModelResp, http.StatusOK)
+	if decodeBody[modelConfigResponse](t, getModelResp).Name != "default-openai" || service.getModelName != "default-openai" {
+		t.Fatalf("unexpected get model input: %#v", service)
+	}
+
+	deleteModelReq, err := http.NewRequest(http.MethodDelete, server.URL+"/api/v1/models/default-openai", nil)
+	if err != nil {
+		t.Fatalf("NewRequest delete model: %v", err)
+	}
+	deleteModelResp, err := http.DefaultClient.Do(deleteModelReq)
+	if err != nil {
+		t.Fatalf("DELETE model: %v", err)
+	}
+	assertStatus(t, deleteModelResp, http.StatusNoContent)
+	deleteModelResp.Body.Close()
+	if service.deleteModelName != "default-openai" {
+		t.Fatalf("unexpected delete model input: %#v", service)
+	}
 
 	skillReq, err := http.NewRequest(
 		http.MethodPut,
@@ -620,14 +737,19 @@ func TestHTTPHandlerDelegatesResourceCRUD(t *testing.T) {
 		t.Fatalf("expected snake_case skill response, got %s", skillRaw)
 	}
 
-	skillsResp, err := http.Get(server.URL + "/api/v1/skills")
+	skillsResp, err := http.Get(server.URL + "/api/v1/skills?page_size=1&page_number=2")
 	if err != nil {
 		t.Fatalf("GET skills: %v", err)
 	}
 	assertStatus(t, skillsResp, http.StatusOK)
 	skillsBody := decodeBody[skillsListResponse](t, skillsResp)
-	if len(skillsBody.Skills) != 1 || skillsBody.Skills[0].Name != "research" {
+	if len(skillsBody.Skills) != 1 || skillsBody.Skills[0].Name != "research" ||
+		skillsBody.PageSize != 1 || skillsBody.PageNumber != 2 ||
+		skillsBody.TotalSize != 3 || skillsBody.TotalPages != 3 {
 		t.Fatalf("unexpected skills body: %#v", skillsBody)
+	}
+	if service.listSkillsQuery != (domain.PageQuery{PageSize: 1, PageNumber: 2}) {
+		t.Fatalf("unexpected skill page query: %#v", service.listSkillsQuery)
 	}
 
 	getSkillResp, err := http.Get(server.URL + "/api/v1/skills/research")
@@ -671,13 +793,18 @@ func TestHTTPHandlerDelegatesResourceCRUD(t *testing.T) {
 		t.Fatalf("unexpected mcp upsert input: %#v", service)
 	}
 
-	listMCPResp, err := http.Get(server.URL + "/api/v1/mcps")
+	listMCPResp, err := http.Get(server.URL + "/api/v1/mcps?page_size=1&page_number=2")
 	if err != nil {
 		t.Fatalf("GET mcps: %v", err)
 	}
 	assertStatus(t, listMCPResp, http.StatusOK)
-	if len(decodeBody[mcpConfigsListResponse](t, listMCPResp).MCPs) != 1 {
-		t.Fatal("expected one mcp config")
+	listMCPBody := decodeBody[mcpConfigsListResponse](t, listMCPResp)
+	if len(listMCPBody.MCPs) != 1 || listMCPBody.PageSize != 1 || listMCPBody.PageNumber != 2 ||
+		listMCPBody.TotalSize != 3 || listMCPBody.TotalPages != 3 {
+		t.Fatalf("unexpected mcp list body: %#v", listMCPBody)
+	}
+	if service.listMCPsQuery != (domain.PageQuery{PageSize: 1, PageNumber: 2}) {
+		t.Fatalf("unexpected mcp page query: %#v", service.listMCPsQuery)
 	}
 
 	getMCPResp, err := http.Get(server.URL + "/api/v1/mcps/github")
@@ -706,7 +833,7 @@ func TestHTTPHandlerDelegatesResourceCRUD(t *testing.T) {
 	agentReq, err := http.NewRequest(
 		http.MethodPut,
 		server.URL+"/api/v1/agents/assistant",
-		strings.NewReader(`{"version":"1.0.0","model":{"provider":"openai","model":"gpt-4o"},"prompt":{"system":"You are helpful."},"skill_refs":["research"],"mcp_refs":["github"],"status":"published"}`),
+		strings.NewReader(`{"version":"1.0.0","model_ref":"default-openai","prompt":{"system":"You are helpful."},"skill_refs":["research"],"mcp_refs":["github"],"status":"published"}`),
 	)
 	if err != nil {
 		t.Fatalf("NewRequest agent: %v", err)
@@ -718,20 +845,25 @@ func TestHTTPHandlerDelegatesResourceCRUD(t *testing.T) {
 	}
 	assertStatus(t, agentResp, http.StatusOK)
 	agentBody, agentRaw := decodeBodyWithRaw[agentSpecResponse](t, agentResp)
-	if agentBody.Name != "assistant" || service.upsertAgentReq.Name != "assistant" {
+	if agentBody.Name != "assistant" || agentBody.ModelRef != "default-openai" || service.upsertAgentReq.Name != "assistant" || service.upsertAgentReq.ModelRef != "default-openai" {
 		t.Fatalf("unexpected agent body or input: %#v %#v", agentBody, service.upsertAgentReq)
 	}
 	if !strings.Contains(agentRaw, `"name":"assistant"`) || strings.Contains(agentRaw, `"WorkspaceName"`) || strings.Contains(agentRaw, `"workspace_name"`) {
 		t.Fatalf("expected snake_case agent response, got %s", agentRaw)
 	}
 
-	listAgentsResp, err := http.Get(server.URL + "/api/v1/agents")
+	listAgentsResp, err := http.Get(server.URL + "/api/v1/agents?page_size=1&page_number=2")
 	if err != nil {
 		t.Fatalf("GET agents: %v", err)
 	}
 	assertStatus(t, listAgentsResp, http.StatusOK)
-	if len(decodeBody[agentSpecsListResponse](t, listAgentsResp).Agents) != 1 {
-		t.Fatal("expected one agent spec")
+	listAgentsBody := decodeBody[agentSpecsListResponse](t, listAgentsResp)
+	if len(listAgentsBody.Agents) != 1 || listAgentsBody.PageSize != 1 || listAgentsBody.PageNumber != 2 ||
+		listAgentsBody.TotalSize != 3 || listAgentsBody.TotalPages != 3 {
+		t.Fatalf("unexpected agent list body: %#v", listAgentsBody)
+	}
+	if service.listAgentsQuery != (domain.PageQuery{PageSize: 1, PageNumber: 2}) {
+		t.Fatalf("unexpected agent page query: %#v", service.listAgentsQuery)
 	}
 
 	getAgentResp, err := http.Get(server.URL + "/api/v1/agents/assistant")
@@ -739,7 +871,7 @@ func TestHTTPHandlerDelegatesResourceCRUD(t *testing.T) {
 		t.Fatalf("GET agent: %v", err)
 	}
 	assertStatus(t, getAgentResp, http.StatusOK)
-	if decodeBody[agentSpecResponse](t, getAgentResp).Name != "assistant" || service.getAgentName != "assistant" {
+	if body := decodeBody[agentSpecResponse](t, getAgentResp); body.Name != "assistant" || body.ModelRef != "default-openai" || service.getAgentName != "assistant" {
 		t.Fatalf("unexpected get agent input: %#v", service)
 	}
 
@@ -778,6 +910,46 @@ func TestHTTPHandlerReturnsBadRequestForInvalidSessionQuery(t *testing.T) {
 	}
 }
 
+func TestHTTPHandlerReturnsBadRequestForInvalidResourcePageQuery(t *testing.T) {
+	handler, err := NewHTTPHandler(&fakeAgentService{}, nil)
+	if err != nil {
+		t.Fatalf("NewHTTPHandler: %v", err)
+	}
+
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	resp, err := http.Get(server.URL + "/api/v1/models?page_number=abc")
+	if err != nil {
+		t.Fatalf("GET models: %v", err)
+	}
+	assertStatus(t, resp, http.StatusBadRequest)
+	body := decodeBody[errorResponse](t, resp)
+	if !strings.Contains(body.Error, "page_number") {
+		t.Fatalf("unexpected error body: %#v", body)
+	}
+}
+
+func TestHTTPHandlerRequiresAgentNameForThreadScopedSessionQuery(t *testing.T) {
+	handler, err := NewHTTPHandler(&fakeAgentService{}, nil)
+	if err != nil {
+		t.Fatalf("NewHTTPHandler: %v", err)
+	}
+
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	resp, err := http.Get(server.URL + "/api/v1/sessions/thread-1")
+	if err != nil {
+		t.Fatalf("GET session: %v", err)
+	}
+	assertStatus(t, resp, http.StatusBadRequest)
+	body := decodeBody[errorResponse](t, resp)
+	if !strings.Contains(body.Error, "agent_name") {
+		t.Fatalf("unexpected error body: %#v", body)
+	}
+}
+
 func TestHTTPHandlerMapsServiceNotFoundTo404(t *testing.T) {
 	service := &fakeAgentService{
 		getSessionErr: registrypkg.ErrNotFound,
@@ -790,7 +962,7 @@ func TestHTTPHandlerMapsServiceNotFoundTo404(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	resp, err := http.Get(server.URL + "/api/v1/sessions/thread-404")
+	resp, err := http.Get(server.URL + "/api/v1/sessions/thread-404?agent_name=assistant")
 	if err != nil {
 		t.Fatalf("GET session: %v", err)
 	}
@@ -837,7 +1009,7 @@ func TestHTTPHandlerMapsRegistryInvalidTo400(t *testing.T) {
 	req, err := http.NewRequest(
 		http.MethodPut,
 		server.URL+"/api/v1/agents/assistant",
-		strings.NewReader(`{"version":"1.0.0","model":{"provider":"openai","model":"gpt-4o"},"prompt":{"system":"You are helpful."},"skill_refs":["research"],"status":"published"}`),
+		strings.NewReader(`{"version":"1.0.0","model_ref":"default-openai","prompt":{"system":"You are helpful."},"skill_refs":["research"],"status":"published"}`),
 	)
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)

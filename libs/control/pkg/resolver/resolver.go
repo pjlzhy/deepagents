@@ -34,6 +34,10 @@ func (r *RegistryResolver) ResolveAgent(
 	if err != nil {
 		return domain.ResolvedAgentInput{}, err
 	}
+	modelConfig, err := r.registry.GetModelConfig(ctx, agent.ModelRef)
+	if err != nil {
+		return domain.ResolvedAgentInput{}, err
+	}
 
 	skills := make([]domain.Skill, 0, len(agent.SkillRefs))
 	for _, name := range agent.SkillRefs {
@@ -54,8 +58,9 @@ func (r *RegistryResolver) ResolveAgent(
 	}
 
 	return domain.ResolvedAgentInput{
-		Agent:      agent,
-		Skills:     skills,
-		MCPConfigs: mcpConfigs,
+		Agent:       agent,
+		ModelConfig: modelConfig,
+		Skills:      skills,
+		MCPConfigs:  mcpConfigs,
 	}, nil
 }

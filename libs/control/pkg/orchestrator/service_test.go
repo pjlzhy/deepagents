@@ -6,6 +6,8 @@ import (
 	"agentctl/pkg/runtimeclient"
 	"context"
 	"errors"
+	"fmt"
+	"sort"
 	"testing"
 )
 
@@ -45,9 +47,99 @@ func (f *fakePackager) Package(
 }
 
 type stubRegistry struct {
+	models map[string]domain.ModelConfig
 	skills map[string]domain.Skill
 	mcps   map[string]domain.MCPConfig
 	agents map[string]domain.AuthoredAgentSpec
+}
+
+func paginateNamedMap[T any](
+	items map[string]T,
+	query domain.PageQuery,
+) (domain.ResourcePage[T], error) {
+	if query.PageSize < 0 {
+		return domain.ResourcePage[T]{}, fmt.Errorf("%w: page_size must be non-negative", registrypkg.ErrInvalid)
+	}
+	if query.PageNumber < 0 {
+		return domain.ResourcePage[T]{}, fmt.Errorf("%w: page_number must be non-negative", registrypkg.ErrInvalid)
+	}
+	if query.PageSize == 0 && query.PageNumber > 0 {
+		return domain.ResourcePage[T]{}, fmt.Errorf("%w: page_number requires page_size", registrypkg.ErrInvalid)
+	}
+	if query.PageSize > 0 && query.PageNumber == 0 {
+		query.PageNumber = 1
+	}
+
+	keys := make([]string, 0, len(items))
+	for name := range items {
+		keys = append(keys, name)
+	}
+	sort.Strings(keys)
+
+	totalSize := int32(len(keys))
+	start := 0
+	end := len(keys)
+	metadata := domain.PageMetadata{TotalSize: totalSize}
+	if query.PageSize > 0 {
+		metadata.PageSize = query.PageSize
+		metadata.PageNumber = query.PageNumber
+		metadata.TotalPages = (totalSize + query.PageSize - 1) / query.PageSize
+
+		start = int(query.PageSize * (query.PageNumber - 1))
+		if start > len(keys) {
+			start = len(keys)
+		}
+		end = start + int(query.PageSize)
+		if end > len(keys) {
+			end = len(keys)
+		}
+	}
+
+	pageItems := make([]T, 0, end-start)
+	for _, name := range keys[start:end] {
+		pageItems = append(pageItems, items[name])
+	}
+
+	return domain.ResourcePage[T]{
+		Items:        pageItems,
+		PageMetadata: metadata,
+	}, nil
+}
+
+func (s *stubRegistry) UpsertModelConfig(_ context.Context, config domain.ModelConfig) error {
+	if s.models == nil {
+		s.models = make(map[string]domain.ModelConfig)
+	}
+	s.models[config.Name] = config
+	return nil
+}
+
+func (s *stubRegistry) GetModelConfig(_ context.Context, name string) (domain.ModelConfig, error) {
+	config, ok := s.models[name]
+	if !ok {
+		return domain.ModelConfig{}, registrypkg.ErrNotFound
+	}
+	return config, nil
+}
+
+func (s *stubRegistry) ListModelConfigs(ctx context.Context) ([]domain.ModelConfig, error) {
+	page, err := s.ListModelConfigsPage(ctx, domain.PageQuery{})
+	if err != nil {
+		return nil, err
+	}
+	return page.Items, nil
+}
+
+func (s *stubRegistry) ListModelConfigsPage(
+	_ context.Context,
+	query domain.PageQuery,
+) (domain.ResourcePage[domain.ModelConfig], error) {
+	return paginateNamedMap(s.models, query)
+}
+
+func (s *stubRegistry) DeleteModelConfig(_ context.Context, name string) error {
+	delete(s.models, name)
+	return nil
 }
 
 func (s *stubRegistry) UpsertSkill(_ context.Context, skill domain.Skill) error {
@@ -66,12 +158,19 @@ func (s *stubRegistry) GetSkill(_ context.Context, name string) (domain.Skill, e
 	return skill, nil
 }
 
-func (s *stubRegistry) ListSkills(context.Context) ([]domain.Skill, error) {
-	skills := make([]domain.Skill, 0, len(s.skills))
-	for _, skill := range s.skills {
-		skills = append(skills, skill)
+func (s *stubRegistry) ListSkills(ctx context.Context) ([]domain.Skill, error) {
+	page, err := s.ListSkillsPage(ctx, domain.PageQuery{})
+	if err != nil {
+		return nil, err
 	}
-	return skills, nil
+	return page.Items, nil
+}
+
+func (s *stubRegistry) ListSkillsPage(
+	_ context.Context,
+	query domain.PageQuery,
+) (domain.ResourcePage[domain.Skill], error) {
+	return paginateNamedMap(s.skills, query)
 }
 
 func (s *stubRegistry) DeleteSkill(_ context.Context, name string) error {
@@ -95,12 +194,19 @@ func (s *stubRegistry) GetMCPConfig(_ context.Context, name string) (domain.MCPC
 	return config, nil
 }
 
-func (s *stubRegistry) ListMCPConfigs(context.Context) ([]domain.MCPConfig, error) {
-	configs := make([]domain.MCPConfig, 0, len(s.mcps))
-	for _, config := range s.mcps {
-		configs = append(configs, config)
+func (s *stubRegistry) ListMCPConfigs(ctx context.Context) ([]domain.MCPConfig, error) {
+	page, err := s.ListMCPConfigsPage(ctx, domain.PageQuery{})
+	if err != nil {
+		return nil, err
 	}
-	return configs, nil
+	return page.Items, nil
+}
+
+func (s *stubRegistry) ListMCPConfigsPage(
+	_ context.Context,
+	query domain.PageQuery,
+) (domain.ResourcePage[domain.MCPConfig], error) {
+	return paginateNamedMap(s.mcps, query)
 }
 
 func (s *stubRegistry) DeleteMCPConfig(_ context.Context, name string) error {
@@ -124,12 +230,19 @@ func (s *stubRegistry) GetAgentSpec(_ context.Context, name string) (domain.Auth
 	return spec, nil
 }
 
-func (s *stubRegistry) ListAgentSpecs(context.Context) ([]domain.AuthoredAgentSpec, error) {
-	specs := make([]domain.AuthoredAgentSpec, 0, len(s.agents))
-	for _, spec := range s.agents {
-		specs = append(specs, spec)
+func (s *stubRegistry) ListAgentSpecs(ctx context.Context) ([]domain.AuthoredAgentSpec, error) {
+	page, err := s.ListAgentSpecsPage(ctx, domain.PageQuery{})
+	if err != nil {
+		return nil, err
 	}
-	return specs, nil
+	return page.Items, nil
+}
+
+func (s *stubRegistry) ListAgentSpecsPage(
+	_ context.Context,
+	query domain.PageQuery,
+) (domain.ResourcePage[domain.AuthoredAgentSpec], error) {
+	return paginateNamedMap(s.agents, query)
 }
 
 func (s *stubRegistry) DeleteAgentSpec(_ context.Context, name string) error {
@@ -256,7 +369,10 @@ func (fakeSessionQueryClient) ListSessions(
 	return nil, "", nil
 }
 
-func (fakeSessionQueryClient) GetSession(context.Context, string) (domain.SessionSummary, error) {
+func (fakeSessionQueryClient) GetSession(
+	context.Context,
+	domain.SessionLocator,
+) (domain.SessionSummary, error) {
 	return domain.SessionSummary{}, nil
 }
 
@@ -269,10 +385,7 @@ func (fakeSessionQueryClient) GetSessionMessagePage(
 
 func (fakeSessionQueryClient) GetSessionMessages(
 	context.Context,
-	string,
-	domain.SessionHistoryMode,
-	int32,
-	string,
+	domain.SessionMessageQuery,
 ) ([]domain.SessionMessage, string, error) {
 	return nil, "", nil
 }
@@ -284,7 +397,7 @@ func (fakeSessionQueryClient) GetLatestSession(
 	return domain.SessionSummary{}, nil
 }
 
-func (fakeSessionQueryClient) DeleteSession(context.Context, string) error {
+func (fakeSessionQueryClient) DeleteSession(context.Context, domain.SessionLocator) error {
 	return nil
 }
 
@@ -296,28 +409,25 @@ type stubSessionQueryClient struct {
 	listSessionsPageSize  int32
 	listSessionsPageToken string
 
-	getSessionResp     domain.SessionSummary
-	getSessionErr      error
-	getSessionThreadID string
+	getSessionResp    domain.SessionSummary
+	getSessionErr     error
+	getSessionLocator domain.SessionLocator
 
 	getPageResp  domain.SessionMessagePage
 	getPageErr   error
 	getPageQuery domain.SessionMessageQuery
 
-	getMessagesResp      []domain.SessionMessage
-	getMessagesToken     string
-	getMessagesErr       error
-	getMessagesThreadID  string
-	getMessagesMode      domain.SessionHistoryMode
-	getMessagesPageSize  int32
-	getMessagesPageToken string
+	getMessagesResp  []domain.SessionMessage
+	getMessagesToken string
+	getMessagesErr   error
+	getMessagesQuery domain.SessionMessageQuery
 
 	getLatestResp      domain.SessionSummary
 	getLatestErr       error
 	getLatestAgentName string
 
-	deleteSessionErr      error
-	deleteSessionThreadID string
+	deleteSessionErr     error
+	deleteSessionLocator domain.SessionLocator
 }
 
 func (s *stubSessionQueryClient) ListSessions(
@@ -332,8 +442,11 @@ func (s *stubSessionQueryClient) ListSessions(
 	return s.listSessionsResp, s.listSessionsToken, s.listSessionsErr
 }
 
-func (s *stubSessionQueryClient) GetSession(_ context.Context, threadID string) (domain.SessionSummary, error) {
-	s.getSessionThreadID = threadID
+func (s *stubSessionQueryClient) GetSession(
+	_ context.Context,
+	locator domain.SessionLocator,
+) (domain.SessionSummary, error) {
+	s.getSessionLocator = locator
 	return s.getSessionResp, s.getSessionErr
 }
 
@@ -347,15 +460,9 @@ func (s *stubSessionQueryClient) GetSessionMessagePage(
 
 func (s *stubSessionQueryClient) GetSessionMessages(
 	_ context.Context,
-	threadID string,
-	mode domain.SessionHistoryMode,
-	pageSize int32,
-	pageToken string,
+	query domain.SessionMessageQuery,
 ) ([]domain.SessionMessage, string, error) {
-	s.getMessagesThreadID = threadID
-	s.getMessagesMode = mode
-	s.getMessagesPageSize = pageSize
-	s.getMessagesPageToken = pageToken
+	s.getMessagesQuery = query
 	return s.getMessagesResp, s.getMessagesToken, s.getMessagesErr
 }
 
@@ -367,9 +474,38 @@ func (s *stubSessionQueryClient) GetLatestSession(
 	return s.getLatestResp, s.getLatestErr
 }
 
-func (s *stubSessionQueryClient) DeleteSession(_ context.Context, threadID string) error {
-	s.deleteSessionThreadID = threadID
+func (s *stubSessionQueryClient) DeleteSession(
+	_ context.Context,
+	locator domain.SessionLocator,
+) error {
+	s.deleteSessionLocator = locator
 	return s.deleteSessionErr
+}
+
+func testResolvedAgentInput(agentName string) domain.ResolvedAgentInput {
+	return domain.ResolvedAgentInput{
+		Agent: domain.AuthoredAgentSpec{
+			Name:     agentName,
+			ModelRef: "default-openai",
+		},
+		ModelConfig: domain.ModelConfig{
+			Name: "default-openai",
+			Spec: domain.ModelSpec{
+				Provider: "openai",
+				Model:    "gpt-5",
+			},
+		},
+	}
+}
+
+func testRuntimeAgentSpec(agentName string) domain.RuntimeAgentSpec {
+	return domain.RuntimeAgentSpec{
+		Name: agentName,
+		Model: domain.ModelSpec{
+			Provider: "openai",
+			Model:    "gpt-5",
+		},
+	}
 }
 
 func TestNewServiceRejectsMissingResolver(t *testing.T) {
@@ -397,16 +533,8 @@ func TestNewServiceAcceptsCompleteDependencies(t *testing.T) {
 
 func TestEnsureRunnableSyncsAndAssemblesAgent(t *testing.T) {
 	callLog := []string{}
-	resolved := domain.ResolvedAgentInput{
-		Agent: domain.AuthoredAgentSpec{
-			Name:  "demo-agent",
-			Model: domain.ModelSpec{Provider: "openai", Model: "gpt-5"},
-		},
-	}
-	packaged := domain.RuntimeAgentSpec{
-		Name:  "demo-agent",
-		Model: domain.ModelSpec{Provider: "openai", Model: "gpt-5"},
-	}
+	resolved := testResolvedAgentInput("demo-agent")
+	packaged := testRuntimeAgentSpec("demo-agent")
 
 	packager := &fakePackager{
 		result:  packaged,
@@ -460,18 +588,10 @@ func TestEnsureRunnableSyncsAndAssemblesAgent(t *testing.T) {
 func TestEnsureRunnableReturnsSyncFailure(t *testing.T) {
 	service, err := NewService(Dependencies{
 		Resolver: &fakeResolver{
-			result: domain.ResolvedAgentInput{
-				Agent: domain.AuthoredAgentSpec{
-					Name:  "demo-agent",
-					Model: domain.ModelSpec{Provider: "openai", Model: "gpt-5"},
-				},
-			},
+			result: testResolvedAgentInput("demo-agent"),
 		},
 		Packager: &fakePackager{
-			result: domain.RuntimeAgentSpec{
-				Name:  "demo-agent",
-				Model: domain.ModelSpec{Provider: "openai", Model: "gpt-5"},
-			},
+			result: testRuntimeAgentSpec("demo-agent"),
 		},
 		ResourceSync: &fakeResourceSyncClient{
 			syncResp: runtimeclient.SyncResponse{
@@ -494,18 +614,10 @@ func TestEnsureRunnableReturnsSyncFailure(t *testing.T) {
 func TestEnsureRunnableReturnsAssembleFailure(t *testing.T) {
 	service, err := NewService(Dependencies{
 		Resolver: &fakeResolver{
-			result: domain.ResolvedAgentInput{
-				Agent: domain.AuthoredAgentSpec{
-					Name:  "demo-agent",
-					Model: domain.ModelSpec{Provider: "openai", Model: "gpt-5"},
-				},
-			},
+			result: testResolvedAgentInput("demo-agent"),
 		},
 		Packager: &fakePackager{
-			result: domain.RuntimeAgentSpec{
-				Name:  "demo-agent",
-				Model: domain.ModelSpec{Provider: "openai", Model: "gpt-5"},
-			},
+			result: testRuntimeAgentSpec("demo-agent"),
 		},
 		ResourceSync: &fakeResourceSyncClient{
 			syncResp: runtimeclient.SyncResponse{OK: true},
@@ -530,19 +642,11 @@ func TestEnsureRunnableReturnsAssembleFailure(t *testing.T) {
 func TestRunAgentEnsuresRunnableBeforeOpeningStream(t *testing.T) {
 	callLog := []string{}
 	resolver := &fakeResolver{
-		result: domain.ResolvedAgentInput{
-			Agent: domain.AuthoredAgentSpec{
-				Name:  "demo-agent",
-				Model: domain.ModelSpec{Provider: "openai", Model: "gpt-5"},
-			},
-		},
+		result:  testResolvedAgentInput("demo-agent"),
 		callLog: &callLog,
 	}
 	packager := &fakePackager{
-		result: domain.RuntimeAgentSpec{
-			Name:  "demo-agent",
-			Model: domain.ModelSpec{Provider: "openai", Model: "gpt-5"},
-		},
+		result:  testRuntimeAgentSpec("demo-agent"),
 		callLog: &callLog,
 	}
 	resourceSync := &fakeResourceSyncClient{
@@ -645,18 +749,10 @@ func TestRunAgentWrapsOpenRunError(t *testing.T) {
 	}
 	service, err := NewService(Dependencies{
 		Resolver: &fakeResolver{
-			result: domain.ResolvedAgentInput{
-				Agent: domain.AuthoredAgentSpec{
-					Name:  "demo-agent",
-					Model: domain.ModelSpec{Provider: "openai", Model: "gpt-5"},
-				},
-			},
+			result: testResolvedAgentInput("demo-agent"),
 		},
 		Packager: &fakePackager{
-			result: domain.RuntimeAgentSpec{
-				Name:  "demo-agent",
-				Model: domain.ModelSpec{Provider: "openai", Model: "gpt-5"},
-			},
+			result: testRuntimeAgentSpec("demo-agent"),
 		},
 		ResourceSync: &fakeResourceSyncClient{
 			syncResp:     runtimeclient.SyncResponse{OK: true},
@@ -712,6 +808,29 @@ func TestResourceCRUDDelegatesToRegistry(t *testing.T) {
 		t.Fatalf("new service: %v", err)
 	}
 
+	modelConfig, err := service.UpsertModelConfig(context.Background(), domain.ModelConfig{
+		Name: "default-openai",
+		Spec: domain.ModelSpec{Provider: "openai", Model: "gpt-5"},
+	})
+	if err != nil || modelConfig.Name != "default-openai" {
+		t.Fatalf("unexpected upsert model result: %#v err=%v", modelConfig, err)
+	}
+	if got, err := service.GetModelConfig(context.Background(), "default-openai"); err != nil || got.Name != "default-openai" {
+		t.Fatalf("unexpected get model result: %#v err=%v", got, err)
+	}
+	if list, err := service.ListModelConfigs(context.Background()); err != nil || len(list) != 1 {
+		t.Fatalf("unexpected list models result: %#v err=%v", list, err)
+	}
+	if page, err := service.ListModelConfigsPage(
+		context.Background(),
+		domain.PageQuery{PageSize: 1, PageNumber: 1},
+	); err != nil || len(page.Items) != 1 || page.TotalSize != 1 || page.TotalPages != 1 {
+		t.Fatalf("unexpected list model page result: %#v err=%v", page, err)
+	}
+	if err := service.DeleteModelConfig(context.Background(), "default-openai"); err != nil {
+		t.Fatalf("delete model: %v", err)
+	}
+
 	skill, err := service.UpsertSkill(context.Background(), domain.Skill{Name: "research", Content: "# SKILL"})
 	if err != nil || skill.Name != "research" {
 		t.Fatalf("unexpected upsert skill result: %#v err=%v", skill, err)
@@ -721,6 +840,12 @@ func TestResourceCRUDDelegatesToRegistry(t *testing.T) {
 	}
 	if list, err := service.ListSkills(context.Background()); err != nil || len(list) != 1 {
 		t.Fatalf("unexpected list skills result: %#v err=%v", list, err)
+	}
+	if page, err := service.ListSkillsPage(
+		context.Background(),
+		domain.PageQuery{PageSize: 1, PageNumber: 1},
+	); err != nil || len(page.Items) != 1 || page.TotalSize != 1 || page.TotalPages != 1 {
+		t.Fatalf("unexpected list skill page result: %#v err=%v", page, err)
 	}
 	if err := service.DeleteSkill(context.Background(), "research"); err != nil {
 		t.Fatalf("delete skill: %v", err)
@@ -736,13 +861,19 @@ func TestResourceCRUDDelegatesToRegistry(t *testing.T) {
 	if list, err := service.ListMCPConfigs(context.Background()); err != nil || len(list) != 1 {
 		t.Fatalf("unexpected list mcps result: %#v err=%v", list, err)
 	}
+	if page, err := service.ListMCPConfigsPage(
+		context.Background(),
+		domain.PageQuery{PageSize: 1, PageNumber: 1},
+	); err != nil || len(page.Items) != 1 || page.TotalSize != 1 || page.TotalPages != 1 {
+		t.Fatalf("unexpected list mcp page result: %#v err=%v", page, err)
+	}
 	if err := service.DeleteMCPConfig(context.Background(), "github"); err != nil {
 		t.Fatalf("delete mcp: %v", err)
 	}
 
 	spec, err := service.UpsertAgentSpec(
 		context.Background(),
-		domain.AuthoredAgentSpec{Name: "assistant", Model: domain.ModelSpec{Provider: "openai", Model: "gpt-4o"}},
+		domain.AuthoredAgentSpec{Name: "assistant", ModelRef: "default-openai"},
 	)
 	if err != nil || spec.Name != "assistant" {
 		t.Fatalf("unexpected upsert agent result: %#v err=%v", spec, err)
@@ -753,8 +884,38 @@ func TestResourceCRUDDelegatesToRegistry(t *testing.T) {
 	if list, err := service.ListAgentSpecs(context.Background()); err != nil || len(list) != 1 {
 		t.Fatalf("unexpected list agents result: %#v err=%v", list, err)
 	}
+	if page, err := service.ListAgentSpecsPage(
+		context.Background(),
+		domain.PageQuery{PageSize: 1, PageNumber: 1},
+	); err != nil || len(page.Items) != 1 || page.TotalSize != 1 || page.TotalPages != 1 {
+		t.Fatalf("unexpected list agent page result: %#v err=%v", page, err)
+	}
 	if err := service.DeleteAgentSpec(context.Background(), "assistant"); err != nil {
 		t.Fatalf("delete agent: %v", err)
+	}
+}
+
+func TestResourcePageRejectsPageNumberWithoutPageSize(t *testing.T) {
+	reg := &stubRegistry{
+		models: map[string]domain.ModelConfig{
+			"default-openai": {Name: "default-openai"},
+		},
+	}
+	service, err := NewService(Dependencies{
+		Registry:     reg,
+		Resolver:     &fakeResolver{},
+		Packager:     &fakePackager{},
+		ResourceSync: &fakeResourceSyncClient{},
+		Executor:     fakeExecutorClient{},
+		Sessions:     fakeSessionQueryClient{},
+	})
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	_, err = service.ListModelConfigsPage(context.Background(), domain.PageQuery{PageNumber: 1})
+	if !errors.Is(err, registrypkg.ErrInvalid) {
+		t.Fatalf("expected invalid pagination error, got %v", err)
 	}
 }
 
@@ -803,20 +964,24 @@ func TestGetSessionDelegatesToSessionClient(t *testing.T) {
 		t.Fatalf("new service: %v", err)
 	}
 
-	session, err := service.GetSession(context.Background(), "thread-1")
+	session, err := service.GetSession(context.Background(), domain.SessionLocator{
+		AgentName: "assistant",
+		ThreadID:  "thread-1",
+	})
 	if err != nil {
 		t.Fatalf("GetSession: %v", err)
 	}
 	if session.ThreadID != "thread-1" || session.CheckpointCount != 3 {
 		t.Fatalf("unexpected session: %#v", session)
 	}
-	if sessionsClient.getSessionThreadID != "thread-1" {
+	if sessionsClient.getSessionLocator != (domain.SessionLocator{AgentName: "assistant", ThreadID: "thread-1"}) {
 		t.Fatalf("unexpected get session input: %#v", sessionsClient)
 	}
 }
 
 func TestGetSessionMessagePageDelegatesToSessionClient(t *testing.T) {
 	query := domain.SessionMessageQuery{
+		AgentName:    "assistant",
 		ThreadID:     "thread-1",
 		CheckpointID: "cp-1",
 		Mode:         domain.SessionHistoryModeResumeView,
@@ -873,23 +1038,26 @@ func TestGetSessionMessagesDelegatesToSessionClient(t *testing.T) {
 		t.Fatalf("new service: %v", err)
 	}
 
-	messages, nextPageToken, err := service.GetSessionMessages(
-		context.Background(),
-		"thread-1",
-		domain.SessionHistoryModeResumeView,
-		20,
-		"page-1",
-	)
+	messages, nextPageToken, err := service.GetSessionMessages(context.Background(), domain.SessionMessageQuery{
+		AgentName: "assistant",
+		ThreadID:  "thread-1",
+		Mode:      domain.SessionHistoryModeResumeView,
+		PageSize:  20,
+		PageToken: "page-1",
+	})
 	if err != nil {
 		t.Fatalf("GetSessionMessages: %v", err)
 	}
 	if len(messages) != 1 || messages[0].Text != "hello" || nextPageToken != "page-2" {
 		t.Fatalf("unexpected messages: %#v %q", messages, nextPageToken)
 	}
-	if sessionsClient.getMessagesThreadID != "thread-1" ||
-		sessionsClient.getMessagesMode != domain.SessionHistoryModeResumeView ||
-		sessionsClient.getMessagesPageSize != 20 ||
-		sessionsClient.getMessagesPageToken != "page-1" {
+	if sessionsClient.getMessagesQuery != (domain.SessionMessageQuery{
+		AgentName: "assistant",
+		ThreadID:  "thread-1",
+		Mode:      domain.SessionHistoryModeResumeView,
+		PageSize:  20,
+		PageToken: "page-1",
+	}) {
 		t.Fatalf("unexpected get messages inputs: %#v", sessionsClient)
 	}
 }
@@ -934,10 +1102,13 @@ func TestDeleteSessionDelegatesToSessionClient(t *testing.T) {
 		t.Fatalf("new service: %v", err)
 	}
 
-	if err := service.DeleteSession(context.Background(), "thread-1"); err != nil {
+	if err := service.DeleteSession(context.Background(), domain.SessionLocator{
+		AgentName: "assistant",
+		ThreadID:  "thread-1",
+	}); err != nil {
 		t.Fatalf("DeleteSession: %v", err)
 	}
-	if sessionsClient.deleteSessionThreadID != "thread-1" {
+	if sessionsClient.deleteSessionLocator != (domain.SessionLocator{AgentName: "assistant", ThreadID: "thread-1"}) {
 		t.Fatalf("unexpected delete session input: %#v", sessionsClient)
 	}
 }

@@ -71,6 +71,10 @@ func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (h *HTTPHandler) registerRoutes() {
 	h.serveMux.HandleFunc("GET /api/v1/health", h.handleHealth)
+	h.serveMux.HandleFunc("GET /api/v1/models", h.handleListModelConfigs)
+	h.serveMux.HandleFunc("PUT /api/v1/models/{name}", h.handleUpsertModelConfig)
+	h.serveMux.HandleFunc("GET /api/v1/models/{name}", h.handleGetModelConfig)
+	h.serveMux.HandleFunc("DELETE /api/v1/models/{name}", h.handleDeleteModelConfig)
 	h.serveMux.HandleFunc("GET /api/v1/skills", h.handleListSkills)
 	h.serveMux.HandleFunc("PUT /api/v1/skills/{name}", h.handleUpsertSkill)
 	h.serveMux.HandleFunc("GET /api/v1/skills/{name}", h.handleGetSkill)
@@ -227,7 +231,13 @@ func (h *HTTPHandler) handleGetLatestSession(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *HTTPHandler) handleGetSession(w http.ResponseWriter, r *http.Request) {
-	session, err := h.service.GetSession(r.Context(), strings.TrimSpace(r.PathValue("thread_id")))
+	locator, err := decodeSessionLocator(r)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	session, err := h.service.GetSession(r.Context(), locator)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -257,13 +267,7 @@ func (h *HTTPHandler) handleGetSessionMessages(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	messages, nextPageToken, err := h.service.GetSessionMessages(
-		r.Context(),
-		query.ThreadID,
-		query.Mode,
-		query.PageSize,
-		query.PageToken,
-	)
+	messages, nextPageToken, err := h.service.GetSessionMessages(r.Context(), query)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -276,7 +280,72 @@ func (h *HTTPHandler) handleGetSessionMessages(w http.ResponseWriter, r *http.Re
 }
 
 func (h *HTTPHandler) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
-	if err := h.service.DeleteSession(r.Context(), strings.TrimSpace(r.PathValue("thread_id"))); err != nil {
+	locator, err := decodeSessionLocator(r)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	if err := h.service.DeleteSession(r.Context(), locator); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *HTTPHandler) handleListModelConfigs(w http.ResponseWriter, r *http.Request) {
+	query, err := decodeResourcePageQuery(r)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	page, err := h.service.ListModelConfigsPage(r.Context(), query)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, modelConfigsListResponse{
+		Models:       newHTTPModelConfigResponses(page.Items),
+		pageResponse: newHTTPPageResponse(page.PageMetadata),
+	})
+}
+
+func (h *HTTPHandler) handleUpsertModelConfig(w http.ResponseWriter, r *http.Request) {
+	config, err := decodeModelConfigRequest(r)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+	stored, err := h.service.UpsertModelConfig(r.Context(), config)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, newHTTPModelConfigResponse(stored))
+}
+
+func (h *HTTPHandler) handleGetModelConfig(w http.ResponseWriter, r *http.Request) {
+	name, err := decodeResourceName(r, "name")
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+	config, err := h.service.GetModelConfig(r.Context(), name)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, newHTTPModelConfigResponse(config))
+}
+
+func (h *HTTPHandler) handleDeleteModelConfig(w http.ResponseWriter, r *http.Request) {
+	name, err := decodeResourceName(r, "name")
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := h.service.DeleteModelConfig(r.Context(), name); err != nil {
 		writeServiceError(w, err)
 		return
 	}
@@ -284,12 +353,21 @@ func (h *HTTPHandler) handleDeleteSession(w http.ResponseWriter, r *http.Request
 }
 
 func (h *HTTPHandler) handleListSkills(w http.ResponseWriter, r *http.Request) {
-	skills, err := h.service.ListSkills(r.Context())
+	query, err := decodeResourcePageQuery(r)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	page, err := h.service.ListSkillsPage(r.Context(), query)
 	if err != nil {
 		writeServiceError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, skillsListResponse{Skills: newHTTPSkillResponses(skills)})
+	writeJSON(w, http.StatusOK, skillsListResponse{
+		Skills:       newHTTPSkillResponses(page.Items),
+		pageResponse: newHTTPPageResponse(page.PageMetadata),
+	})
 }
 
 func (h *HTTPHandler) handleUpsertSkill(w http.ResponseWriter, r *http.Request) {
@@ -334,12 +412,21 @@ func (h *HTTPHandler) handleDeleteSkill(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *HTTPHandler) handleListMCPConfigs(w http.ResponseWriter, r *http.Request) {
-	configs, err := h.service.ListMCPConfigs(r.Context())
+	query, err := decodeResourcePageQuery(r)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	page, err := h.service.ListMCPConfigsPage(r.Context(), query)
 	if err != nil {
 		writeServiceError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, mcpConfigsListResponse{MCPs: newHTTPMCPConfigResponses(configs)})
+	writeJSON(w, http.StatusOK, mcpConfigsListResponse{
+		MCPs:         newHTTPMCPConfigResponses(page.Items),
+		pageResponse: newHTTPPageResponse(page.PageMetadata),
+	})
 }
 
 func (h *HTTPHandler) handleUpsertMCPConfig(w http.ResponseWriter, r *http.Request) {
@@ -384,12 +471,21 @@ func (h *HTTPHandler) handleDeleteMCPConfig(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *HTTPHandler) handleListAgentSpecs(w http.ResponseWriter, r *http.Request) {
-	specs, err := h.service.ListAgentSpecs(r.Context())
+	query, err := decodeResourcePageQuery(r)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	page, err := h.service.ListAgentSpecsPage(r.Context(), query)
 	if err != nil {
 		writeServiceError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, agentSpecsListResponse{Agents: newHTTPAgentSpecResponses(specs)})
+	writeJSON(w, http.StatusOK, agentSpecsListResponse{
+		Agents:       newHTTPAgentSpecResponses(page.Items),
+		pageResponse: newHTTPPageResponse(page.PageMetadata),
+	})
 }
 
 func (h *HTTPHandler) handleUpsertAgentSpec(w http.ResponseWriter, r *http.Request) {
@@ -745,6 +841,13 @@ type sessionMessagesResponse struct {
 	NextPageToken string                   `json:"next_page_token,omitempty"`
 }
 
+type pageResponse struct {
+	PageSize   int32 `json:"page_size,omitempty"`
+	PageNumber int32 `json:"page_number,omitempty"`
+	TotalSize  int32 `json:"total_size,omitempty"`
+	TotalPages int32 `json:"total_pages,omitempty"`
+}
+
 type skillFilePayload struct {
 	Path    string `json:"path,omitempty"`
 	Content string `json:"content,omitempty"`
@@ -771,6 +874,7 @@ type skillResponse struct {
 
 type skillsListResponse struct {
 	Skills []skillResponse `json:"skills"`
+	pageResponse
 }
 
 type mcpConfigUpsertRequest struct {
@@ -796,6 +900,35 @@ type mcpConfigResponse struct {
 
 type mcpConfigsListResponse struct {
 	MCPs []mcpConfigResponse `json:"mcps"`
+	pageResponse
+}
+
+type modelConfigUpsertRequest struct {
+	Description string            `json:"description,omitempty"`
+	Provider    string            `json:"provider,omitempty"`
+	Model       string            `json:"model,omitempty"`
+	BaseURL     string            `json:"base_url,omitempty"`
+	APIKeyEnv   string            `json:"api_key_env,omitempty"`
+	ExtraParams map[string]string `json:"extra_params,omitempty"`
+	Status      string            `json:"status,omitempty"`
+}
+
+type modelConfigResponse struct {
+	Name        string            `json:"name,omitempty"`
+	Description string            `json:"description,omitempty"`
+	Provider    string            `json:"provider,omitempty"`
+	Model       string            `json:"model,omitempty"`
+	BaseURL     string            `json:"base_url,omitempty"`
+	APIKeyEnv   string            `json:"api_key_env,omitempty"`
+	ExtraParams map[string]string `json:"extra_params,omitempty"`
+	Status      string            `json:"status,omitempty"`
+	CreatedAt   string            `json:"created_at,omitempty"`
+	UpdatedAt   string            `json:"updated_at,omitempty"`
+}
+
+type modelConfigsListResponse struct {
+	Models []modelConfigResponse `json:"models"`
+	pageResponse
 }
 
 type promptSpecPayload struct {
@@ -827,7 +960,7 @@ type agentSpecUpsertRequest struct {
 	Version     string                `json:"version,omitempty"`
 	Description string                `json:"description,omitempty"`
 	Tags        []string              `json:"tags,omitempty"`
-	Model       modelSpecPayload      `json:"model"`
+	ModelRef    string                `json:"model_ref,omitempty"`
 	Prompt      promptSpecPayload     `json:"prompt"`
 	SkillRefs   []string              `json:"skill_refs,omitempty"`
 	MCPRefs     []string              `json:"mcp_refs,omitempty"`
@@ -842,7 +975,7 @@ type agentSpecResponse struct {
 	Version     string                `json:"version,omitempty"`
 	Description string                `json:"description,omitempty"`
 	Tags        []string              `json:"tags,omitempty"`
-	Model       modelSpecPayload      `json:"model"`
+	ModelRef    string                `json:"model_ref,omitempty"`
 	Prompt      promptSpecPayload     `json:"prompt"`
 	SkillRefs   []string              `json:"skill_refs,omitempty"`
 	MCPRefs     []string              `json:"mcp_refs,omitempty"`
@@ -856,6 +989,7 @@ type agentSpecResponse struct {
 
 type agentSpecsListResponse struct {
 	Agents []agentSpecResponse `json:"agents"`
+	pageResponse
 }
 
 type listSessionsQuery struct {
@@ -866,13 +1000,6 @@ type listSessionsQuery struct {
 
 type latestSessionQuery struct {
 	AgentName string
-}
-
-type sessionMessagesQuery struct {
-	ThreadID  string
-	Mode      domain.SessionHistoryMode
-	PageSize  int32
-	PageToken string
 }
 
 func decodeRunStreamRequest(r *http.Request) (domain.RunRequest, error) {
@@ -942,6 +1069,10 @@ func decodeHITLDecisionRequest(r *http.Request) (decodedHITLDecisionRequest, err
 }
 
 func decodeSessionMessagePageQuery(r *http.Request) (domain.SessionMessageQuery, error) {
+	locator, err := decodeSessionLocator(r)
+	if err != nil {
+		return domain.SessionMessageQuery{}, err
+	}
 	mode, err := parseSessionHistoryMode(r.URL.Query().Get("mode"))
 	if err != nil {
 		return domain.SessionMessageQuery{}, err
@@ -956,7 +1087,8 @@ func decodeSessionMessagePageQuery(r *http.Request) (domain.SessionMessageQuery,
 	}
 
 	return domain.SessionMessageQuery{
-		ThreadID:     strings.TrimSpace(r.PathValue("thread_id")),
+		AgentName:    locator.AgentName,
+		ThreadID:     locator.ThreadID,
 		CheckpointID: strings.TrimSpace(r.URL.Query().Get("checkpoint_id")),
 		Mode:         mode,
 		PageSize:     pageSize,
@@ -983,20 +1115,85 @@ func decodeLatestSessionQuery(r *http.Request) latestSessionQuery {
 	}
 }
 
-func decodeSessionMessagesQuery(r *http.Request) (sessionMessagesQuery, error) {
+func decodeSessionMessagesQuery(r *http.Request) (domain.SessionMessageQuery, error) {
+	locator, err := decodeSessionLocator(r)
+	if err != nil {
+		return domain.SessionMessageQuery{}, err
+	}
 	mode, err := parseSessionHistoryMode(r.URL.Query().Get("mode"))
 	if err != nil {
-		return sessionMessagesQuery{}, err
+		return domain.SessionMessageQuery{}, err
 	}
 	pageSize, err := parsePageSize(r, "page_size")
 	if err != nil {
-		return sessionMessagesQuery{}, err
+		return domain.SessionMessageQuery{}, err
 	}
-	return sessionMessagesQuery{
-		ThreadID:  strings.TrimSpace(r.PathValue("thread_id")),
+	return domain.SessionMessageQuery{
+		AgentName: locator.AgentName,
+		ThreadID:  locator.ThreadID,
 		Mode:      mode,
 		PageSize:  pageSize,
 		PageToken: strings.TrimSpace(r.URL.Query().Get("page_token")),
+	}, nil
+}
+
+func decodeSessionLocator(r *http.Request) (domain.SessionLocator, error) {
+	agentName := strings.TrimSpace(r.URL.Query().Get("agent_name"))
+	if agentName == "" {
+		return domain.SessionLocator{}, errors.New("agent_name must not be empty")
+	}
+
+	threadID := strings.TrimSpace(r.PathValue("thread_id"))
+	if threadID == "" {
+		return domain.SessionLocator{}, errors.New("thread_id must not be empty")
+	}
+
+	return domain.SessionLocator{
+		AgentName: agentName,
+		ThreadID:  threadID,
+	}, nil
+}
+
+func decodeResourcePageQuery(r *http.Request) (domain.PageQuery, error) {
+	pageSize, err := parsePageSize(r, "page_size")
+	if err != nil {
+		return domain.PageQuery{}, err
+	}
+	pageNumber, err := parsePageNumber(r, "page_number")
+	if err != nil {
+		return domain.PageQuery{}, err
+	}
+	return domain.PageQuery{
+		PageSize:   pageSize,
+		PageNumber: pageNumber,
+	}, nil
+}
+
+func decodeModelConfigRequest(r *http.Request) (domain.ModelConfig, error) {
+	name, err := decodeResourceName(r, "name")
+	if err != nil {
+		return domain.ModelConfig{}, err
+	}
+	request, err := decodeJSON[modelConfigUpsertRequest](r, false)
+	if err != nil {
+		return domain.ModelConfig{}, err
+	}
+	status, err := parseOptionalAuthoredStatus(request.Status)
+	if err != nil {
+		return domain.ModelConfig{}, err
+	}
+
+	return domain.ModelConfig{
+		Name:        name,
+		Description: request.Description,
+		Spec: newDomainModelSpec(modelSpecPayload{
+			Provider:    request.Provider,
+			Model:       request.Model,
+			BaseURL:     request.BaseURL,
+			APIKeyEnv:   request.APIKeyEnv,
+			ExtraParams: request.ExtraParams,
+		}),
+		Status: status,
 	}, nil
 }
 
@@ -1086,7 +1283,7 @@ func decodeAgentSpecRequest(r *http.Request) (domain.AuthoredAgentSpec, error) {
 		Version:     strings.TrimSpace(request.Version),
 		Description: request.Description,
 		Tags:        trimStrings(request.Tags),
-		Model:       newDomainModelSpec(request.Model),
+		ModelRef:    strings.TrimSpace(request.ModelRef),
 		Prompt:      domain.PromptSpec{System: request.Prompt.System},
 		SkillRefs:   trimStrings(request.SkillRefs),
 		MCPRefs:     trimStrings(request.MCPRefs),
@@ -1106,6 +1303,22 @@ func decodeResourceName(r *http.Request, key string) (string, error) {
 }
 
 func parsePageSize(r *http.Request, key string) (int32, error) {
+	rawValue := strings.TrimSpace(r.URL.Query().Get(key))
+	if rawValue == "" {
+		return 0, nil
+	}
+
+	value, err := strconv.ParseInt(rawValue, 10, 32)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a valid integer", key)
+	}
+	if value < 0 {
+		return 0, fmt.Errorf("%s must be non-negative", key)
+	}
+	return int32(value), nil
+}
+
+func parsePageNumber(r *http.Request, key string) (int32, error) {
 	rawValue := strings.TrimSpace(r.URL.Query().Get(key))
 	if rawValue == "" {
 		return 0, nil
@@ -1320,6 +1533,15 @@ func newHTTPSessionMessagePageResponse(page domain.SessionMessagePage) sessionMe
 	}
 }
 
+func newHTTPPageResponse(metadata domain.PageMetadata) pageResponse {
+	return pageResponse{
+		PageSize:   metadata.PageSize,
+		PageNumber: metadata.PageNumber,
+		TotalSize:  metadata.TotalSize,
+		TotalPages: metadata.TotalPages,
+	}
+}
+
 func newHTTPSkillResponse(skill domain.Skill) skillResponse {
 	return skillResponse{
 		Name:        skill.Name,
@@ -1374,13 +1596,36 @@ func newHTTPMCPConfigResponses(configs []domain.MCPConfig) []mcpConfigResponse {
 	return responses
 }
 
+func newHTTPModelConfigResponse(config domain.ModelConfig) modelConfigResponse {
+	return modelConfigResponse{
+		Name:        config.Name,
+		Description: config.Description,
+		Provider:    config.Spec.Provider,
+		Model:       config.Spec.Model,
+		BaseURL:     config.Spec.BaseURL,
+		APIKeyEnv:   config.Spec.APIKeyEnv,
+		ExtraParams: config.Spec.ExtraParams,
+		Status:      string(config.Status),
+		CreatedAt:   formatOptionalTime(config.CreatedAt),
+		UpdatedAt:   formatOptionalTime(config.UpdatedAt),
+	}
+}
+
+func newHTTPModelConfigResponses(configs []domain.ModelConfig) []modelConfigResponse {
+	responses := make([]modelConfigResponse, 0, len(configs))
+	for _, config := range configs {
+		responses = append(responses, newHTTPModelConfigResponse(config))
+	}
+	return responses
+}
+
 func newHTTPAgentSpecResponse(spec domain.AuthoredAgentSpec) agentSpecResponse {
 	return agentSpecResponse{
 		Name:        spec.Name,
 		Version:     spec.Version,
 		Description: spec.Description,
 		Tags:        spec.Tags,
-		Model:       newHTTPModelSpec(spec.Model),
+		ModelRef:    spec.ModelRef,
 		Prompt:      promptSpecPayload{System: spec.Prompt.System},
 		SkillRefs:   spec.SkillRefs,
 		MCPRefs:     spec.MCPRefs,

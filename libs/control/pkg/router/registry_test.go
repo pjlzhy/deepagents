@@ -19,11 +19,18 @@ func TestRegistryRouterResolvesTargetFromDeployment(t *testing.T) {
 	ctx := context.Background()
 	reg := newRouterRegistry(t)
 
-	if err := reg.UpsertAgentSpec(ctx, domain.AuthoredAgentSpec{
-		Name:   "demo-agent",
-		Model:  domain.ModelSpec{Provider: "openai", Model: "gpt-5"},
-		Prompt: domain.PromptSpec{System: "You are helpful."},
+	if err := reg.UpsertModelConfig(ctx, domain.ModelConfig{
+		Name:   "default-openai",
+		Spec:   domain.ModelSpec{Provider: "openai", Model: "gpt-5"},
 		Status: domain.AuthoredStatusPublished,
+	}); err != nil {
+		t.Fatalf("upsert model config: %v", err)
+	}
+	if err := reg.UpsertAgentSpec(ctx, domain.AuthoredAgentSpec{
+		Name:     "demo-agent",
+		ModelRef: "default-openai",
+		Prompt:   domain.PromptSpec{System: "You are helpful."},
+		Status:   domain.AuthoredStatusPublished,
 	}); err != nil {
 		t.Fatalf("upsert agent spec: %v", err)
 	}
