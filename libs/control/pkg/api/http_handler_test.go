@@ -92,12 +92,18 @@ func TestHTTPHandlerStreamsRunEventsOverSSE(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
+	startedAt := time.Unix(1710000000, 125000000).UTC()
+	deltaAt := time.Unix(1710000000, 250000000).UTC()
+	toolAt := time.Unix(1710000000, 375000000).UTC()
+	endedAt := time.Unix(1710000000, 500000000).UTC()
+
 	go func() {
 		runStream.events <- runtimeclient.AgentEvent{
 			Type:      runtimeclient.AgentEventTypeRunStarted,
 			RunID:     "run-1",
 			AgentName: "assistant",
 			ThreadID:  "thread-1",
+			Timestamp: startedAt,
 		}
 		runStream.events <- runtimeclient.AgentEvent{
 			Type:      runtimeclient.AgentEventTypeTextDelta,
@@ -105,12 +111,24 @@ func TestHTTPHandlerStreamsRunEventsOverSSE(t *testing.T) {
 			AgentName: "assistant",
 			ThreadID:  "thread-1",
 			Text:      "hello",
+			Timestamp: deltaAt,
+		}
+		runStream.events <- runtimeclient.AgentEvent{
+			Type:       runtimeclient.AgentEventTypeToolCallStart,
+			RunID:      "run-1",
+			AgentName:  "assistant",
+			ThreadID:   "thread-1",
+			ToolName:   "execute",
+			ToolCallID: "tool-1",
+			Payload:    json.RawMessage(`{"command":"pwd"}`),
+			Timestamp:  toolAt,
 		}
 		runStream.events <- runtimeclient.AgentEvent{
 			Type:      runtimeclient.AgentEventTypeRunEnded,
 			RunID:     "run-1",
 			AgentName: "assistant",
 			ThreadID:  "thread-1",
+			Timestamp: endedAt,
 		}
 		close(runStream.events)
 	}()
@@ -147,11 +165,14 @@ func TestHTTPHandlerStreamsRunEventsOverSSE(t *testing.T) {
 	}
 	if !strings.Contains(bodyText, "event: run_started") ||
 		!strings.Contains(bodyText, "event: text_delta") ||
+		!strings.Contains(bodyText, "event: tool_call_start") ||
 		!strings.Contains(bodyText, "event: run_ended") {
 		t.Fatalf("expected run events in body, got %s", bodyText)
 	}
 	if !strings.Contains(bodyText, `"agent_name":"assistant"`) ||
-		!strings.Contains(bodyText, `"text":"hello"`) {
+		!strings.Contains(bodyText, `"text":"hello"`) ||
+		!strings.Contains(bodyText, `"payload":{"command":"pwd"}`) ||
+		!strings.Contains(bodyText, `"timestamp":"`+startedAt.Format("2006-01-02T15:04:05.999999999Z07:00")+`"`) {
 		t.Fatalf("expected event payload in body, got %s", bodyText)
 	}
 
@@ -256,7 +277,7 @@ func TestHTTPHandlerForwardsHITLDecisions(t *testing.T) {
 	hitlResp, err := http.Post(
 		server.URL+"/api/v1/run_sessions/"+sessionID+"/hitl_decisions",
 		"application/json",
-		strings.NewReader(`{"interrupt_id":"interrupt-1","decisions":[{"tool_call_id":"tool-1","approved":true,"reason":"ok"}]}`),
+		strings.NewReader(`{"interrupt_id":"interrupt-1","decisions":[{"type":"approve"}]}`),
 	)
 	if err != nil {
 		t.Fatalf("POST hitl request: %v", err)
@@ -275,9 +296,9 @@ func TestHTTPHandlerForwardsHITLDecisions(t *testing.T) {
 		t.Fatalf("unexpected interrupt ids: %#v", runStream.interruptIDs)
 	}
 	if len(runStream.decisions) != 1 ||
-		runStream.decisions[0].ToolCallID != "tool-1" ||
-		!runStream.decisions[0].Approved ||
-		runStream.decisions[0].Reason != "ok" {
+		runStream.decisions[0].Type != "approve" ||
+		runStream.decisions[0].EditedAction != nil ||
+		runStream.decisions[0].Message != "" {
 		runStream.mu.Unlock()
 		t.Fatalf("unexpected decisions: %#v", runStream.decisions)
 	}
@@ -309,6 +330,32 @@ func TestHTTPHandlerReturnsNotFoundForUnknownRunSession(t *testing.T) {
 	if resp.StatusCode != http.StatusNotFound {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("unexpected status: %d body=%s", resp.StatusCode, string(body))
+	}
+}
+
+func TestDecodeHITLDecisionRequestDecodesRejectDecision(t *testing.T) {
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/run_sessions/session-1/hitl_decisions",
+		strings.NewReader(`{"interrupt_id":"interrupt-1","decisions":[{"type":"reject","message":"deny"}]}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+
+	decoded, err := decodeHITLDecisionRequest(request)
+	if err != nil {
+		t.Fatalf("decodeHITLDecisionRequest: %v", err)
+	}
+	if decoded.InterruptID != "interrupt-1" {
+		t.Fatalf("unexpected interrupt id: %q", decoded.InterruptID)
+	}
+	if len(decoded.Decisions) != 1 {
+		t.Fatalf("unexpected decision count: %d", len(decoded.Decisions))
+	}
+	if decoded.Decisions[0].Type != "reject" {
+		t.Fatalf("unexpected decision type: %q", decoded.Decisions[0].Type)
+	}
+	if decoded.Decisions[0].Message != "deny" {
+		t.Fatalf("unexpected message: %q", decoded.Decisions[0].Message)
 	}
 }
 

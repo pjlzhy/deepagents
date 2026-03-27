@@ -31,18 +31,34 @@ type HealthResponse struct {
 	Ready               bool
 }
 
-// ToolDecision 表示一条 HITL decision。
-type ToolDecision struct {
-	ToolCallID string
-	Approved   bool
-	Reason     string
+// Action 表示一条可执行或可编辑的动作。
+type Action struct {
+	Name      string
+	Arguments json.RawMessage
 }
+
+// Decision 表示一条 HITL decision。
+type Decision struct {
+	Type         string
+	Message      string
+	EditedAction *Action
+}
+
+// ToolDecision 保留为兼容别名，语义已收敛到通用 Decision。
+type ToolDecision = Decision
 
 // ActionRequest 表示一条待审批的工具动作。
 type ActionRequest struct {
-	Action     string
-	ToolCallID string
-	Arguments  json.RawMessage
+	Name        string
+	Description string
+	Arguments   json.RawMessage
+}
+
+// ReviewConfig 表示一条动作审批策略。
+type ReviewConfig struct {
+	ActionName       string
+	AllowedDecisions []string
+	ArgsSchema       json.RawMessage
 }
 
 // AgentEventType 表示 southbound stream 事件类型。
@@ -63,19 +79,20 @@ const (
 
 // AgentEvent 是 control layer 侧的运行流事件视图。
 type AgentEvent struct {
-	Type         AgentEventType
-	RunID        string
-	AgentName    string
-	Timestamp    time.Time
-	ThreadID     string
-	Text         string
-	ToolName     string
-	ToolCallID   string
-	InterruptID  string
-	Reason       string
-	ErrorMessage string
-	Payload      json.RawMessage
-	Actions      []ActionRequest
+	Type          AgentEventType
+	RunID         string
+	AgentName     string
+	Timestamp     time.Time
+	ThreadID      string
+	Text          string
+	ToolName      string
+	ToolCallID    string
+	InterruptID   string
+	Reason        string
+	ErrorMessage  string
+	Payload       json.RawMessage
+	Actions       []ActionRequest
+	ReviewConfigs []ReviewConfig
 }
 
 // RunStream 表示一条已建立的 southbound 运行流。

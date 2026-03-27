@@ -3,9 +3,10 @@
 // Defines the gRPC interface between Control Plane and Data Plane.
 // This is the ONLY communication boundary between the two layers.
 //
-// Two services:
+// Three services:
 //   AgentExecutor  - bidirectional streaming for agent execution + HITL
 //   ResourceSync   - unary RPCs for syncing rich AgentSpecs and runtime directives
+//   SessionQuery   - unary RPCs for checkpoint-backed session reads
 
 syntax = "proto3";
 
@@ -17,14 +18,13 @@ option go_package = "agentctl/pkg/proto;runtimev1";
 import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 
-
-// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
+// -----------------------------------------------------------------------------
 //  Service 1: AgentExecutor
 //
 //  Bidirectional streaming RPC for agent execution.
 //  Client = Control Plane (sends control messages)
 //  Server = Data Plane   (streams agent events)
-// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
+// -----------------------------------------------------------------------------
 
 service AgentExecutor {
   // Run an agent with bidirectional streaming.
@@ -39,8 +39,9 @@ service AgentExecutor {
   rpc Run(stream ClientMessage) returns (stream AgentEvent);
 }
 
-
-// 鈹€鈹€ Client 鈫?Server messages 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// -----------------------------------------------------------------------------
+// Client -> Server messages
+// -----------------------------------------------------------------------------
 
 message ClientMessage {
   oneof payload {
@@ -73,18 +74,29 @@ message HITLDecision {
   string interrupt_id = 1;
 
   // One decision per action_request in the HITLRequest.
-  repeated ToolDecision decisions = 2;
+  repeated Decision decisions = 2;
 }
 
-message ToolDecision {
-  // Tool call ID from the original action request.
-  string tool_call_id = 1;
+message Action {
+  // Action name (for example, "execute" or "write_file").
+  string name = 1;
 
-  // Whether to approve this tool call.
-  bool approved = 2;
+  // Proposed or edited arguments.
+  google.protobuf.Struct args = 2;
+}
 
-  // Reason for rejection (only used when approved = false).
-  string reason = 3;
+message Decision {
+  reserved 1, 2, 3;
+  reserved "tool_call_id", "approved", "reason";
+
+  // Decision type: "approve", "edit", or "reject".
+  string type = 4;
+
+  // Optional rejection message shown to the model.
+  string message = 5;
+
+  // Optional edited action when type = "edit".
+  Action edited_action = 6;
 }
 
 // Request to cancel the current execution.
@@ -92,8 +104,9 @@ message CancelRequest {
   string reason = 1;
 }
 
-
-// 鈹€鈹€ Server 鈫?Client messages 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// -----------------------------------------------------------------------------
+// Server -> Client messages
+// -----------------------------------------------------------------------------
 
 message AgentEvent {
   // Unique identifier for this execution run.
@@ -140,7 +153,8 @@ message TextDone {
 message ToolCallStart {
   string tool_name    = 1;
   string tool_call_id = 2;
-  // Tool arguments (may be partial during streaming).
+  // Stable tool arguments when the runtime could parse them.
+  // Omitted when the call started before arguments became parseable.
   google.protobuf.Struct args = 3;
 }
 
@@ -153,8 +167,11 @@ message ToolCallDone {
 // Result of a tool execution.
 message ToolResult {
   string tool_call_id = 1;
+  // Stable text projection kept for backward compatibility.
   string content      = 2;
   bool   is_error     = 3;
+  // Raw JSON-like tool result when the runtime could preserve it.
+  google.protobuf.Value payload = 4;
 }
 
 // Human-in-the-loop approval request.
@@ -165,18 +182,35 @@ message HITLRequest {
 
   // Tool calls awaiting approval.
   repeated ActionRequest action_requests = 2;
+
+  // Review policy for each requested action.
+  repeated ReviewConfig review_configs = 3;
 }
 
 // A single tool call that needs human approval.
 message ActionRequest {
-  // Tool name (e.g., "execute", "write_file").
-  string action = 1;
+  reserved 1, 2;
+  reserved "action", "tool_call_id";
 
-  // Unique tool call ID.
-  string tool_call_id = 2;
+  // Action name (e.g., "execute", "write_file").
+  string name = 4;
 
   // Proposed arguments.
   google.protobuf.Struct args = 3;
+
+  // Human-readable description for review.
+  string description = 5;
+}
+
+message ReviewConfig {
+  // Action name associated with this review policy.
+  string action_name = 1;
+
+  // Allowed decision types for this action.
+  repeated string allowed_decisions = 2;
+
+  // Optional JSON schema for editable args.
+  google.protobuf.Struct args_schema = 3;
 }
 
 // Agent execution completed normally.
@@ -203,15 +237,14 @@ message ErrorOccurred {
   string error_type = 2;
 }
 
-
-// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
+// -----------------------------------------------------------------------------
 //  Service 2: ResourceSync
 //
 //  Unary RPCs for syncing runtime-ready inputs from Control Plane to Data Plane.
 //  The control plane owns registry CRUD and packaging.
 //  The data plane consumes rich AgentSpecs and runtime directives for
 //  assembly, execution, and local runtime state management.
-// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
+// -----------------------------------------------------------------------------
 
 service ResourceSync {
   // Compatibility RPC for older callers that sync skills separately.
@@ -234,6 +267,13 @@ service ResourceSync {
   rpc Health(HealthRequest) returns (HealthResponse);
 }
 
+// -----------------------------------------------------------------------------
+//  Service 3: SessionQuery
+//
+//  Unary RPCs for reading runtime-local session state derived from
+//  checkpoint storage.
+// -----------------------------------------------------------------------------
+
 // Query runtime-local session state derived from checkpoint storage.
 service SessionQuery {
   // List recent sessions ordered by latest checkpoint update time.
@@ -254,8 +294,9 @@ service SessionQuery {
   rpc DeleteSession(DeleteSessionRequest) returns (DeleteSessionResponse);
 }
 
-
-// 鈹€鈹€ Skill sync 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// -----------------------------------------------------------------------------
+// Skill sync
+// -----------------------------------------------------------------------------
 
 message SyncSkillRequest {
   string name        = 1;
@@ -265,7 +306,9 @@ message SyncSkillRequest {
   repeated SkillFile files = 5;  // optional bundled files under the skill dir
 }
 
-// 鈹€鈹€ MCP sync 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// -----------------------------------------------------------------------------
+// MCP sync
+// -----------------------------------------------------------------------------
 
 message SyncMcpRequest {
   string name    = 1;
@@ -275,7 +318,9 @@ message SyncMcpRequest {
   string description = 5;
 }
 
-// 鈹€鈹€ AgentSpec sync 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// -----------------------------------------------------------------------------
+// AgentSpec sync
+// -----------------------------------------------------------------------------
 
 message SyncAgentSpecRequest {
   string name        = 1;
@@ -304,7 +349,7 @@ message SyncAgentSpecRequest {
   // Tool names that require HITL approval.
   repeated string interrupt_on = 11;
 
-  // Fields 12, 13 removed 鈥?meta_dir/workspace are managed by data plane.
+  // Fields 12 and 13 removed: meta_dir/workspace are managed by the data plane.
   reserved 12, 13;
   reserved "meta_dir", "workspace";
 
@@ -375,8 +420,9 @@ message ModelConfig {
   map<string, string> extra_params = 6;  // additional provider-specific params
 }
 
-
-// 鈹€鈹€ Assembly 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// -----------------------------------------------------------------------------
+// Assembly
+// -----------------------------------------------------------------------------
 
 message AssembleRequest {
   // Agent name to compile (must be synced first).
@@ -389,8 +435,9 @@ message AssembleResponse {
   string status  = 3;  // "compiled" on success
 }
 
-
-// 鈹€鈹€ Resource removal 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// -----------------------------------------------------------------------------
+// Resource removal
+// -----------------------------------------------------------------------------
 
 message RemoveResourceRequest {
   // Resource type: "agent" or "agent_spec".
@@ -398,8 +445,9 @@ message RemoveResourceRequest {
   string name          = 2;
 }
 
-
-// 鈹€鈹€ Common responses 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// -----------------------------------------------------------------------------
+// Common responses
+// -----------------------------------------------------------------------------
 
 message SyncResponse {
   bool   ok      = 1;

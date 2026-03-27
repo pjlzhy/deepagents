@@ -13,6 +13,8 @@ from typing import Any
 
 from deepagents_runtime.spec import RuntimeEventType
 
+_UNSET = object()
+
 
 @dataclass(frozen=True)
 class RuntimeEvent:
@@ -73,13 +75,15 @@ def tool_call_start(
     run_id: str = "",
     agent_name: str = "",
 ) -> RuntimeEvent:
+    data: dict[str, Any] = {
+        "tool_name": tool_name,
+        "tool_call_id": tool_call_id,
+    }
+    if args is not None:
+        data["args"] = args
     return RuntimeEvent(
         type=RuntimeEventType.TOOL_CALL_START,
-        data={
-            "tool_name": tool_name,
-            "tool_call_id": tool_call_id,
-            "args": args or {},
-        },
+        data=data,
         run_id=run_id,
         agent_name=agent_name,
     )
@@ -104,17 +108,21 @@ def tool_result(
     tool_call_id: str,
     content: str,
     *,
+    payload: Any = _UNSET,
     is_error: bool = False,
     run_id: str = "",
     agent_name: str = "",
 ) -> RuntimeEvent:
+    data: dict[str, Any] = {
+        "tool_call_id": tool_call_id,
+        "content": content,
+        "is_error": is_error,
+    }
+    if payload is not _UNSET:
+        data["payload"] = payload
     return RuntimeEvent(
         type=RuntimeEventType.TOOL_RESULT,
-        data={
-            "tool_call_id": tool_call_id,
-            "content": content,
-            "is_error": is_error,
-        },
+        data=data,
         run_id=run_id,
         agent_name=agent_name,
     )
@@ -124,6 +132,7 @@ def hitl_request(
     interrupt_id: str,
     action_requests: list[dict[str, Any]],
     *,
+    review_configs: list[dict[str, Any]] | None = None,
     run_id: str = "",
     agent_name: str = "",
 ) -> RuntimeEvent:
@@ -132,6 +141,7 @@ def hitl_request(
         data={
             "interrupt_id": interrupt_id,
             "action_requests": action_requests,
+            "review_configs": review_configs or [],
         },
         run_id=run_id,
         agent_name=agent_name,

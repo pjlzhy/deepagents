@@ -259,12 +259,13 @@ func agentEventFromProto(event *runtimev1.AgentEvent) AgentEvent {
 		mapped.Type = AgentEventTypeToolResult
 		mapped.ToolCallID = payload.ToolResult.GetToolCallId()
 		mapped.Text = payload.ToolResult.GetContent()
-		mapped.Payload = protoMessageToRawJSON(payload.ToolResult)
+		mapped.Payload = valueToRawJSON(payload.ToolResult.GetPayload())
 	case *runtimev1.AgentEvent_HitlRequest:
 		mapped.Type = AgentEventTypeHITLRequest
 		mapped.InterruptID = payload.HitlRequest.GetInterruptId()
 		mapped.Actions = actionRequestsFromProto(payload.HitlRequest.GetActionRequests())
-		mapped.Payload = protoMessageToRawJSON(payload.HitlRequest)
+		mapped.ReviewConfigs = reviewConfigsFromProto(payload.HitlRequest.GetReviewConfigs())
+		//mapped.Payload = protoMessageToRawJSON(payload.HitlRequest)
 	case *runtimev1.AgentEvent_RunEnded:
 		mapped.Type = AgentEventTypeRunEnded
 		mapped.Payload = protoMessageToRawJSON(payload.RunEnded)
@@ -275,7 +276,7 @@ func agentEventFromProto(event *runtimev1.AgentEvent) AgentEvent {
 		mapped.Type = AgentEventTypeError
 		mapped.ErrorMessage = payload.Error.GetMessage()
 		mapped.Reason = payload.Error.GetErrorType()
-		mapped.Payload = protoMessageToRawJSON(payload.Error)
+		//mapped.Payload = protoMessageToRawJSON(payload.Error)
 	default:
 		mapped.Type = AgentEventTypeError
 		mapped.ErrorMessage = "agent event payload is empty"
@@ -288,24 +289,61 @@ func actionRequestsFromProto(requests []*runtimev1.ActionRequest) []ActionReques
 	items := make([]ActionRequest, 0, len(requests))
 	for _, request := range requests {
 		items = append(items, ActionRequest{
-			Action:     request.GetAction(),
-			ToolCallID: request.GetToolCallId(),
-			Arguments:  structToRawJSON(request.GetArgs()),
+			Name:        request.GetName(),
+			Description: request.GetDescription(),
+			Arguments:   structToRawJSON(request.GetArgs()),
 		})
 	}
 	return items
 }
 
-func toolDecisionsToProto(decisions []ToolDecision) []*runtimev1.ToolDecision {
-	items := make([]*runtimev1.ToolDecision, 0, len(decisions))
-	for _, decision := range decisions {
-		items = append(items, &runtimev1.ToolDecision{
-			ToolCallId: decision.ToolCallID,
-			Approved:   decision.Approved,
-			Reason:     decision.Reason,
+func reviewConfigsFromProto(configs []*runtimev1.ReviewConfig) []ReviewConfig {
+	items := make([]ReviewConfig, 0, len(configs))
+	for _, config := range configs {
+		items = append(items, ReviewConfig{
+			ActionName:       config.GetActionName(),
+			AllowedDecisions: cloneStrings(config.GetAllowedDecisions()),
+			ArgsSchema:       structToRawJSON(config.GetArgsSchema()),
 		})
 	}
 	return items
+}
+
+func toolDecisionsToProto(decisions []ToolDecision) []*runtimev1.Decision {
+	items := make([]*runtimev1.Decision, 0, len(decisions))
+	for _, decision := range decisions {
+		item := &runtimev1.Decision{
+			Type:    decision.Type,
+			Message: decision.Message,
+		}
+		if decision.EditedAction != nil {
+			item.EditedAction = &runtimev1.Action{
+				Name: decision.EditedAction.Name,
+			}
+			if arguments := rawJSONToStruct(decision.EditedAction.Arguments); arguments != nil {
+				item.EditedAction.Args = arguments
+			}
+		}
+		items = append(items, item)
+	}
+	return items
+}
+
+func rawJSONToStruct(payload json.RawMessage) *structpb.Struct {
+	if len(payload) == 0 {
+		return nil
+	}
+
+	var value map[string]any
+	if err := json.Unmarshal(payload, &value); err != nil {
+		return nil
+	}
+
+	result, err := structpb.NewStruct(value)
+	if err != nil {
+		return nil
+	}
+	return result
 }
 
 func sessionHistoryModeToProto(mode domain.SessionHistoryMode) runtimev1.SessionHistoryMode {
@@ -374,6 +412,18 @@ func structToRawJSON(message *structpb.Struct) json.RawMessage {
 	}
 
 	bytes, err := json.Marshal(message.AsMap())
+	if err != nil {
+		return nil
+	}
+	return json.RawMessage(bytes)
+}
+
+func valueToRawJSON(message *structpb.Value) json.RawMessage {
+	if message == nil {
+		return nil
+	}
+
+	bytes, err := json.Marshal(message.AsInterface())
 	if err != nil {
 		return nil
 	}

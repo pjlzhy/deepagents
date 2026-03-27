@@ -13,6 +13,8 @@ runtime sessions.
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
+from dataclasses import dataclass
 from datetime import UTC, datetime
 import logging
 import time
@@ -21,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import grpc
+from google.protobuf.json_format import MessageToDict
 from google.protobuf import struct_pb2, timestamp_pb2
 from grpc import aio as grpc_aio
 
@@ -45,6 +48,178 @@ logger = logging.getLogger(__name__)
 
 # Default timeout for HITL decisions (seconds).
 _HITL_DECISION_TIMEOUT = 300.0
+_INVALID_HITL_DECISION_ERROR = "invalid_hitl_decision"
+
+
+class _InvalidHITLDecisionError(RuntimeError):
+    """Raised when the client sends an invalid HITL decision message."""
+
+
+@dataclass(slots=True)
+class _PendingHITLInterrupt:
+    """One pending HITL interrupt awaiting a client decision."""
+
+    expected_decision_count: int
+    future: asyncio.Future[pb2.HITLDecision]
+
+
+class _HITLDecisionCoordinator:
+    """Run-scoped coordinator for pending HITL interrupts and decisions."""
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._pending: dict[str, _PendingHITLInterrupt] = {}
+        self._closed: set[str] = set()
+        self._transport_error: asyncio.Future[_InvalidHITLDecisionError] = (
+            asyncio.get_running_loop().create_future()
+        )
+
+    @property
+    def transport_error(self) -> asyncio.Future[_InvalidHITLDecisionError]:
+        """Return the run-scoped transport error future."""
+        return self._transport_error
+
+    async def wait_for_decision(self, request: dict[str, Any]) -> pb2.HITLDecision:
+        """Register one interrupt and await its matching HITL decision."""
+
+        interrupt_id = str(request.get("interrupt_id", "")).strip()
+        action_requests = request.get("action_requests", [])
+        expected_decision_count = (
+            len(action_requests) if isinstance(action_requests, list) else 0
+        )
+        decision_future = await self._register_interrupt(
+            interrupt_id=interrupt_id,
+            expected_decision_count=expected_decision_count,
+        )
+        try:
+            return await asyncio.wait_for(
+                decision_future,
+                timeout=_HITL_DECISION_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            await self._close_interrupt(interrupt_id)
+            msg = f"HITL decision timed out after {_HITL_DECISION_TIMEOUT:.0f}s"
+            raise TimeoutError(msg) from None
+
+    async def submit(self, decision: pb2.HITLDecision) -> None:
+        """Validate and route one client HITL decision."""
+
+        interrupt_id = decision.interrupt_id.strip()
+        if not interrupt_id:
+            await self._set_transport_error("interrupt_id must not be empty")
+            return
+
+        future: asyncio.Future[pb2.HITLDecision] | None = None
+        message = ""
+        async with self._lock:
+            pending = self._pending.get(interrupt_id)
+            if pending is None:
+                if interrupt_id in self._closed:
+                    message = f"interrupt_id {interrupt_id} is no longer pending"
+                else:
+                    message = f"unknown interrupt_id: {interrupt_id}"
+            elif len(decision.decisions) != pending.expected_decision_count:
+                message = (
+                    f"decision count mismatch for interrupt {interrupt_id}: "
+                    f"expected {pending.expected_decision_count}, "
+                    f"got {len(decision.decisions)}"
+                )
+            else:
+                self._pending.pop(interrupt_id)
+                self._closed.add(interrupt_id)
+                future = pending.future
+
+        if message:
+            await self._set_transport_error(message)
+            return
+        if future is not None and not future.done():
+            future.set_result(decision)
+
+    async def _register_interrupt(
+        self,
+        *,
+        interrupt_id: str,
+        expected_decision_count: int,
+    ) -> asyncio.Future[pb2.HITLDecision]:
+        """Register one pending interrupt before waiting for a decision."""
+
+        if not interrupt_id:
+            msg = "runtime emitted HITL request with empty interrupt_id"
+            raise RuntimeError(msg)
+
+        future: asyncio.Future[pb2.HITLDecision] = (
+            asyncio.get_running_loop().create_future()
+        )
+        async with self._lock:
+            if interrupt_id in self._pending or interrupt_id in self._closed:
+                msg = f"interrupt_id {interrupt_id} is already registered"
+                raise RuntimeError(msg)
+            self._pending[interrupt_id] = _PendingHITLInterrupt(
+                expected_decision_count=expected_decision_count,
+                future=future,
+            )
+        return future
+
+    async def _close_interrupt(self, interrupt_id: str) -> None:
+        """Mark one pending interrupt as closed after timeout/cancellation."""
+
+        async with self._lock:
+            pending = self._pending.pop(interrupt_id, None)
+            if pending is not None:
+                self._closed.add(interrupt_id)
+        if pending is not None and not pending.future.done():
+            pending.future.cancel()
+
+    async def _set_transport_error(self, message: str) -> None:
+        """Store the first transport error seen in the current run."""
+
+        async with self._lock:
+            if self._transport_error.done():
+                return
+            self._transport_error.set_result(_InvalidHITLDecisionError(message))
+
+
+def _translate_hitl_decisions(decision: pb2.HITLDecision) -> list[dict[str, Any]]:
+    """Translate transport HITL decisions into LangChain HITL decision objects."""
+
+    decisions: list[dict[str, Any]] = []
+    for item in decision.decisions:
+        decision_type = item.type.strip().lower()
+        if decision_type == "approve":
+            decisions.append({"type": "approve"})
+            continue
+
+        if decision_type == "reject":
+            reject_decision: dict[str, Any] = {"type": "reject"}
+            if item.message:
+                reject_decision["message"] = item.message
+            decisions.append(reject_decision)
+            continue
+
+        if decision_type == "edit":
+            if not item.HasField("edited_action"):
+                msg = "edit decision must include edited_action"
+                raise _InvalidHITLDecisionError(msg)
+            edited_name = item.edited_action.name.strip()
+            if not edited_name:
+                msg = "edited_action.name must not be empty"
+                raise _InvalidHITLDecisionError(msg)
+            decisions.append({
+                "type": "edit",
+                "edited_action": {
+                    "name": edited_name,
+                    "args": (
+                        MessageToDict(item.edited_action.args)
+                        if item.edited_action.HasField("args")
+                        else {}
+                    ),
+                },
+            })
+            continue
+
+        msg = f"unsupported decision.type: {item.type!r}"
+        raise _InvalidHITLDecisionError(msg)
+    return decisions
 
 
 class AgentExecutorServicer(runtime_pb2_grpc.AgentExecutorServicer):
@@ -99,32 +274,15 @@ class AgentExecutorServicer(runtime_pb2_grpc.AgentExecutorServicer):
         # The runtime execution path emits HITL_REQUEST events and then calls
         # this handler. The handler simply waits for the client to send a
         # HITLDecision message via the bidirectional stream.
-        hitl_decision_queue: asyncio.Queue[pb2.HITLDecision] = asyncio.Queue()
+        hitl_coordinator = _HITLDecisionCoordinator()
         cancel_event = asyncio.Event()
         cancel_reason = "Run canceled by client"
+        event_queue: asyncio.Queue[pb2.AgentEvent | None] = asyncio.Queue()
 
         async def hitl_handler(request: dict[str, Any]) -> list[dict[str, Any]]:
             """HITL callback: await client decision (event already emitted)."""
-            try:
-                decision: pb2.HITLDecision = await asyncio.wait_for(
-                    hitl_decision_queue.get(),
-                    timeout=_HITL_DECISION_TIMEOUT,
-                )
-                return [
-                    {
-                        "tool_call_id": d.tool_call_id,
-                        "approved": d.approved,
-                        "reason": d.reason,
-                    }
-                    for d in decision.decisions
-                ]
-            except asyncio.TimeoutError:
-                logger.warning("HITL decision timeout for run %s", run_id)
-                msg = (
-                    f"HITL decision timed out after "
-                    f"{_HITL_DECISION_TIMEOUT:.0f}s"
-                )
-                raise TimeoutError(msg) from None
+            decision = await hitl_coordinator.wait_for_decision(request)
+            return _translate_hitl_decisions(decision)
 
         # ── 3. Background: read client messages ──
         async def read_client_messages() -> None:
@@ -134,7 +292,9 @@ class AgentExecutorServicer(runtime_pb2_grpc.AgentExecutorServicer):
                 async for msg in request_iterator:
                     msg: pb2.ClientMessage
                     if msg.HasField("hitl_decision"):
-                        await hitl_decision_queue.put(msg.hitl_decision)
+                        await hitl_coordinator.submit(msg.hitl_decision)
+                        if hitl_coordinator.transport_error.done():
+                            return
                     elif msg.HasField("cancel"):
                         cancel_reason = msg.cancel.reason or "Run canceled by client"
                         cancel_event.set()
@@ -143,36 +303,60 @@ class AgentExecutorServicer(runtime_pb2_grpc.AgentExecutorServicer):
             except Exception:
                 logger.debug("Client stream closed for run %s", run_id)
 
-        reader_task = asyncio.create_task(read_client_messages())
-
-        # ── 4. Run agent and stream events ──
-        try:
-            async for event in self._manager.invoke(
-                name=agent_name,
-                run_config=RunConfig(
-                    input=message,
-                    thread_id=thread_id,
-                    run_id=run_id,
-                    timeout_seconds=timeout_seconds,
-                ),
-                hitl_handler=hitl_handler,
-                cancel_event=cancel_event,
-                cancel_reason=cancel_reason,
-                cancel_reason_getter=lambda: cancel_reason,
-            ):
-                yield runtime_event_to_agent_event(event)
-
-        except KeyError as e:
-            yield _error_event(run_id, agent_name, str(e), "not_found")
-        except Exception as e:
-            logger.exception("Error in Run for agent %s", agent_name)
-            yield _error_event(run_id, agent_name, str(e))
-        finally:
-            reader_task.cancel()
+        async def produce_run_events() -> None:
+            """Bridge manager runtime events onto a server-scoped queue."""
             try:
-                await reader_task
+                async for event in self._manager.invoke(
+                    name=agent_name,
+                    run_config=RunConfig(
+                        input=message,
+                        thread_id=thread_id,
+                        run_id=run_id,
+                        timeout_seconds=timeout_seconds,
+                    ),
+                    hitl_handler=hitl_handler,
+                    cancel_event=cancel_event,
+                    cancel_reason=cancel_reason,
+                    cancel_reason_getter=lambda: cancel_reason,
+                ):
+                    await event_queue.put(runtime_event_to_agent_event(event))
+            except KeyError as e:
+                await event_queue.put(_error_event(run_id, agent_name, str(e), "not_found"))
+            except _InvalidHITLDecisionError as e:
+                await hitl_coordinator._set_transport_error(str(e))
             except asyncio.CancelledError:
-                pass
+                raise
+            except Exception as e:
+                logger.exception("Error in Run for agent %s", agent_name)
+                await event_queue.put(_error_event(run_id, agent_name, str(e)))
+            finally:
+                await event_queue.put(None)
+
+        reader_task = asyncio.create_task(read_client_messages())
+        producer_task = asyncio.create_task(produce_run_events())
+
+        # ── 4. Drain run events and transport errors ──
+        try:
+            while True:
+                source, payload = await _wait_for_run_signal(
+                    event_queue=event_queue,
+                    transport_error=hitl_coordinator.transport_error,
+                )
+                if source == "transport_error":
+                    await _cancel_background_task(producer_task)
+                    yield _error_event(
+                        run_id,
+                        agent_name,
+                        str(payload),
+                        _INVALID_HITL_DECISION_ERROR,
+                    )
+                    return
+                if payload is None:
+                    return
+                yield payload
+        finally:
+            await _cancel_background_task(reader_task)
+            await _cancel_background_task(producer_task)
 
 
 class ResourceSyncServicer(runtime_pb2_grpc.ResourceSyncServicer):
@@ -523,6 +707,48 @@ def _resolve_run_timeout_seconds(
     if timeout_seconds is None:
         return remaining
     return min(timeout_seconds, remaining)
+
+
+async def _wait_for_run_signal(
+    *,
+    event_queue: asyncio.Queue[pb2.AgentEvent | None],
+    transport_error: asyncio.Future[_InvalidHITLDecisionError],
+) -> tuple[str, pb2.AgentEvent | _InvalidHITLDecisionError | None]:
+    """Wait for the next runtime event or a transport-layer HITL failure."""
+
+    if not event_queue.empty():
+        return "event", event_queue.get_nowait()
+    if transport_error.done():
+        return "transport_error", transport_error.result()
+
+    queue_task = asyncio.create_task(event_queue.get())
+    done, pending = await asyncio.wait(
+        {queue_task, transport_error},
+        return_when=asyncio.FIRST_COMPLETED,
+    )
+    if queue_task in done:
+        for waiter in pending:
+            if isinstance(waiter, asyncio.Task):
+                waiter.cancel()
+        for waiter in pending:
+            if isinstance(waiter, asyncio.Task):
+                with suppress(asyncio.CancelledError):
+                    await waiter
+        return "event", queue_task.result()
+
+    queue_task.cancel()
+    with suppress(asyncio.CancelledError):
+        await queue_task
+    return "transport_error", transport_error.result()
+
+
+async def _cancel_background_task(task: asyncio.Task[Any]) -> None:
+    """Cancel one background task and swallow cooperative cancellation noise."""
+
+    if not task.done():
+        task.cancel()
+    with suppress(asyncio.CancelledError):
+        await task
 
 
 def _error_event(

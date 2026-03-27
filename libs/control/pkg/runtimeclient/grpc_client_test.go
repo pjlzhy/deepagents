@@ -2,6 +2,7 @@ package runtimeclient
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net"
 	"testing"
@@ -165,9 +166,15 @@ func (s *testRuntimeServer) Run(
 				InterruptId: "interrupt-1",
 				ActionRequests: []*runtimev1.ActionRequest{
 					{
-						Action:     "write_file",
-						ToolCallId: "tool-1",
-						Args:       mustStructValue(map[string]any{"path": "/tmp/a.txt"}),
+						Name:        "write_file",
+						Args:        mustStructValue(map[string]any{"path": "/tmp/a.txt"}),
+						Description: "Write /tmp/a.txt",
+					},
+				},
+				ReviewConfigs: []*runtimev1.ReviewConfig{
+					{
+						ActionName:       "write_file",
+						AllowedDecisions: []string{"approve", "reject"},
 					},
 				},
 			},
@@ -186,11 +193,30 @@ func (s *testRuntimeServer) Run(
 		RunId:     "run-1",
 		AgentName: s.receivedRunRequest.GetAgentName(),
 		Timestamp: timestamppb.New(time.Unix(102, 0)),
+		Payload: &runtimev1.AgentEvent_ToolCallStart{
+			ToolCallStart: &runtimev1.ToolCallStart{
+				ToolName:   "write_file",
+				ToolCallId: "tool-1",
+				Args: mustStructValue(map[string]any{
+					"path":    "/tmp/a.txt",
+					"content": "hello",
+				}),
+			},
+		},
+	}); err != nil {
+		return err
+	}
+
+	if err := stream.Send(&runtimev1.AgentEvent{
+		RunId:     "run-1",
+		AgentName: s.receivedRunRequest.GetAgentName(),
+		Timestamp: timestamppb.New(time.Unix(103, 0)),
 		Payload: &runtimev1.AgentEvent_ToolResult{
 			ToolResult: &runtimev1.ToolResult{
 				ToolCallId: "tool-1",
 				Content:    "ok",
 				IsError:    false,
+				Payload:    mustValueValue(map[string]any{"path": "/tmp/a.txt", "written": true}),
 			},
 		},
 	}); err != nil {
@@ -206,7 +232,7 @@ func (s *testRuntimeServer) Run(
 	return stream.Send(&runtimev1.AgentEvent{
 		RunId:     "run-1",
 		AgentName: s.receivedRunRequest.GetAgentName(),
-		Timestamp: timestamppb.New(time.Unix(103, 0)),
+		Timestamp: timestamppb.New(time.Unix(104, 0)),
 		Payload: &runtimev1.AgentEvent_RunCanceled{
 			RunCanceled: &runtimev1.RunCanceled{Reason: s.receivedCancel.GetReason()},
 		},
@@ -525,9 +551,16 @@ func TestGRPCClientRunStream(t *testing.T) {
 	if second.Type != AgentEventTypeHITLRequest || second.InterruptID != "interrupt-1" {
 		t.Fatalf("unexpected second event: %#v", second)
 	}
+	if len(second.Actions) != 1 || second.Actions[0].Name != "write_file" ||
+		second.Actions[0].Description != "Write /tmp/a.txt" {
+		t.Fatalf("unexpected hitl action mapping: %#v", second.Actions)
+	}
+	if len(second.ReviewConfigs) != 1 || second.ReviewConfigs[0].ActionName != "write_file" {
+		t.Fatalf("unexpected review config mapping: %#v", second.ReviewConfigs)
+	}
 
 	if err := stream.SendHITLDecision(context.Background(), "interrupt-1", []ToolDecision{
-		{ToolCallID: "tool-1", Approved: true},
+		{Type: "approve"},
 	}); err != nil {
 		t.Fatalf("SendHITLDecision returned error: %v", err)
 	}
@@ -536,13 +569,26 @@ func TestGRPCClientRunStream(t *testing.T) {
 	}
 
 	third := <-stream.Events()
-	if third.Type != AgentEventTypeToolResult || third.Text != "ok" {
+	if third.Type != AgentEventTypeToolCallStart ||
+		third.ToolName != "write_file" ||
+		third.ToolCallID != "tool-1" {
 		t.Fatalf("unexpected third event: %#v", third)
+	}
+	if !payloadContains(t, third.Payload, "path", "/tmp/a.txt") {
+		t.Fatalf("unexpected third payload: %s", string(third.Payload))
 	}
 
 	fourth := <-stream.Events()
-	if fourth.Type != AgentEventTypeRunCanceled || fourth.Reason != "user canceled" {
+	if fourth.Type != AgentEventTypeToolResult || fourth.Text != "ok" {
 		t.Fatalf("unexpected fourth event: %#v", fourth)
+	}
+	if !payloadContains(t, fourth.Payload, "written", true) {
+		t.Fatalf("unexpected fourth payload: %s", string(fourth.Payload))
+	}
+
+	fifth := <-stream.Events()
+	if fifth.Type != AgentEventTypeRunCanceled || fifth.Reason != "user canceled" {
+		t.Fatalf("unexpected fifth event: %#v", fifth)
 	}
 
 	if server.receivedRunRequest == nil || server.receivedRunRequest.GetAgentName() != "assistant" {
@@ -644,4 +690,31 @@ func mustStructValue(value map[string]any) *structpb.Struct {
 		panic(err)
 	}
 	return result
+}
+
+func mustValueValue(value any) *structpb.Value {
+	result, err := structpb.NewValue(value)
+	if err != nil {
+		panic(err)
+	}
+	return result
+}
+
+func payloadContains(t *testing.T, payload json.RawMessage, key string, expected any) bool {
+	t.Helper()
+
+	if len(payload) == 0 {
+		return false
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+
+	value, ok := decoded[key]
+	if !ok {
+		return false
+	}
+	return value == expected
 }

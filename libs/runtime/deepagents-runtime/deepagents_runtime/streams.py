@@ -6,6 +6,7 @@ universal `RuntimeEvent` system.
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from typing import Any
@@ -20,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 _STREAM_CHUNK_LENGTH = 3
 _MESSAGE_DATA_LENGTH = 2
+_UNSUPPORTED_PAYLOAD = object()
 
 
 @dataclass
@@ -27,7 +29,7 @@ class StreamParserState:
     """Run-scoped state accumulated while parsing stream output."""
 
     full_response: list[str] = field(default_factory=list)
-    tool_call_buffers: dict[int | str, dict[str, str | None]] = field(
+    tool_call_buffers: dict[int | str, dict[str, Any]] = field(
         default_factory=dict
     )
     stats: SessionStats = field(default_factory=SessionStats)
@@ -207,6 +209,7 @@ def _parse_ai_message(
             chunk_name = block.get("name")
             chunk_id = block.get("id")
             chunk_index = block.get("index")
+            chunk_args = block.get("args")
 
             buffer_key: int | str = (
                 chunk_index
@@ -218,16 +221,40 @@ def _parse_ai_message(
                 )
             )
 
-            if buffer_key not in state.tool_call_buffers:
-                state.tool_call_buffers[buffer_key] = {"name": None, "id": None}
+            buffer = state.tool_call_buffers.setdefault(
+                buffer_key,
+                {
+                    "name": None,
+                    "id": None,
+                    "args": None,
+                    "args_text": "",
+                    "started": False,
+                },
+            )
             if chunk_id:
-                state.tool_call_buffers[buffer_key]["id"] = str(chunk_id)
+                buffer["id"] = str(chunk_id)
             if chunk_name:
-                state.tool_call_buffers[buffer_key]["name"] = chunk_name
+                buffer["name"] = chunk_name
+
+            if isinstance(chunk_args, dict):
+                buffer["args"] = chunk_args
+            elif isinstance(chunk_args, str) and chunk_args:
+                buffer["args_text"] += chunk_args
+                parsed_args = _try_parse_tool_args(buffer["args_text"])
+                if parsed_args is not None:
+                    buffer["args"] = parsed_args
+
+            if (
+                not buffer["started"]
+                and chunk_name
+                and (block_type == "tool_call" or isinstance(buffer["args"], dict))
+            ):
+                buffer["started"] = True
                 result.append(
                     events.tool_call_start(
                         tool_name=chunk_name,
-                        tool_call_id=str(chunk_id or buffer_key),
+                        tool_call_id=str(buffer["id"] or buffer_key),
+                        args=_buffer_args(buffer),
                         run_id=state.run_id,
                         agent_name=state.agent_name,
                     )
@@ -246,30 +273,105 @@ def _parse_tool_message(
     then ``tool_result`` with the output content.
     """
     tool_call_id = getattr(message_obj, "tool_call_id", "")
-    content = message_obj.content
-    if not isinstance(content, str):
-        content = str(content)
+    raw_content = message_obj.content
     is_error = getattr(message_obj, "status", "") == "error"
 
     # Resolve tool name from buffered tool calls
     tool_name = ""
+    start_events: list[RuntimeEvent] = []
     for buf in state.tool_call_buffers.values():
-        if buf.get("id") == tool_call_id:
-            tool_name = buf.get("name", "") or ""
-            break
+        if buf.get("id") != tool_call_id:
+            continue
+        tool_name = buf.get("name", "") or ""
+        if not buf.get("started"):
+            buf["started"] = True
+            start_events.append(
+                events.tool_call_start(
+                    tool_name=tool_name,
+                    tool_call_id=tool_call_id,
+                    args=_buffer_args(buf),
+                    run_id=state.run_id,
+                    agent_name=state.agent_name,
+                )
+            )
+        break
+
+    raw_payload = getattr(message_obj, "artifact", _UNSUPPORTED_PAYLOAD)
+    payload = (
+        _json_like_payload(raw_payload)
+        if raw_payload is not _UNSUPPORTED_PAYLOAD
+        else _json_like_payload(raw_content)
+    )
+    content = _tool_result_text(raw_content, payload)
+
+    tool_result_kwargs: dict[str, Any] = {
+        "tool_call_id": tool_call_id,
+        "content": content,
+        "is_error": is_error,
+        "run_id": state.run_id,
+        "agent_name": state.agent_name,
+    }
+    if payload is not _UNSUPPORTED_PAYLOAD:
+        tool_result_kwargs["payload"] = payload
 
     return [
+        *start_events,
         events.tool_call_done(
             tool_name=tool_name,
             tool_call_id=tool_call_id,
             run_id=state.run_id,
             agent_name=state.agent_name,
         ),
-        events.tool_result(
-            tool_call_id=tool_call_id,
-            content=content,
-            is_error=is_error,
-            run_id=state.run_id,
-            agent_name=state.agent_name,
-        ),
+        events.tool_result(**tool_result_kwargs),
     ]
+
+
+def _try_parse_tool_args(raw_args: str) -> dict[str, Any] | None:
+    """Best-effort parse of streamed tool args once a full JSON object exists."""
+    try:
+        parsed = json.loads(raw_args)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _buffer_args(buffer: dict[str, Any]) -> dict[str, Any] | None:
+    """Return buffered args when they have been parsed into an object."""
+    args = buffer.get("args")
+    return args if isinstance(args, dict) else None
+
+
+def _json_like_payload(value: Any) -> Any:
+    """Return a JSON-like payload when the tool result is structurally safe."""
+    if value is None or isinstance(value, (str, bool)):
+        return value
+    if isinstance(value, (int, float)):
+        return value
+    if isinstance(value, list):
+        payload_items: list[Any] = []
+        for item in value:
+            payload_item = _json_like_payload(item)
+            if payload_item is _UNSUPPORTED_PAYLOAD:
+                return _UNSUPPORTED_PAYLOAD
+            payload_items.append(payload_item)
+        return payload_items
+    if isinstance(value, dict):
+        payload_dict: dict[str, Any] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                return _UNSUPPORTED_PAYLOAD
+            payload_item = _json_like_payload(item)
+            if payload_item is _UNSUPPORTED_PAYLOAD:
+                return _UNSUPPORTED_PAYLOAD
+            payload_dict[key] = payload_item
+        return payload_dict
+    return _UNSUPPORTED_PAYLOAD
+
+
+def _tool_result_text(value: Any, payload: Any) -> str:
+    """Project a tool result to the stable text field used by current clients."""
+    if isinstance(value, str):
+        return value
+    if payload is not _UNSUPPORTED_PAYLOAD:
+        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    return str(value)

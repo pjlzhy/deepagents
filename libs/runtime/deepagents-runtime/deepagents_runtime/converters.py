@@ -6,6 +6,7 @@ RuntimeEvent dataclass and the gRPC AgentEvent / ClientMessage protobufs.
 
 from __future__ import annotations
 
+import math
 import time
 from typing import Any
 
@@ -39,8 +40,7 @@ def runtime_event_to_agent_event(event: RuntimeEvent) -> pb2.AgentEvent:
         ValueError: If the RuntimeEvent type is not part of the public
             gRPC AgentEvent contract.
     """
-    ts = timestamp_pb2.Timestamp()
-    ts.FromSeconds(int(event.timestamp))
+    ts = _float_timestamp_to_proto(event.timestamp)
 
     kwargs: dict[str, Any] = {
         "run_id": event.run_id,
@@ -61,34 +61,55 @@ def runtime_event_to_agent_event(event: RuntimeEvent) -> pb2.AgentEvent:
             text=event.data.get("text", ""),
         )
     elif event.type == RuntimeEventType.TOOL_CALL_START:
-        args_struct = _dict_to_struct(event.data.get("args", {}))
-        kwargs["tool_call_start"] = pb2.ToolCallStart(
-            tool_name=event.data.get("tool_name", ""),
-            tool_call_id=event.data.get("tool_call_id", ""),
-            args=args_struct,
-        )
+        tool_call_kwargs: dict[str, Any] = {
+            "tool_name": event.data.get("tool_name", ""),
+            "tool_call_id": event.data.get("tool_call_id", ""),
+        }
+        args = event.data.get("args")
+        if isinstance(args, dict):
+            tool_call_kwargs["args"] = _dict_to_struct(args)
+        kwargs["tool_call_start"] = pb2.ToolCallStart(**tool_call_kwargs)
     elif event.type == RuntimeEventType.TOOL_CALL_DONE:
         kwargs["tool_call_done"] = pb2.ToolCallDone(
             tool_name=event.data.get("tool_name", ""),
             tool_call_id=event.data.get("tool_call_id", ""),
         )
     elif event.type == RuntimeEventType.TOOL_RESULT:
-        kwargs["tool_result"] = pb2.ToolResult(
-            tool_call_id=event.data.get("tool_call_id", ""),
-            content=event.data.get("content", ""),
-            is_error=event.data.get("is_error", False),
-        )
+        tool_result_kwargs: dict[str, Any] = {
+            "tool_call_id": event.data.get("tool_call_id", ""),
+            "content": event.data.get("content", ""),
+            "is_error": event.data.get("is_error", False),
+        }
+        if "payload" in event.data:
+            payload_value = _python_to_value(event.data["payload"])
+        else:
+            payload_value = None
+        if payload_value is not None:
+            tool_result_kwargs["payload"] = payload_value
+        kwargs["tool_result"] = pb2.ToolResult(**tool_result_kwargs)
     elif event.type == RuntimeEventType.HITL_REQUEST:
         action_requests = []
         for ar in event.data.get("action_requests", []):
+            action_name = ar.get("name", "") or ar.get("action", "")
             action_requests.append(pb2.ActionRequest(
-                action=ar.get("action", ""),
-                tool_call_id=ar.get("tool_call_id", ""),
+                name=action_name,
                 args=_dict_to_struct(ar.get("args", {})),
+                description=ar.get("description", ""),
             ))
+        review_configs = []
+        for config in event.data.get("review_configs", []):
+            review_kwargs: dict[str, Any] = {
+                "action_name": config.get("action_name", ""),
+                "allowed_decisions": list(config.get("allowed_decisions", [])),
+            }
+            args_schema = config.get("args_schema")
+            if isinstance(args_schema, dict):
+                review_kwargs["args_schema"] = _dict_to_struct(args_schema)
+            review_configs.append(pb2.ReviewConfig(**review_kwargs))
         kwargs["hitl_request"] = pb2.HITLRequest(
             interrupt_id=event.data.get("interrupt_id", ""),
             action_requests=action_requests,
+            review_configs=review_configs,
         )
     elif event.type == RuntimeEventType.RUN_END:
         stats = event.data.get("stats", {})
@@ -185,33 +206,50 @@ def _extract_event_data(
     elif event_type == RuntimeEventType.TEXT_DONE:
         return {"text": payload.text}
     elif event_type == RuntimeEventType.TOOL_CALL_START:
-        return {
+        data = {
             "tool_name": payload.tool_name,
             "tool_call_id": payload.tool_call_id,
-            "args": _struct_to_dict(payload.args) if payload.HasField("args") else {},
         }
+        if payload.HasField("args"):
+            data["args"] = _struct_to_dict(payload.args)
+        return data
     elif event_type == RuntimeEventType.TOOL_CALL_DONE:
         return {
             "tool_name": payload.tool_name,
             "tool_call_id": payload.tool_call_id,
         }
     elif event_type == RuntimeEventType.TOOL_RESULT:
-        return {
+        data = {
             "tool_call_id": payload.tool_call_id,
             "content": payload.content,
             "is_error": payload.is_error,
         }
+        if payload.HasField("payload"):
+            data["payload"] = _value_to_python(payload.payload)
+        return data
     elif event_type == RuntimeEventType.HITL_REQUEST:
         action_requests = []
         for ar in payload.action_requests:
             action_requests.append({
-                "action": ar.action,
-                "tool_call_id": ar.tool_call_id,
+                "name": ar.name,
                 "args": _struct_to_dict(ar.args) if ar.HasField("args") else {},
+                "description": ar.description,
+            })
+        review_configs = []
+        for config in payload.review_configs:
+            review_configs.append({
+                "action_name": config.action_name,
+                "allowed_decisions": list(config.allowed_decisions),
+                "args_schema": (
+                    _struct_to_dict(config.args_schema)
+                    if config.HasField("args_schema")
+                    else {}
+                ),
             })
         return {
             "interrupt_id": payload.interrupt_id,
             "action_requests": action_requests,
+            "review_configs": review_configs,
         }
     elif event_type == RuntimeEventType.RUN_END:
         stats = payload.stats if payload.HasField("stats") else None
@@ -377,3 +415,96 @@ def _struct_to_dict(s: struct_pb2.Struct) -> dict[str, Any]:
     from google.protobuf.json_format import MessageToDict
 
     return MessageToDict(s)
+
+
+def _float_timestamp_to_proto(value: float) -> timestamp_pb2.Timestamp:
+    """Convert a float UNIX timestamp to protobuf Timestamp without truncation."""
+    seconds = math.floor(value)
+    nanos = int(round((value - seconds) * 1_000_000_000))
+
+    if nanos >= 1_000_000_000:
+        seconds += 1
+        nanos -= 1_000_000_000
+    elif nanos < 0:
+        seconds -= 1
+        nanos += 1_000_000_000
+
+    return timestamp_pb2.Timestamp(seconds=int(seconds), nanos=nanos)
+
+
+def _python_to_value(value: Any) -> struct_pb2.Value | None:
+    """Convert a JSON-like Python value to a protobuf Value."""
+    if not _is_json_like(value):
+        return None
+
+    result = struct_pb2.Value()
+    _populate_value(result, value)
+    return result
+
+
+def _populate_value(target: struct_pb2.Value, value: Any) -> None:
+    """Populate a protobuf Value from a JSON-like Python value."""
+    if value is None:
+        target.null_value = struct_pb2.NullValue.NULL_VALUE
+        return
+    if isinstance(value, bool):
+        target.bool_value = value
+        return
+    if isinstance(value, (int, float)):
+        target.number_value = float(value)
+        return
+    if isinstance(value, str):
+        target.string_value = value
+        return
+    if isinstance(value, dict):
+        target.struct_value.CopyFrom(_dict_to_struct(value))
+        return
+    if isinstance(value, list):
+        values = struct_pb2.ListValue()
+        for item in value:
+            child = _python_to_value(item)
+            if child is None:
+                msg = f"Value is not JSON-like: {item!r}"
+                raise ValueError(msg)
+            values.values.add().CopyFrom(child)
+        target.list_value.CopyFrom(values)
+        return
+
+    msg = f"Value is not JSON-like: {value!r}"
+    raise ValueError(msg)
+
+
+def _value_to_python(value: struct_pb2.Value) -> Any:
+    """Convert a protobuf Value back to a Python value."""
+    kind = value.WhichOneof("kind")
+    if kind == "null_value":
+        return None
+    if kind == "bool_value":
+        return value.bool_value
+    if kind == "number_value":
+        return value.number_value
+    if kind == "string_value":
+        return value.string_value
+    if kind == "struct_value":
+        return _struct_to_dict(value.struct_value)
+    if kind == "list_value":
+        return [_value_to_python(item) for item in value.list_value.values]
+    return None
+
+
+def _is_json_like(value: Any) -> bool:
+    """Return True when a value can be losslessly encoded as protobuf Value."""
+    if value is None or isinstance(value, (bool, str)):
+        return True
+    if isinstance(value, int):
+        return True
+    if isinstance(value, float):
+        return math.isfinite(value)
+    if isinstance(value, list):
+        return all(_is_json_like(item) for item in value)
+    if isinstance(value, dict):
+        return all(
+            isinstance(key, str) and _is_json_like(item)
+            for key, item in value.items()
+        )
+    return False

@@ -13,7 +13,7 @@ from typing import Any
 from unittest.mock import patch
 
 import aiosqlite
-from langchain_core.messages import AIMessageChunk
+from langchain_core.messages import AIMessageChunk, ToolMessage
 from langgraph.checkpoint.base import empty_checkpoint
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from grpc import aio as grpc_aio
@@ -60,6 +60,53 @@ class FakeGraph:
             "data": (
                 AIMessageChunk(content=self.response_text),
                 {"langgraph_node": "model"},
+            ),
+        }
+
+
+class StructuredToolGraph:
+    """Fake graph that emits a structured tool call and structured tool result."""
+
+    async def astream(
+        self,
+        stream_input: Any,
+        *,
+        config: dict[str, Any],
+        context: Any = None,
+        stream_mode: list[str],
+        subgraphs: bool,
+        version: str,
+    ) -> AsyncIterator[dict[str, Any]]:
+        del stream_input, config, context, stream_mode, subgraphs, version
+
+        yield {
+            "type": "messages",
+            "ns": (),
+            "data": (
+                AIMessageChunk(
+                    content="",
+                    tool_call_chunks=[
+                        {
+                            "name": "execute",
+                            "id": "tool-call-1",
+                            "index": 0,
+                            "args": '{"command":"pwd"}',
+                        }
+                    ],
+                ),
+                {"langgraph_node": "model"},
+            ),
+        }
+        yield {
+            "type": "messages",
+            "ns": (),
+            "data": (
+                ToolMessage(
+                    content="command finished",
+                    artifact={"stdout": "ok", "files": ["/tmp/a.txt"]},
+                    tool_call_id="tool-call-1",
+                ),
+                {"langgraph_node": "tools"},
             ),
         }
 
@@ -679,5 +726,59 @@ def test_grpc_resource_sync_and_run_main_path_work_in_process() -> None:
         assert events[1].text_delta.text == "hello from grpc graph"
         assert events[2].text_done.text == "hello from grpc graph"
         assert lifecycle_files_verified is True
+    finally:
+        _cleanup_base_dir(base_dir)
+
+
+def test_grpc_run_stream_preserves_structured_tool_payloads_in_process() -> None:
+    """AgentExecutor.Run should preserve structured tool args and results over gRPC."""
+
+    base_dir = _make_base_dir()
+    registry = Registry(base_dir=base_dir)
+    manager = AgentManager(registry=registry)
+    graph = StructuredToolGraph()
+
+    try:
+        with _patch_runtime_dependencies(graph=graph):
+            async def scenario() -> list[Any]:
+                async with _grpc_runtime_server(manager) as (executor_stub, resource_stub):
+                    await resource_stub.SyncAgentSpec(
+                        _build_sync_agent_spec_request(name="grpc-tool-agent")
+                    )
+                    await resource_stub.Assemble(
+                        pb2.AssembleRequest(agent_name="grpc-tool-agent")
+                    )
+
+                    call = executor_stub.Run()
+                    await call.write(
+                        pb2.ClientMessage(
+                            run_request=pb2.RunRequest(
+                                agent_name="grpc-tool-agent",
+                                message="run tool",
+                                thread_id="thread-grpc-tool-1",
+                            )
+                        )
+                    )
+                    await call.done_writing()
+                    return [event async for event in call]
+
+            events = asyncio.run(scenario())
+
+        assert [event.WhichOneof("payload") for event in events] == [
+            "run_started",
+            "tool_call_start",
+            "tool_call_done",
+            "tool_result",
+            "run_ended",
+        ]
+        assert events[1].tool_call_start.tool_name == "execute"
+        assert events[1].tool_call_start.tool_call_id == "tool-call-1"
+        assert events[1].tool_call_start.args.fields["command"].string_value == "pwd"
+        assert events[3].tool_result.tool_call_id == "tool-call-1"
+        assert events[3].tool_result.content == "command finished"
+        assert events[3].tool_result.HasField("payload")
+        payload = events[3].tool_result.payload.struct_value.fields
+        assert payload["stdout"].string_value == "ok"
+        assert payload["files"].list_value.values[0].string_value == "/tmp/a.txt"
     finally:
         _cleanup_base_dir(base_dir)

@@ -639,14 +639,14 @@ type cancelRequest struct {
 }
 
 type hitlDecisionRequest struct {
-	InterruptID string                `json:"interrupt_id"`
-	Decisions   []toolDecisionRequest `json:"decisions"`
+	InterruptID string            `json:"interrupt_id"`
+	Decisions   []decisionRequest `json:"decisions"`
 }
 
-type toolDecisionRequest struct {
-	ToolCallID string `json:"tool_call_id"`
-	Approved   bool   `json:"approved"`
-	Reason     string `json:"reason,omitempty"`
+type decisionRequest struct {
+	Type         string              `json:"type"`
+	Message      string              `json:"message,omitempty"`
+	EditedAction *httpDecisionAction `json:"edited_action,omitempty"`
 }
 
 type errorResponse struct {
@@ -654,25 +654,37 @@ type errorResponse struct {
 }
 
 type httpAgentEvent struct {
-	Type         string              `json:"type"`
-	RunID        string              `json:"run_id,omitempty"`
-	AgentName    string              `json:"agent_name,omitempty"`
-	Timestamp    string              `json:"timestamp,omitempty"`
-	ThreadID     string              `json:"thread_id,omitempty"`
-	Text         string              `json:"text,omitempty"`
-	ToolName     string              `json:"tool_name,omitempty"`
-	ToolCallID   string              `json:"tool_call_id,omitempty"`
-	InterruptID  string              `json:"interrupt_id,omitempty"`
-	Reason       string              `json:"reason,omitempty"`
-	ErrorMessage string              `json:"error_message,omitempty"`
-	Payload      json.RawMessage     `json:"payload,omitempty"`
-	Actions      []httpActionRequest `json:"actions,omitempty"`
+	Type           string              `json:"type"`
+	RunID          string              `json:"run_id,omitempty"`
+	AgentName      string              `json:"agent_name,omitempty"`
+	Timestamp      string              `json:"timestamp,omitempty"`
+	ThreadID       string              `json:"thread_id,omitempty"`
+	Text           string              `json:"text,omitempty"`
+	ToolName       string              `json:"tool_name,omitempty"`
+	ToolCallID     string              `json:"tool_call_id,omitempty"`
+	InterruptID    string              `json:"interrupt_id,omitempty"`
+	Reason         string              `json:"reason,omitempty"`
+	ErrorMessage   string              `json:"error_message,omitempty"`
+	Payload        json.RawMessage     `json:"payload,omitempty"`
+	ActionRequests []httpActionRequest `json:"action_requests,omitempty"`
+	ReviewConfigs  []httpReviewConfig  `json:"review_configs,omitempty"`
 }
 
 type httpActionRequest struct {
-	Action     string          `json:"action"`
-	ToolCallID string          `json:"tool_call_id,omitempty"`
-	Arguments  json.RawMessage `json:"arguments,omitempty"`
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Arguments   json.RawMessage `json:"arguments,omitempty"`
+}
+
+type httpDecisionAction struct {
+	Name      string          `json:"name"`
+	Arguments json.RawMessage `json:"arguments,omitempty"`
+}
+
+type httpReviewConfig struct {
+	ActionName       string          `json:"action_name"`
+	AllowedDecisions []string        `json:"allowed_decisions,omitempty"`
+	ArgsSchema       json.RawMessage `json:"args_schema,omitempty"`
 }
 
 type decodedHITLDecisionRequest struct {
@@ -890,15 +902,37 @@ func decodeHITLDecisionRequest(r *http.Request) (decodedHITLDecisionRequest, err
 
 	decisions := make([]runtimeclient.ToolDecision, 0, len(request.Decisions))
 	for _, decision := range request.Decisions {
-		toolCallID := strings.TrimSpace(decision.ToolCallID)
-		if toolCallID == "" {
-			return decodedHITLDecisionRequest{}, errors.New("tool_call_id must not be empty")
+		decisionType := strings.ToLower(strings.TrimSpace(decision.Type))
+		if decisionType == "" {
+			return decodedHITLDecisionRequest{}, errors.New("decision.type must not be empty")
 		}
-		decisions = append(decisions, runtimeclient.ToolDecision{
-			ToolCallID: toolCallID,
-			Approved:   decision.Approved,
-			Reason:     decision.Reason,
-		})
+
+		item := runtimeclient.ToolDecision{
+			Type:    decisionType,
+			Message: decision.Message,
+		}
+		if decision.EditedAction != nil {
+			item.EditedAction = &runtimeclient.Action{
+				Name:      strings.TrimSpace(decision.EditedAction.Name),
+				Arguments: decision.EditedAction.Arguments,
+			}
+		}
+
+		switch decisionType {
+		case "approve":
+		case "reject":
+		case "edit":
+			if item.EditedAction == nil {
+				return decodedHITLDecisionRequest{}, errors.New("edit decision must include edited_action")
+			}
+			if item.EditedAction.Name == "" {
+				return decodedHITLDecisionRequest{}, errors.New("edited_action.name must not be empty")
+			}
+		default:
+			return decodedHITLDecisionRequest{}, fmt.Errorf("unsupported decision.type %q", decision.Type)
+		}
+
+		decisions = append(decisions, item)
 	}
 
 	return decodedHITLDecisionRequest{
@@ -1181,28 +1215,37 @@ func writeSessionControlError(w http.ResponseWriter, err error) {
 }
 
 func newHTTPAgentEvent(event runtimeclient.AgentEvent) httpAgentEvent {
-	actions := make([]httpActionRequest, 0, len(event.Actions))
+	actionRequests := make([]httpActionRequest, 0, len(event.Actions))
 	for _, action := range event.Actions {
-		actions = append(actions, httpActionRequest{
-			Action:     action.Action,
-			ToolCallID: action.ToolCallID,
-			Arguments:  action.Arguments,
+		actionRequests = append(actionRequests, httpActionRequest{
+			Name:        action.Name,
+			Description: action.Description,
+			Arguments:   action.Arguments,
+		})
+	}
+	reviewConfigs := make([]httpReviewConfig, 0, len(event.ReviewConfigs))
+	for _, config := range event.ReviewConfigs {
+		reviewConfigs = append(reviewConfigs, httpReviewConfig{
+			ActionName:       config.ActionName,
+			AllowedDecisions: config.AllowedDecisions,
+			ArgsSchema:       config.ArgsSchema,
 		})
 	}
 
 	response := httpAgentEvent{
-		Type:         string(event.Type),
-		RunID:        event.RunID,
-		AgentName:    event.AgentName,
-		ThreadID:     event.ThreadID,
-		Text:         event.Text,
-		ToolName:     event.ToolName,
-		ToolCallID:   event.ToolCallID,
-		InterruptID:  event.InterruptID,
-		Reason:       event.Reason,
-		ErrorMessage: event.ErrorMessage,
-		Payload:      event.Payload,
-		Actions:      actions,
+		Type:           string(event.Type),
+		RunID:          event.RunID,
+		AgentName:      event.AgentName,
+		ThreadID:       event.ThreadID,
+		Text:           event.Text,
+		ToolName:       event.ToolName,
+		ToolCallID:     event.ToolCallID,
+		InterruptID:    event.InterruptID,
+		Reason:         event.Reason,
+		ErrorMessage:   event.ErrorMessage,
+		Payload:        event.Payload,
+		ActionRequests: actionRequests,
+		ReviewConfigs:  reviewConfigs,
 	}
 	if !event.Timestamp.IsZero() {
 		response.Timestamp = event.Timestamp.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")

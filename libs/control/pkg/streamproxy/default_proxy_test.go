@@ -216,7 +216,7 @@ func TestDefaultProxyForwardsControlMessages(t *testing.T) {
 	downstream.decisions <- DecisionEnvelope{
 		InterruptID: "interrupt-1",
 		Decisions: []runtimeclient.ToolDecision{
-			{ToolCallID: "tool-1", Approved: true},
+			{Type: "approve"},
 		},
 	}
 	downstream.cancels <- CancelSignal{Reason: "user canceled"}

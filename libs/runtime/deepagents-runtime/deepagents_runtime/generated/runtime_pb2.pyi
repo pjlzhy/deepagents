@@ -80,18 +80,26 @@ class HITLDecision(_message.Message):
     INTERRUPT_ID_FIELD_NUMBER: _ClassVar[int]
     DECISIONS_FIELD_NUMBER: _ClassVar[int]
     interrupt_id: str
-    decisions: _containers.RepeatedCompositeFieldContainer[ToolDecision]
-    def __init__(self, interrupt_id: _Optional[str] = ..., decisions: _Optional[_Iterable[_Union[ToolDecision, _Mapping]]] = ...) -> None: ...
+    decisions: _containers.RepeatedCompositeFieldContainer[Decision]
+    def __init__(self, interrupt_id: _Optional[str] = ..., decisions: _Optional[_Iterable[_Union[Decision, _Mapping]]] = ...) -> None: ...
 
-class ToolDecision(_message.Message):
-    __slots__ = ("tool_call_id", "approved", "reason")
-    TOOL_CALL_ID_FIELD_NUMBER: _ClassVar[int]
-    APPROVED_FIELD_NUMBER: _ClassVar[int]
-    REASON_FIELD_NUMBER: _ClassVar[int]
-    tool_call_id: str
-    approved: bool
-    reason: str
-    def __init__(self, tool_call_id: _Optional[str] = ..., approved: bool = ..., reason: _Optional[str] = ...) -> None: ...
+class Action(_message.Message):
+    __slots__ = ("name", "args")
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    ARGS_FIELD_NUMBER: _ClassVar[int]
+    name: str
+    args: _struct_pb2.Struct
+    def __init__(self, name: _Optional[str] = ..., args: _Optional[_Union[_struct_pb2.Struct, _Mapping]] = ...) -> None: ...
+
+class Decision(_message.Message):
+    __slots__ = ("type", "message", "edited_action")
+    TYPE_FIELD_NUMBER: _ClassVar[int]
+    MESSAGE_FIELD_NUMBER: _ClassVar[int]
+    EDITED_ACTION_FIELD_NUMBER: _ClassVar[int]
+    type: str
+    message: str
+    edited_action: Action
+    def __init__(self, type: _Optional[str] = ..., message: _Optional[str] = ..., edited_action: _Optional[_Union[Action, _Mapping]] = ...) -> None: ...
 
 class CancelRequest(_message.Message):
     __slots__ = ("reason",)
@@ -166,32 +174,46 @@ class ToolCallDone(_message.Message):
     def __init__(self, tool_name: _Optional[str] = ..., tool_call_id: _Optional[str] = ...) -> None: ...
 
 class ToolResult(_message.Message):
-    __slots__ = ("tool_call_id", "content", "is_error")
+    __slots__ = ("tool_call_id", "content", "is_error", "payload")
     TOOL_CALL_ID_FIELD_NUMBER: _ClassVar[int]
     CONTENT_FIELD_NUMBER: _ClassVar[int]
     IS_ERROR_FIELD_NUMBER: _ClassVar[int]
+    PAYLOAD_FIELD_NUMBER: _ClassVar[int]
     tool_call_id: str
     content: str
     is_error: bool
-    def __init__(self, tool_call_id: _Optional[str] = ..., content: _Optional[str] = ..., is_error: bool = ...) -> None: ...
+    payload: _struct_pb2.Value
+    def __init__(self, tool_call_id: _Optional[str] = ..., content: _Optional[str] = ..., is_error: bool = ..., payload: _Optional[_Union[_struct_pb2.Value, _Mapping]] = ...) -> None: ...
 
 class HITLRequest(_message.Message):
-    __slots__ = ("interrupt_id", "action_requests")
+    __slots__ = ("interrupt_id", "action_requests", "review_configs")
     INTERRUPT_ID_FIELD_NUMBER: _ClassVar[int]
     ACTION_REQUESTS_FIELD_NUMBER: _ClassVar[int]
+    REVIEW_CONFIGS_FIELD_NUMBER: _ClassVar[int]
     interrupt_id: str
     action_requests: _containers.RepeatedCompositeFieldContainer[ActionRequest]
-    def __init__(self, interrupt_id: _Optional[str] = ..., action_requests: _Optional[_Iterable[_Union[ActionRequest, _Mapping]]] = ...) -> None: ...
+    review_configs: _containers.RepeatedCompositeFieldContainer[ReviewConfig]
+    def __init__(self, interrupt_id: _Optional[str] = ..., action_requests: _Optional[_Iterable[_Union[ActionRequest, _Mapping]]] = ..., review_configs: _Optional[_Iterable[_Union[ReviewConfig, _Mapping]]] = ...) -> None: ...
 
 class ActionRequest(_message.Message):
-    __slots__ = ("action", "tool_call_id", "args")
-    ACTION_FIELD_NUMBER: _ClassVar[int]
-    TOOL_CALL_ID_FIELD_NUMBER: _ClassVar[int]
+    __slots__ = ("name", "args", "description")
+    NAME_FIELD_NUMBER: _ClassVar[int]
     ARGS_FIELD_NUMBER: _ClassVar[int]
-    action: str
-    tool_call_id: str
+    DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
+    name: str
     args: _struct_pb2.Struct
-    def __init__(self, action: _Optional[str] = ..., tool_call_id: _Optional[str] = ..., args: _Optional[_Union[_struct_pb2.Struct, _Mapping]] = ...) -> None: ...
+    description: str
+    def __init__(self, name: _Optional[str] = ..., args: _Optional[_Union[_struct_pb2.Struct, _Mapping]] = ..., description: _Optional[str] = ...) -> None: ...
+
+class ReviewConfig(_message.Message):
+    __slots__ = ("action_name", "allowed_decisions", "args_schema")
+    ACTION_NAME_FIELD_NUMBER: _ClassVar[int]
+    ALLOWED_DECISIONS_FIELD_NUMBER: _ClassVar[int]
+    ARGS_SCHEMA_FIELD_NUMBER: _ClassVar[int]
+    action_name: str
+    allowed_decisions: _containers.RepeatedScalarFieldContainer[str]
+    args_schema: _struct_pb2.Struct
+    def __init__(self, action_name: _Optional[str] = ..., allowed_decisions: _Optional[_Iterable[str]] = ..., args_schema: _Optional[_Union[_struct_pb2.Struct, _Mapping]] = ...) -> None: ...
 
 class RunEnded(_message.Message):
     __slots__ = ("stats",)

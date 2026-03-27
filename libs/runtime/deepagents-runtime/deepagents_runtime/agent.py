@@ -861,6 +861,12 @@ class RuntimeAgent:
                     yield events.hitl_request(
                         interrupt_id=interrupt_id,
                         action_requests=[dict(ar) for ar in action_requests],
+                        review_configs=[
+                            dict(config)
+                            for config in request.get("review_configs", [])
+                        ]
+                        if isinstance(request, dict)
+                        else [],
                         run_id=run_id,
                         agent_name=self.spec.name,
                     )
@@ -869,12 +875,14 @@ class RuntimeAgent:
                         decisions = await hitl_handler({
                             "interrupt_id": interrupt_id,
                             "action_requests": action_requests,
+                            "review_configs": (
+                                request.get("review_configs", [])
+                                if isinstance(request, dict)
+                                else []
+                            ),
                         })
                     else:
-                        decisions = [
-                            {"action": ar.get("action", ""), "approved": True}
-                            for ar in action_requests
-                        ]
+                        decisions = [{"type": "approve"} for _ in action_requests]
 
                     hitl_response[interrupt_id] = {"decisions": decisions}
 
