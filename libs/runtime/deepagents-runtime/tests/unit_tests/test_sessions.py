@@ -9,6 +9,7 @@ from typing import Any
 from unittest.mock import patch
 
 import aiosqlite
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 
 from deepagents_runtime import sessions as runtime_sessions
@@ -355,6 +356,66 @@ def test_session_queries_filter_by_agent_before_thread() -> None:
         "alpha start",
         "alpha reply",
     ]
+
+
+def test_normalize_session_messages_skips_ai_function_call_blocks_without_text() -> None:
+    """AI tool-call blocks should not be stringified into assistant transcript entries."""
+
+    messages = [
+        HumanMessage(content="执行python输出hello world"),
+        AIMessage(
+            content=[
+                {
+                    "type": "function_call",
+                    "name": "execute",
+                    "arguments": "{\"command\":\"python -c \\\"print('hello world')\\\"\",\"timeout\":30}",
+                    "call_id": "call-tool-1",
+                    "id": "fc-tool-1",
+                    "index": 0,
+                }
+            ],
+            tool_calls=[
+                {
+                    "id": "call-tool-1",
+                    "name": "execute",
+                    "args": {
+                        "command": "python -c \"print('hello world')\"",
+                        "timeout": 30,
+                    },
+                    "type": "tool_call",
+                }
+            ],
+            name="test",
+        ),
+        ToolMessage(
+            content="hello world\n\n[Command succeeded with exit code 0]",
+            tool_call_id="call-tool-1",
+        ),
+        AIMessage(
+            content=[
+                {
+                    "type": "text",
+                    "text": "hello world",
+                    "index": 0,
+                    "id": "msg-tool-1",
+                }
+            ],
+            name="test",
+        ),
+    ]
+
+    normalized = runtime_sessions._normalize_session_messages(messages, include_raw=True)
+
+    assert [message.role for message in normalized] == ["human", "tool", "ai"]
+    assert [message.text for message in normalized] == [
+        "执行python输出hello world",
+        "hello world\n\n[Command succeeded with exit code 0]",
+        "hello world",
+    ]
+    assert normalized[1].tool_call_id == "call-tool-1"
+    assert normalized[1].tool_name == "execute"
+    assert normalized[1].raw is not None
+    assert normalized[1].raw["name"] == "execute"
 
 
 def test_delete_thread_removes_checkpoint_and_write_rows() -> None:

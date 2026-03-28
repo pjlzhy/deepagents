@@ -1,0 +1,66 @@
+:root {
+  color-scheme: light;
+  font-family:
+    'IBM Plex Sans',
+    'Segoe UI',
+    sans-serif;
+  --control-bg: #f5f6fb;
+  --control-panel: rgba(255, 255, 255, 0.96);
+  --control-panel-muted: rgba(247, 249, 252, 0.96);
+  --control-border: #dce2ec;
+  --control-text: #202432;
+  --control-subtle: #647086;
+  --control-primary: #6678b8;
+  --control-primary-soft: rgba(102, 120, 184, 0.12);
+  --control-accent: #c9d2ea;
+  --control-success: #1f8f63;
+  --control-warning: #d18e1f;
+  --control-danger: #c45e59;
+  --control-shadow: 0 18px 48px rgba(31, 43, 66, 0.08);
+}
+
+html,
+body,
+#root {
+  min-height: 100vh;
+  margin: 0;
+}
+
+body {
+  background:
+    radial-gradient(circle at top left, rgba(102, 120, 184, 0.16), transparent 24%),
+    linear-gradient(180deg, #f7f8fc 0%, #eef2f9 100%);
+  color: var(--control-text);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.control-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.control-scroll::-webkit-scrollbar-thumb {
+  background: rgba(100, 112, 134, 0.28);
+  border-radius: 999px;
+}
+
+.control-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.control-quiet-icon-button.arco-btn-text,
+.control-quiet-icon-button.arco-btn-text:hover,
+.control-quiet-icon-button.arco-btn-text:active,
+.control-quiet-icon-button.arco-btn-text:focus,
+.control-quiet-icon-button.arco-btn-text:focus-visible {
+  background: transparent;
+  box-shadow: none;
+}

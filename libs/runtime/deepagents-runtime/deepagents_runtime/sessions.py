@@ -311,17 +311,24 @@ def _coerce_text_content(content: object) -> str:
     """Normalize checkpoint message content into plain text."""
     if isinstance(content, str):
         return content
+    if isinstance(content, dict):
+        content_dict = cast("dict[str, object]", content)
+        if content_dict.get("type") in {"text", "output_text"}:
+            text = content_dict.get("text")
+            return text if isinstance(text, str) else ""
+        return ""
     if isinstance(content, list):
         parts: list[str] = []
         for part in content:
+            if isinstance(part, str):
+                parts.append(part)
+                continue
             if isinstance(part, dict):
                 part_dict = cast("dict[str, object]", part)
-                if part_dict.get("type") == "text":
+                if part_dict.get("type") in {"text", "output_text"}:
                     text = part_dict.get("text")
                     parts.append(text if isinstance(text, str) else "")
-                else:
-                    parts.append(str(part))
-            else:
+            elif part is not None:
                 parts.append(str(part))
         return "".join(parts).strip()
     if content is None:
