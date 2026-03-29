@@ -57,12 +57,15 @@ export type SkillFileDTO = {
 export type SkillDTO = {
   name?: string;
   description?: string;
-  tags?: string[];
-  content?: string;
-  files?: SkillFileDTO[];
   status?: string;
   created_at?: string;
   updated_at?: string;
+  license?: unknown;
+  compatibility?: unknown;
+  metadata?: unknown;
+  allowed_tools?: unknown;
+  file_count?: number;
+  snapshot_digest?: string;
 };
 
 export type SkillUpsertRequestDTO = {
@@ -71,6 +74,18 @@ export type SkillUpsertRequestDTO = {
   content?: string;
   files?: SkillFileDTO[];
   status?: string;
+};
+
+export type SkillFileManifestDTO = {
+  path?: string;
+  size?: number;
+  sha256?: string;
+};
+
+export type SkillDetailDTO = SkillDTO & {
+  skill_md?: string;
+  frontmatter?: Record<string, unknown>;
+  file_manifest: SkillFileManifestDTO[];
 };
 
 export type SkillListDTO = NumberPageMeta & {

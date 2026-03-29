@@ -15,6 +15,7 @@ import type {
   ModelConfigUpsertRequestDTO,
   RunStreamRequestDTO,
   SessionListDTO,
+  SkillDetailDTO,
   SessionMessagePageDTO,
   SessionMessagesDTO,
   SessionSummaryDTO,
@@ -77,13 +78,26 @@ export const controlClient = {
       return httpClient.get<SkillListDTO>('/api/v1/skills', resourceQuery(params));
     },
     get(name: string) {
-      return httpClient.get<SkillDTO>(`/api/v1/skills/${encodeURIComponent(name)}`);
+      return httpClient.get<SkillDetailDTO>(`/api/v1/skills/${encodeURIComponent(name)}`);
     },
     upsert(name: string, body: SkillUpsertRequestDTO) {
       return httpClient.put<SkillUpsertRequestDTO, SkillDTO>(
         `/api/v1/skills/${encodeURIComponent(name)}`,
         body,
       );
+    },
+    createPackage(file: File) {
+      const form = new FormData();
+      form.append('package', file);
+      return httpClient.postForm<SkillDetailDTO>('/api/v1/skills/package', form);
+    },
+    replacePackage(name: string, file: File) {
+      const form = new FormData();
+      form.append('package', file);
+      return httpClient.putForm<SkillDetailDTO>(`/api/v1/skills/${encodeURIComponent(name)}/package`, form);
+    },
+    downloadPackage(name: string) {
+      return httpClient.getBlob(`/api/v1/skills/${encodeURIComponent(name)}/package`);
     },
     delete(name: string) {
       return httpClient.delete<void>(`/api/v1/skills/${encodeURIComponent(name)}`);

@@ -4,10 +4,13 @@ import (
 	"agentctl/pkg/domain"
 	registrypkg "agentctl/pkg/registry"
 	"agentctl/pkg/runtimeclient"
+	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -757,8 +760,12 @@ func TestHTTPHandlerDelegatesResourceCRUD(t *testing.T) {
 		t.Fatalf("GET skill: %v", err)
 	}
 	assertStatus(t, getSkillResp, http.StatusOK)
-	if decodeBody[skillResponse](t, getSkillResp).Name != "research" || service.getSkillName != "research" {
+	skillDetail := decodeBody[skillDetailResponse](t, getSkillResp)
+	if skillDetail.Name != "research" || service.getSkillName != "research" {
 		t.Fatalf("unexpected get skill input: %#v", service)
+	}
+	if len(skillDetail.FileManifest) != 1 || skillDetail.FileManifest[0].Path != "SKILL.md" {
+		t.Fatalf("unexpected skill detail manifest: %#v", skillDetail)
 	}
 
 	deleteSkillReq, err := http.NewRequest(http.MethodDelete, server.URL+"/api/v1/skills/research", nil)
@@ -887,6 +894,128 @@ func TestHTTPHandlerDelegatesResourceCRUD(t *testing.T) {
 	deleteAgentResp.Body.Close()
 	if service.deleteAgentName != "assistant" {
 		t.Fatalf("unexpected delete agent input: %#v", service)
+	}
+}
+
+func TestHTTPHandlerSkillPackageEndpoints(t *testing.T) {
+	service := &fakeAgentService{
+		getSkillErr: registrypkg.ErrNotFound,
+		upsertSkillResp: domain.Skill{
+			Name:        "pcap-analyzer",
+			Description: "Analyze packet captures",
+			Content: `---
+name: pcap-analyzer
+description: Analyze packet captures
+license: MIT
+---
+
+# Skill
+`,
+			Files:  []domain.SkillFile{{Path: "scripts/analyze.sh", Content: "echo analyze\n"}},
+			Status: domain.AuthoredStatusPublished,
+		},
+	}
+	handler, err := NewHTTPHandler(service, nil)
+	if err != nil {
+		t.Fatalf("NewHTTPHandler: %v", err)
+	}
+
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	createArchive := buildSkillPackageZip(t, map[string][]byte{
+		"pcap-analyzer/SKILL.md": []byte(`---
+name: pcap-analyzer
+description: Analyze packet captures
+license: MIT
+---
+
+# Skill
+`),
+		"pcap-analyzer/scripts/analyze.sh": []byte("echo analyze\n"),
+	})
+	createBody, createContentType := newSkillPackageForm(t, createArchive, map[string]string{})
+	createResp, err := http.Post(server.URL+"/api/v1/skills/package", createContentType, createBody)
+	if err != nil {
+		t.Fatalf("POST skill package: %v", err)
+	}
+	assertStatus(t, createResp, http.StatusCreated)
+	createDetail := decodeBody[skillDetailResponse](t, createResp)
+	if createDetail.Name != "pcap-analyzer" || service.upsertSkillReq.Name != "pcap-analyzer" {
+		t.Fatalf("unexpected create skill detail or upsert request: %#v %#v", createDetail, service.upsertSkillReq)
+	}
+	if len(createDetail.FileManifest) != 2 {
+		t.Fatalf("unexpected create manifest: %#v", createDetail.FileManifest)
+	}
+
+	service.getSkillErr = nil
+	service.getSkillResp = domain.Skill{
+		Name:   "pcap-analyzer",
+		Status: domain.AuthoredStatusDraft,
+	}
+	service.upsertSkillResp = domain.Skill{
+		Name:        "pcap-analyzer",
+		Description: "Analyze packet captures",
+		Content: `---
+name: pcap-analyzer
+description: Analyze packet captures
+---
+`,
+		Files:  []domain.SkillFile{{Path: "scripts/run.sh", Content: "echo run\n"}},
+		Status: domain.AuthoredStatusDraft,
+	}
+
+	replaceArchive := buildSkillPackageZip(t, map[string][]byte{
+		"pcap-analyzer/SKILL.md": []byte(`---
+name: pcap-analyzer
+description: Analyze packet captures
+---
+`),
+		"pcap-analyzer/scripts/run.sh": []byte("echo run\n"),
+	})
+	replaceBody, replaceContentType := newSkillPackageForm(t, replaceArchive, map[string]string{})
+	replaceReq, err := http.NewRequest(
+		http.MethodPut,
+		server.URL+"/api/v1/skills/pcap-analyzer/package",
+		replaceBody,
+	)
+	if err != nil {
+		t.Fatalf("NewRequest replace skill package: %v", err)
+	}
+	replaceReq.Header.Set("Content-Type", replaceContentType)
+	replaceResp, err := http.DefaultClient.Do(replaceReq)
+	if err != nil {
+		t.Fatalf("PUT skill package: %v", err)
+	}
+	assertStatus(t, replaceResp, http.StatusOK)
+	replaceResp.Body.Close()
+	if service.upsertSkillReq.Status != domain.AuthoredStatusDraft {
+		t.Fatalf("expected replace to preserve status, got %#v", service.upsertSkillReq)
+	}
+
+	service.getSkillResp = service.upsertSkillResp
+	downloadResp, err := http.Get(server.URL + "/api/v1/skills/pcap-analyzer/package")
+	if err != nil {
+		t.Fatalf("GET skill package: %v", err)
+	}
+	assertStatus(t, downloadResp, http.StatusOK)
+	if contentType := downloadResp.Header.Get("Content-Type"); contentType != "application/zip" {
+		t.Fatalf("unexpected content type: %s", contentType)
+	}
+	downloadBytes, err := io.ReadAll(downloadResp.Body)
+	if err != nil {
+		t.Fatalf("ReadAll skill package: %v", err)
+	}
+	downloadResp.Body.Close()
+
+	reader, err := zip.NewReader(bytes.NewReader(downloadBytes), int64(len(downloadBytes)))
+	if err != nil {
+		t.Fatalf("zip.NewReader: %v", err)
+	}
+	if len(reader.File) != 2 ||
+		reader.File[0].Name != "pcap-analyzer/SKILL.md" ||
+		reader.File[1].Name != "pcap-analyzer/scripts/run.sh" {
+		t.Fatalf("unexpected downloaded archive: %#v", reader.File)
 	}
 }
 
@@ -1063,4 +1192,51 @@ func decodeBodyWithRaw[T any](t *testing.T, resp *http.Response) (T, string) {
 		t.Fatalf("decode body %s: %v", string(body), err)
 	}
 	return value, string(body)
+}
+
+func buildSkillPackageZip(t *testing.T, files map[string][]byte) []byte {
+	t.Helper()
+
+	var buffer bytes.Buffer
+	writer := zip.NewWriter(&buffer)
+	for filePath, content := range files {
+		entry, err := writer.Create(filePath)
+		if err != nil {
+			t.Fatalf("Create(%q): %v", filePath, err)
+		}
+		if _, err := entry.Write(content); err != nil {
+			t.Fatalf("Write(%q): %v", filePath, err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close zip writer: %v", err)
+	}
+	return buffer.Bytes()
+}
+
+func newSkillPackageForm(
+	t *testing.T,
+	archive []byte,
+	fields map[string]string,
+) (*bytes.Buffer, string) {
+	t.Helper()
+
+	var buffer bytes.Buffer
+	writer := multipart.NewWriter(&buffer)
+	part, err := writer.CreateFormFile("package", "skill.zip")
+	if err != nil {
+		t.Fatalf("CreateFormFile: %v", err)
+	}
+	if _, err := part.Write(archive); err != nil {
+		t.Fatalf("Write archive: %v", err)
+	}
+	for key, value := range fields {
+		if err := writer.WriteField(key, value); err != nil {
+			t.Fatalf("WriteField(%q): %v", key, err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close multipart writer: %v", err)
+	}
+	return &buffer, writer.FormDataContentType()
 }

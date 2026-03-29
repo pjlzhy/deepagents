@@ -46,16 +46,19 @@ async function request<TResponse>(
     body?: unknown;
     query?: Record<string, string | number | undefined>;
     signal?: AbortSignal;
+    responseType?: 'json' | 'blob';
   } = {},
 ): Promise<TResponse> {
+  const expectsBlob = options.responseType === 'blob';
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
   const response = await fetch(buildApiUrl(path, options.query), {
     method,
     signal: options.signal,
     headers: {
-      Accept: 'application/json',
-      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+      Accept: expectsBlob ? 'application/zip, application/octet-stream, */*' : 'application/json',
+      ...(!isFormData && options.body ? { 'Content-Type': 'application/json' } : {}),
     },
-    body: options.body ? JSON.stringify(options.body) : undefined,
+    body: isFormData ? options.body as FormData : options.body ? JSON.stringify(options.body) : undefined,
   });
 
   if (response.status === 204) {
@@ -65,6 +68,10 @@ async function request<TResponse>(
   if (!response.ok) {
     const errorBody = await parseJsonSafe<ApiErrorResponse>(response);
     throw new ControlApiError(errorBody?.error ?? response.statusText, response.status);
+  }
+
+  if (expectsBlob) {
+    return (await response.blob()) as TResponse;
   }
 
   const payload = await parseJsonSafe<TResponse>(response);
@@ -91,5 +98,14 @@ export const httpClient = {
   },
   delete<TResponse>(path: string, query?: Record<string, string | number | undefined>, signal?: AbortSignal) {
     return request<TResponse>('DELETE', path, { query, signal });
+  },
+  postForm<TResponse>(path: string, body: FormData, signal?: AbortSignal) {
+    return request<TResponse>('POST', path, { body, signal });
+  },
+  putForm<TResponse>(path: string, body: FormData, signal?: AbortSignal) {
+    return request<TResponse>('PUT', path, { body, signal });
+  },
+  getBlob(path: string, query?: Record<string, string | number | undefined>, signal?: AbortSignal) {
+    return request<Blob>('GET', path, { query, signal, responseType: 'blob' });
   },
 };

@@ -68,11 +68,11 @@ export default function RegistryResourcePage(props: RegistryResourcePageProps) {
                   </div>
                 ) : null}
               </Space>
-              <div className='mt-16px flex items-center justify-between gap-12px'>
+              <div className='mt-16px flex flex-col gap-10px'>
+                {item.actions ? <div className='flex flex-wrap justify-end gap-8px'>{item.actions}</div> : null}
                 <Typography.Text className='text-[var(--control-subtle)]'>
-                  updated_at: {item.updatedAt ?? 'n/a'}
+                  updated_at: {formatUpdatedAt(item.updatedAt)}
                 </Typography.Text>
-                {item.actions ? <Space wrap>{item.actions}</Space> : null}
               </div>
             </Card>
           ))}
@@ -91,4 +91,31 @@ export default function RegistryResourcePage(props: RegistryResourcePageProps) {
       </div>
     </div>
   );
+}
+
+function formatUpdatedAt(value?: string): string {
+  if (!value) {
+    return 'n/a';
+  }
+
+  const trimmed = value.trim();
+  const match = trimmed.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})/);
+  if (match) {
+    return `${match[1]} ${match[2]}`;
+  }
+
+  const date = new Date(trimmed);
+  if (Number.isNaN(date.getTime())) {
+    return trimmed;
+  }
+
+  return [
+    date.getFullYear().toString().padStart(4, '0'),
+    (date.getMonth() + 1).toString().padStart(2, '0'),
+    date.getDate().toString().padStart(2, '0'),
+  ].join('-') + ` ${[
+    date.getHours().toString().padStart(2, '0'),
+    date.getMinutes().toString().padStart(2, '0'),
+    date.getSeconds().toString().padStart(2, '0'),
+  ].join(':')}`;
 }

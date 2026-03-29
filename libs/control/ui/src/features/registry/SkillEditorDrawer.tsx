@@ -1,120 +1,106 @@
-import { useEffect, useState } from 'react';
-import { Button, Drawer, Form, Input, Select, Space } from '@arco-design/web-react';
-import type { SkillDTO, SkillUpsertRequestDTO } from '@/shared/types/api';
-import {
-  authoredStatusOptions,
-  formatJsonValue,
-  formatMultilineList,
-  parseMultilineList,
-  parseOptionalSkillFiles,
-} from '@/features/registry/formCodecs';
+import { useEffect, useRef, useState } from 'react';
+import { Button, Drawer, Space, Typography } from '@arco-design/web-react';
+import type { SkillDTO } from '@/shared/types/api';
 
 type SkillEditorDrawerProps = {
   visible: boolean;
-  mode: 'create' | 'edit';
+  mode: 'create' | 'replace';
   value?: SkillDTO;
   onClose: () => void;
-  onSubmit: (name: string, body: SkillUpsertRequestDTO) => Promise<void>;
-};
-
-type SkillFormValues = {
-  name: string;
-  description: string;
-  status: string;
-  tagsText: string;
-  content: string;
-  filesJson: string;
+  onSubmit: (file: File) => Promise<void>;
 };
 
 export default function SkillEditorDrawer(props: SkillEditorDrawerProps) {
-  const [form] = Form.useForm<SkillFormValues>();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [file, setFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!props.visible) {
-      form.resetFields();
+      setFile(null);
       setSubmitting(false);
+    }
+  }, [props.visible]);
+
+  async function handleSubmit() {
+    if (!file) {
       return;
     }
 
-    form.setFieldsValue({
-      name: props.value?.name ?? '',
-      description: props.value?.description ?? '',
-      status: props.value?.status ?? 'draft',
-      tagsText: formatMultilineList(props.value?.tags),
-      content: props.value?.content ?? '',
-      filesJson: formatJsonValue(props.value?.files),
-    });
-  }, [form, props.mode, props.value, props.visible]);
-
-  async function handleSubmit() {
-    const values = await form.validate();
-    const name = values.name.trim();
-
     setSubmitting(true);
     try {
-      await props.onSubmit(name, {
-        description: values.description.trim() || undefined,
-        tags: parseMultilineList(values.tagsText),
-        content: values.content,
-        files: parseOptionalSkillFiles(values.filesJson),
-        status: values.status || undefined,
-      });
+      await props.onSubmit(file);
       props.onClose();
     } finally {
       setSubmitting(false);
     }
   }
 
+  function triggerFilePicker() {
+    fileInputRef.current?.click();
+  }
+
   return (
     <Drawer
-      width={760}
-      title={props.mode === 'create' ? 'Create Skill' : `Edit Skill / ${props.value?.name ?? ''}`}
+      width={640}
+      title={props.mode === 'create' ? 'Upload Skill' : `Replace Skill / ${props.value?.name ?? ''}`}
       visible={props.visible}
       unmountOnExit
       onCancel={props.onClose}
       footer={
         <Space>
           <Button onClick={props.onClose}>Cancel</Button>
-          <Button type='primary' loading={submitting} onClick={() => void handleSubmit()}>
-            Save
+          <Button type='primary' disabled={!file} loading={submitting} onClick={() => void handleSubmit()}>
+            {props.mode === 'create' ? 'Upload' : 'Replace'}
           </Button>
         </Space>
       }
     >
-      <Form form={form} layout='vertical'>
-        <div className='grid grid-cols-1 gap-16px md:grid-cols-2'>
-          <Form.Item
-            field='name'
-            label='Name'
-            rules={[{ required: true, message: 'name is required' }]}
-          >
-            <Input placeholder='code-review' disabled={props.mode === 'edit'} />
-          </Form.Item>
-          <Form.Item
-            field='status'
-            label='Status'
-            rules={[{ required: true, message: 'status is required' }]}
-          >
-            <Select options={authoredStatusOptions as unknown as Array<{ label: string; value: string }>} />
-          </Form.Item>
+      <input
+        ref={fileInputRef}
+        type='file'
+        accept='.zip,application/zip'
+        className='hidden'
+        onChange={(event) => {
+          setFile(event.target.files?.[0] ?? null);
+        }}
+      />
+      <Space direction='vertical' size='large' className='w-full'>
+        <div className='rounded-16px border border-[var(--control-border)] bg-[var(--control-panel-2)] p-16px'>
+          <Typography.Title heading={6} className='!mt-0 !mb-8px'>
+            Upload Rules
+          </Typography.Title>
+          <Typography.Paragraph className='!mb-0 text-[var(--control-subtle)]'>
+            Upload one skill snapshot zip. The server reads the skill name from `SKILL.md`
+            frontmatter, validates the directory structure, and stores the snapshot as `SKILL.md`
+            plus extra text files.
+          </Typography.Paragraph>
         </div>
-        <Form.Item field='description' label='Description'>
-          <Input placeholder='Code review workflow skill' />
-        </Form.Item>
-        <Form.Item field='tagsText' label='Tags'>
-          <Input.TextArea autoSize={{ minRows: 3, maxRows: 8 }} placeholder={'review\nquality\naudit'} />
-        </Form.Item>
-        <Form.Item field='content' label='SKILL.md Content'>
-          <Input.TextArea autoSize={{ minRows: 8, maxRows: 18 }} placeholder='Primary SKILL.md content' />
-        </Form.Item>
-        <Form.Item field='filesJson' label='Extra Files JSON'>
-          <Input.TextArea
-            autoSize={{ minRows: 8, maxRows: 18 }}
-            placeholder={'[\n  {\n    "path": "scripts/init.py",\n    "content": "print(\\"hello\\")"\n  }\n]'}
-          />
-        </Form.Item>
-      </Form>
+
+        <div className='rounded-16px border border-dashed border-[var(--control-border)] bg-[var(--control-panel)] p-20px'>
+          <Space direction='vertical' size='medium' className='w-full'>
+            <Typography.Title heading={6} className='!mt-0 !mb-0'>
+              {props.mode === 'create' ? 'Select Skill Package' : 'Select Replacement Package'}
+            </Typography.Title>
+            <Typography.Paragraph className='!mb-0 text-[var(--control-subtle)]'>
+              {props.mode === 'create'
+                ? 'The uploaded zip must contain a valid `SKILL.md` frontmatter. The saved registry key comes from frontmatter `name`.'
+                : `The replacement zip must keep the skill name aligned with ${props.value?.name ?? 'the target skill'}.`}
+            </Typography.Paragraph>
+            <Space wrap>
+              <Button type='secondary' onClick={triggerFilePicker}>
+                Choose Zip
+              </Button>
+              <Typography.Text>{file?.name ?? 'No file selected'}</Typography.Text>
+            </Space>
+            {file ? (
+              <Typography.Text className='text-[var(--control-subtle)]'>
+                {(file.size / 1024).toFixed(1)} KB
+              </Typography.Text>
+            ) : null}
+          </Space>
+        </div>
+      </Space>
     </Drawer>
   );
 }

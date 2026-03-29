@@ -5,6 +5,7 @@ import (
 	"agentctl/pkg/orchestrator"
 	registrypkg "agentctl/pkg/registry"
 	"agentctl/pkg/runtimeclient"
+	"agentctl/pkg/skillpackage"
 	"agentctl/pkg/streamproxy"
 	"context"
 	"crypto/rand"
@@ -12,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -76,8 +78,11 @@ func (h *HTTPHandler) registerRoutes() {
 	h.serveMux.HandleFunc("GET /api/v1/models/{name}", h.handleGetModelConfig)
 	h.serveMux.HandleFunc("DELETE /api/v1/models/{name}", h.handleDeleteModelConfig)
 	h.serveMux.HandleFunc("GET /api/v1/skills", h.handleListSkills)
+	h.serveMux.HandleFunc("POST /api/v1/skills/package", h.handleCreateSkillPackage)
 	h.serveMux.HandleFunc("PUT /api/v1/skills/{name}", h.handleUpsertSkill)
 	h.serveMux.HandleFunc("GET /api/v1/skills/{name}", h.handleGetSkill)
+	h.serveMux.HandleFunc("PUT /api/v1/skills/{name}/package", h.handleReplaceSkillPackage)
+	h.serveMux.HandleFunc("GET /api/v1/skills/{name}/package", h.handleDownloadSkillPackage)
 	h.serveMux.HandleFunc("DELETE /api/v1/skills/{name}", h.handleDeleteSkill)
 	h.serveMux.HandleFunc("GET /api/v1/mcps", h.handleListMCPConfigs)
 	h.serveMux.HandleFunc("PUT /api/v1/mcps/{name}", h.handleUpsertMCPConfig)
@@ -365,9 +370,40 @@ func (h *HTTPHandler) handleListSkills(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, skillsListResponse{
-		Skills:       newHTTPSkillResponses(page.Items),
+		Skills:       newHTTPSkillSummaryResponses(page.Items),
 		pageResponse: newHTTPPageResponse(page.PageMetadata),
 	})
+}
+
+func (h *HTTPHandler) handleCreateSkillPackage(w http.ResponseWriter, r *http.Request) {
+	upload, err := decodeSkillPackageUploadRequest(r)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	snapshot, err := skillpackage.ParseZip(upload.Content, skillpackage.ParseOptions{
+		Status: upload.Status,
+	})
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	if _, err := h.service.GetSkill(r.Context(), snapshot.Skill.Name); err == nil {
+		writeJSONError(w, http.StatusConflict, fmt.Errorf("skill %q already exists", snapshot.Skill.Name))
+		return
+	} else if !errors.Is(err, registrypkg.ErrNotFound) {
+		writeServiceError(w, err)
+		return
+	}
+
+	stored, err := h.service.UpsertSkill(r.Context(), snapshot.Skill)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, newHTTPSkillDetailResponse(stored))
 }
 
 func (h *HTTPHandler) handleUpsertSkill(w http.ResponseWriter, r *http.Request) {
@@ -395,7 +431,74 @@ func (h *HTTPHandler) handleGetSkill(w http.ResponseWriter, r *http.Request) {
 		writeServiceError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, newHTTPSkillResponse(skill))
+	writeJSON(w, http.StatusOK, newHTTPSkillDetailResponse(skill))
+}
+
+func (h *HTTPHandler) handleReplaceSkillPackage(w http.ResponseWriter, r *http.Request) {
+	name, err := decodeResourceName(r, "name")
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	current, err := h.service.GetSkill(r.Context(), name)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	upload, err := decodeSkillPackageUploadRequest(r)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+	status := upload.Status
+	if status == "" {
+		status = current.Status
+	}
+
+	snapshot, err := skillpackage.ParseZip(upload.Content, skillpackage.ParseOptions{
+		ExpectedName: name,
+		Status:       status,
+	})
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	stored, err := h.service.UpsertSkill(r.Context(), snapshot.Skill)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, newHTTPSkillDetailResponse(stored))
+}
+
+func (h *HTTPHandler) handleDownloadSkillPackage(w http.ResponseWriter, r *http.Request) {
+	name, err := decodeResourceName(r, "name")
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	skill, err := h.service.GetSkill(r.Context(), name)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	archive, err := skillpackage.BuildZip(skill)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	filename := fmt.Sprintf("%s.zip", skill.Name)
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	w.Header().Set("Content-Length", strconv.Itoa(len(archive)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(archive)
 }
 
 func (h *HTTPHandler) handleDeleteSkill(w http.ResponseWriter, r *http.Request) {
@@ -861,6 +964,12 @@ type skillUpsertRequest struct {
 	Status      string             `json:"status,omitempty"`
 }
 
+type skillManifestPayload struct {
+	Path   string `json:"path,omitempty"`
+	Size   int64  `json:"size,omitempty"`
+	SHA256 string `json:"sha256,omitempty"`
+}
+
 type skillResponse struct {
 	Name        string             `json:"name,omitempty"`
 	Description string             `json:"description,omitempty"`
@@ -872,8 +981,39 @@ type skillResponse struct {
 	UpdatedAt   string             `json:"updated_at,omitempty"`
 }
 
+type skillSummaryResponse struct {
+	Name           string `json:"name,omitempty"`
+	Description    string `json:"description,omitempty"`
+	Status         string `json:"status,omitempty"`
+	CreatedAt      string `json:"created_at,omitempty"`
+	UpdatedAt      string `json:"updated_at,omitempty"`
+	License        any    `json:"license,omitempty"`
+	Compatibility  any    `json:"compatibility,omitempty"`
+	Metadata       any    `json:"metadata,omitempty"`
+	AllowedTools   any    `json:"allowed_tools,omitempty"`
+	FileCount      int    `json:"file_count,omitempty"`
+	SnapshotDigest string `json:"snapshot_digest,omitempty"`
+}
+
+type skillDetailResponse struct {
+	Name           string                 `json:"name,omitempty"`
+	Description    string                 `json:"description,omitempty"`
+	Status         string                 `json:"status,omitempty"`
+	CreatedAt      string                 `json:"created_at,omitempty"`
+	UpdatedAt      string                 `json:"updated_at,omitempty"`
+	License        any                    `json:"license,omitempty"`
+	Compatibility  any                    `json:"compatibility,omitempty"`
+	Metadata       any                    `json:"metadata,omitempty"`
+	AllowedTools   any                    `json:"allowed_tools,omitempty"`
+	FileCount      int                    `json:"file_count,omitempty"`
+	SnapshotDigest string                 `json:"snapshot_digest,omitempty"`
+	SkillMD        string                 `json:"skill_md,omitempty"`
+	Frontmatter    map[string]any         `json:"frontmatter,omitempty"`
+	FileManifest   []skillManifestPayload `json:"file_manifest"`
+}
+
 type skillsListResponse struct {
-	Skills []skillResponse `json:"skills"`
+	Skills []skillSummaryResponse `json:"skills"`
 	pageResponse
 }
 
@@ -1229,6 +1369,40 @@ func decodeSkillRequest(r *http.Request) (domain.Skill, error) {
 	}, nil
 }
 
+type decodedSkillPackageUploadRequest struct {
+	Content []byte
+	Status  domain.AuthoredStatus
+}
+
+func decodeSkillPackageUploadRequest(r *http.Request) (decodedSkillPackageUploadRequest, error) {
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		return decodedSkillPackageUploadRequest{}, fmt.Errorf("parse multipart form: %w", err)
+	}
+
+	file, _, err := r.FormFile("package")
+	if err != nil {
+		file, _, err = r.FormFile("file")
+		if err != nil {
+			return decodedSkillPackageUploadRequest{}, errors.New("multipart field \"package\" must contain the skill zip")
+		}
+	}
+	defer file.Close()
+
+	content, err := io.ReadAll(file)
+	if err != nil {
+		return decodedSkillPackageUploadRequest{}, fmt.Errorf("read skill package upload: %w", err)
+	}
+
+	status, err := parseOptionalAuthoredStatus(r.FormValue("status"))
+	if err != nil {
+		return decodedSkillPackageUploadRequest{}, err
+	}
+	return decodedSkillPackageUploadRequest{
+		Content: content,
+		Status:  status,
+	}, nil
+}
+
 func decodeMCPConfigRequest(r *http.Request) (domain.MCPConfig, error) {
 	name, err := decodeResourceName(r, "name")
 	if err != nil {
@@ -1555,12 +1729,61 @@ func newHTTPSkillResponse(skill domain.Skill) skillResponse {
 	}
 }
 
-func newHTTPSkillResponses(skills []domain.Skill) []skillResponse {
-	responses := make([]skillResponse, 0, len(skills))
+func newHTTPSkillSummaryResponse(skill domain.Skill) skillSummaryResponse {
+	description := skillpackage.Describe(skill)
+	return skillSummaryResponse{
+		Name:           description.Frontmatter.Name,
+		Description:    description.Frontmatter.Description,
+		Status:         string(skill.Status),
+		CreatedAt:      formatOptionalTime(skill.CreatedAt),
+		UpdatedAt:      formatOptionalTime(skill.UpdatedAt),
+		License:        description.Frontmatter.License,
+		Compatibility:  description.Frontmatter.Compatibility,
+		Metadata:       description.Frontmatter.Metadata,
+		AllowedTools:   description.Frontmatter.AllowedTools,
+		FileCount:      description.FileCount,
+		SnapshotDigest: description.SnapshotDigest,
+	}
+}
+
+func newHTTPSkillSummaryResponses(skills []domain.Skill) []skillSummaryResponse {
+	responses := make([]skillSummaryResponse, 0, len(skills))
 	for _, skill := range skills {
-		responses = append(responses, newHTTPSkillResponse(skill))
+		responses = append(responses, newHTTPSkillSummaryResponse(skill))
 	}
 	return responses
+}
+
+func newHTTPSkillDetailResponse(skill domain.Skill) skillDetailResponse {
+	description := skillpackage.Describe(skill)
+	return skillDetailResponse{
+		Name:           description.Frontmatter.Name,
+		Description:    description.Frontmatter.Description,
+		Status:         string(skill.Status),
+		CreatedAt:      formatOptionalTime(skill.CreatedAt),
+		UpdatedAt:      formatOptionalTime(skill.UpdatedAt),
+		License:        description.Frontmatter.License,
+		Compatibility:  description.Frontmatter.Compatibility,
+		Metadata:       description.Frontmatter.Metadata,
+		AllowedTools:   description.Frontmatter.AllowedTools,
+		FileCount:      description.FileCount,
+		SnapshotDigest: description.SnapshotDigest,
+		SkillMD:        skill.Content,
+		Frontmatter:    description.Frontmatter.Raw,
+		FileManifest:   newHTTPSkillManifest(description.Manifest),
+	}
+}
+
+func newHTTPSkillManifest(entries []skillpackage.FileManifestEntry) []skillManifestPayload {
+	payloads := make([]skillManifestPayload, 0, len(entries))
+	for _, entry := range entries {
+		payloads = append(payloads, skillManifestPayload{
+			Path:   entry.Path,
+			Size:   entry.Size,
+			SHA256: entry.SHA256,
+		})
+	}
+	return payloads
 }
 
 func newHTTPSkillFiles(files []domain.SkillFile) []skillFilePayload {
