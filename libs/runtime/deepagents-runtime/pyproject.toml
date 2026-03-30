@@ -5,7 +5,7 @@ description = "Runtime layer for Agent OS: agent lifecycle management, runtime e
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "deepagents",
+    "deepagents>=0.4.12",
     "aiosqlite>=0.20.0",
     "pyyaml>=6.0",
     "langgraph-checkpoint-sqlite",
@@ -17,6 +17,7 @@ dependencies = [
     "langchain-openai>=1.1.11",
     "pytest>=9.0.2",
     "ruff>=0.15.7",
+    "docker>=7.1.0",
 ]
 
 [project.optional-dependencies]
@@ -28,6 +29,3 @@ deepagents = "deepagents_runtime.entry.cli:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
-
-[tool.uv.sources]
-deepagents = { path = "../../deepagents", editable = true }

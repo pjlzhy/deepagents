@@ -7,11 +7,14 @@ Requires the `docker` extra: `pip install deepagents-runtime[docker]`.
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import logging
+import posixpath
 import uuid
 from typing import Any
 
-from deepagents.backends.protocol import ExecuteResponse
+from deepagents.backends.protocol import ExecuteResponse, FileDownloadResponse, FileUploadResponse
 from deepagents.backends.sandbox import BaseSandbox
 from deepagents_runtime.spec import SandboxSpec
 
@@ -58,7 +61,11 @@ class DockerSandboxBackend(BaseSandbox):
             An initialized (but not yet started) DockerSandboxBackend.
         """
         image = spec.get("image", "python:3.12-slim")
-        backend = cls(image=image)
+        resources = spec.get("resources") or {}
+        max_output_bytes = 100_000
+        if isinstance(resources, dict) and resources.get("max_output_bytes") is not None:
+            max_output_bytes = int(resources["max_output_bytes"])
+        backend = cls(image=image, max_output_bytes=max_output_bytes)
         return backend
 
     async def start(self) -> None:
@@ -113,14 +120,11 @@ class DockerSandboxBackend(BaseSandbox):
         if self._container is None:
             raise RuntimeError("Sandbox not started. Call start() first.")
 
+        exec_kwargs: dict[str, Any] = {"demux": False}
         if timeout is not None:
-            msg = "Docker sandbox does not support per-command timeout overrides yet"
-            raise ValueError(msg)
+            exec_kwargs["timeout"] = timeout
 
-        exit_code, output = self._container.exec_run(
-            ["sh", "-c", command],
-            demux=False,
-        )
+        exit_code, output = self._container.exec_run(["sh", "-c", command], **exec_kwargs)
         decoded = output.decode("utf-8", errors="replace") if output else ""
         encoded = decoded.encode("utf-8")
         truncated = len(encoded) > self._max_output_bytes
@@ -135,6 +139,69 @@ class DockerSandboxBackend(BaseSandbox):
             exit_code=exit_code,
             truncated=truncated,
         )
+
+    def upload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResponse]:
+        """Upload files into the running container.
+
+        Files are written atomically via `python3` in the container. Response order
+        matches input order and failures are reported per-file.
+        """
+        responses: list[FileUploadResponse] = []
+        for path, content in files:
+            try:
+                normalized_path = _normalize_container_path(path)
+            except ValueError:
+                responses.append(FileUploadResponse(path=path, error="invalid_path"))
+                continue
+
+            content_b64 = base64.b64encode(content).decode("ascii")
+            path_b64 = base64.b64encode(normalized_path.encode("utf-8")).decode("ascii")
+            command = _docker_upload_command(path_b64=path_b64, content_b64=content_b64)
+            result = self.execute(command)
+            if result.exit_code == 0:
+                responses.append(FileUploadResponse(path=path, error=None))
+            else:
+                responses.append(
+                    FileUploadResponse(
+                        path=path,
+                        error=_map_upload_error(result.output),
+                    )
+                )
+        return responses
+
+    def download_files(self, paths: list[str]) -> list[FileDownloadResponse]:
+        """Download files from the running container."""
+        responses: list[FileDownloadResponse] = []
+        for path in paths:
+            try:
+                normalized_path = _normalize_container_path(path)
+            except ValueError:
+                responses.append(FileDownloadResponse(path=path, content=None, error="invalid_path"))
+                continue
+
+            path_b64 = base64.b64encode(normalized_path.encode("utf-8")).decode("ascii")
+            command = _docker_download_command(path_b64=path_b64)
+            result = self.execute(command)
+            if result.exit_code == 0:
+                try:
+                    content = (
+                        base64.b64decode(result.output.encode("ascii"), validate=True)
+                        if result.output
+                        else b""
+                    )
+                except (binascii.Error, ValueError):
+                    responses.append(FileDownloadResponse(path=path, content=None, error="invalid_path"))
+                    continue
+                responses.append(FileDownloadResponse(path=path, content=content, error=None))
+            else:
+                responses.append(
+                    FileDownloadResponse(
+                        path=path,
+                        content=None,
+                        error=_map_download_error(result.output),
+                    )
+                )
+        return responses
 
     async def cleanup(self) -> None:
         """Stop and remove the container."""
@@ -163,3 +230,83 @@ class DockerSandboxBackend(BaseSandbox):
             except Exception:
                 pass
             self._client = None
+
+
+def _normalize_container_path(path: str) -> str:
+    """Normalize an absolute container path and reject traversal."""
+    if not path or not path.startswith("/"):
+        raise ValueError(path)
+    normalized = posixpath.normpath(path)
+    if normalized == "/" or normalized.startswith("/../") or normalized == "/..":
+        raise ValueError(path)
+    parts = normalized.split("/")
+    if any(part == ".." for part in parts):
+        raise ValueError(path)
+    return normalized
+
+
+def _docker_upload_command(*, path_b64: str, content_b64: str) -> str:
+    return f"""python3 -c "
+import base64
+import os
+import pathlib
+import sys
+
+file_path = base64.b64decode('{path_b64}').decode('utf-8')
+content = base64.b64decode('{content_b64}')
+
+try:
+    pathlib.Path(file_path).parent.mkdir(parents=True, exist_ok=True)
+    with open(file_path, 'wb') as handle:
+        handle.write(content)
+except PermissionError:
+    print('permission_denied', file=sys.stderr)
+    sys.exit(13)
+except OSError:
+    print('invalid_path', file=sys.stderr)
+    sys.exit(22)
+"""
+
+
+def _docker_download_command(*, path_b64: str) -> str:
+    return f"""python3 -c "
+import base64
+import os
+import sys
+
+file_path = base64.b64decode('{path_b64}').decode('utf-8')
+
+if not os.path.exists(file_path):
+    print('file_not_found', file=sys.stderr)
+    sys.exit(2)
+if os.path.isdir(file_path):
+    print('is_directory', file=sys.stderr)
+    sys.exit(21)
+
+try:
+    with open(file_path, 'rb') as handle:
+        print(base64.b64encode(handle.read()).decode('ascii'), end='')
+except PermissionError:
+    print('permission_denied', file=sys.stderr)
+    sys.exit(13)
+"""
+
+
+def _map_upload_error(output: str) -> str:
+    normalized = output.strip().lower()
+    if "permission_denied" in normalized:
+        return "permission_denied"
+    if "file_not_found" in normalized:
+        return "file_not_found"
+    return "invalid_path"
+
+
+def _map_download_error(output: str) -> str:
+    normalized = output.strip().lower()
+    if "file_not_found" in normalized:
+        return "file_not_found"
+    if "permission_denied" in normalized:
+        return "permission_denied"
+    if "is_directory" in normalized:
+        return "is_directory"
+    return "invalid_path"

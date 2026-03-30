@@ -25,7 +25,6 @@ from deepagents.graph import create_deep_agent
 from deepagents.backends import CompositeBackend, FilesystemBackend, LocalShellBackend
 from deepagents.middleware.subagents import SubAgent
 from deepagents.middleware.memory import MemoryMiddleware
-from deepagents.middleware.skills import SkillsMiddleware
 from deepagents.middleware.summarization import (
     SummarizationToolMiddleware,
     create_summarization_middleware,
@@ -38,6 +37,7 @@ from deepagents_runtime.models import create_model, ModelResult
 from deepagents_runtime.registry import Registry
 from deepagents_runtime.sandbox.docker import DockerSandboxBackend
 from deepagents_runtime.sandbox.k8s import K8sSandboxBackend
+from deepagents_runtime.skills import RuntimeSkillsMiddleware
 from deepagents_runtime.spec import (
     AgentSpec,
     MCPRuntime,
@@ -698,7 +698,7 @@ class RuntimeAgent:
 
         # Skills middleware
         agent_middleware.append(
-            SkillsMiddleware(
+            RuntimeSkillsMiddleware(
                 backend=FilesystemBackend(virtual_mode=False),
                 sources=[str(self.registry.skills_dir(self.spec.name))],
             )

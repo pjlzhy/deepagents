@@ -501,9 +501,12 @@ func normalizeSnapshotPath(raw string, reserveSkillMD bool) (string, error) {
 }
 
 func shouldIgnorePath(filePath string) bool {
+	if strings.HasPrefix(path.Base(filePath), "._") {
+		return true
+	}
 	for _, segment := range strings.Split(filePath, "/") {
 		switch segment {
-		case ".git", ".idea", ".venv", "__pycache__", ".DS_Store":
+		case ".git", ".idea", ".venv", "__MACOSX", "__pycache__", ".DS_Store":
 			return true
 		}
 	}

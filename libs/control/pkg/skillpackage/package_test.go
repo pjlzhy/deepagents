@@ -24,6 +24,8 @@ allowed-tools:
 
 # Skill
 `),
+		"__MACOSX/._pcap-analyzer":                 {0xff, 0xfe, 0xfd},
+		"pcap-analyzer/._SKILL.md":                 {0xff, 0xfe, 0xfd},
 		"pcap-analyzer/scripts/analyze.sh":         []byte("echo analyze\n"),
 		"pcap-analyzer/.DS_Store":                  []byte("ignored"),
 		"pcap-analyzer/scripts/__pycache__/x.pyc":  []byte("ignored"),

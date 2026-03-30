@@ -188,7 +188,7 @@ def test_assemble_creates_sandbox_runtime_once() -> None:
                     side_effect=lambda **_kwargs: object(),
                 ):
                     with patch(
-                        "deepagents_runtime.agent.SkillsMiddleware",
+                        "deepagents_runtime.agent.RuntimeSkillsMiddleware",
                         side_effect=lambda **_kwargs: object(),
                     ):
                         with patch(
@@ -282,7 +282,7 @@ def test_assemble_without_sandbox_spec_skips_sandbox_runtime() -> None:
                     side_effect=lambda **_kwargs: object(),
                 ):
                     with patch(
-                        "deepagents_runtime.agent.SkillsMiddleware",
+                        "deepagents_runtime.agent.RuntimeSkillsMiddleware",
                         side_effect=lambda **_kwargs: object(),
                     ):
                         with patch(
