@@ -306,9 +306,13 @@ func TestGRPCClientSyncAgentSpecHealthAndRemove(t *testing.T) {
 			},
 		},
 		Sandbox: domain.SandboxSpec{
-			Image:     "python:3.12",
-			Resources: map[string]string{"cpu": "2"},
-			Init:      []string{"echo ready"},
+			Docker: &domain.DockerSandboxSpec{
+				Image: domain.ImageReference{Reference: "python:3.12"},
+				Resources: domain.DockerResourceSpec{
+					CPU: "2",
+				},
+			},
+			SetupCommands: []string{"echo ready"},
 		},
 		InterruptOn: []string{"write_file"},
 	}
@@ -342,6 +346,15 @@ func TestGRPCClientSyncAgentSpecHealthAndRemove(t *testing.T) {
 	}
 	if request.GetMcpServers()[0].GetTransport() != "stdio" {
 		t.Fatalf("unexpected mcp server transport: %#v", request.GetMcpServers()[0])
+	}
+	if request.GetSandbox().GetDocker().GetImage().GetReference() != "python:3.12" {
+		t.Fatalf("unexpected sandbox image: %#v", request.GetSandbox())
+	}
+	if request.GetSandbox().GetDocker().GetResources().GetCpu() != "2" {
+		t.Fatalf("unexpected sandbox resources: %#v", request.GetSandbox().GetDocker())
+	}
+	if len(request.GetSandbox().GetSetupCommands()) != 1 {
+		t.Fatalf("unexpected sandbox setup commands: %#v", request.GetSandbox())
 	}
 
 	health, err := client.Health(context.Background())

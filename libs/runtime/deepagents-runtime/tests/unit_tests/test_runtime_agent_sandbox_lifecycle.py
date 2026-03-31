@@ -8,11 +8,15 @@ import uuid
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+from langchain.tools import ToolRuntime
+from langchain_core.messages import HumanMessage
 from langchain_core.messages import AIMessageChunk
 
 from deepagents.backends import LocalShellBackend
+from deepagents.middleware.filesystem import FilesystemMiddleware
+from deepagents.middleware.summarization import SummarizationMiddleware
 from deepagents_runtime.agent import RuntimeAgent
 from deepagents_runtime.spec import AgentSpec, RuntimeEventType, SandboxRuntime
 
@@ -23,18 +27,29 @@ class FakeRegistry:
     def __init__(self, base_dir: Path) -> None:
         self._base_dir = base_dir
 
+    def runtime_dir(self, name: str) -> Path:
+        path = self._base_dir / name / "runtime"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
     def workspace_dir(self, name: str) -> Path:
-        path = self._base_dir / name / "workspace"
+        path = self.runtime_dir(name) / "workspace"
         path.mkdir(parents=True, exist_ok=True)
         return path
 
     def memory_dir(self, name: str) -> Path:
-        path = self._base_dir / name / "memory"
+        path = self.runtime_dir(name) / "memory" / "AGENTS.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch(exist_ok=True)
+        return path
+
+    def history_dir(self, name: str) -> Path:
+        path = self.runtime_dir(name) / "conversation_history"
         path.mkdir(parents=True, exist_ok=True)
         return path
 
     def skills_dir(self, name: str) -> Path:
-        path = self._base_dir / name / "skills"
+        path = self.runtime_dir(name) / "skills"
         path.mkdir(parents=True, exist_ok=True)
         return path
 
@@ -164,6 +179,17 @@ def _build_agent(base_dir: Path, *, sandbox: dict[str, Any] | None = None) -> Ru
     return agent
 
 
+def _make_tool_runtime() -> ToolRuntime[Any, Any]:
+    return ToolRuntime(
+        state={"messages": []},
+        context=None,
+        tool_call_id="tool-call-1",
+        store=None,
+        stream_writer=lambda _: None,
+        config={},
+    )
+
+
 def test_assemble_creates_sandbox_runtime_once() -> None:
     """Assemble should create the sandbox runtime owner once per agent."""
 
@@ -192,29 +218,37 @@ def test_assemble_creates_sandbox_runtime_once() -> None:
                         side_effect=lambda **_kwargs: object(),
                     ):
                         with patch(
-                            "deepagents_runtime.agent.create_summarization_middleware",
-                            return_value=object(),
+                            "deepagents_runtime.agent.compute_summarization_defaults",
+                            return_value={
+                                "trigger": ("messages", 10),
+                                "keep": ("messages", 2),
+                                "truncate_args_settings": {"trigger": ("messages", 10)},
+                            },
                         ):
                             with patch(
-                                "deepagents_runtime.agent.SummarizationToolMiddleware",
-                                side_effect=lambda middleware: middleware,
+                                "deepagents_runtime.agent.SummarizationMiddleware",
+                                return_value=object(),
                             ):
                                 with patch(
-                                    "deepagents_runtime.agent.create_deep_agent",
-                                    return_value=fake_graph,
+                                    "deepagents_runtime.agent.SummarizationToolMiddleware",
+                                    side_effect=lambda middleware: middleware,
                                 ):
                                     with patch(
-                                        "deepagents_runtime.agent.get_system_prompt",
-                                        return_value="system prompt",
+                                        "deepagents_runtime.agent.create_deep_agent",
+                                        return_value=fake_graph,
                                     ):
-                                        async def scenario() -> tuple[Any, Any]:
-                                            await agent.assemble()
-                                            first_runtime = agent._sandbox_runtime
-                                            await agent.assemble()
-                                            second_runtime = agent._sandbox_runtime
-                                            return first_runtime, second_runtime
+                                        with patch(
+                                            "deepagents_runtime.agent.get_system_prompt",
+                                            return_value="system prompt",
+                                        ):
+                                            async def scenario() -> tuple[Any, Any]:
+                                                await agent.assemble()
+                                                first_runtime = agent._sandbox_runtime
+                                                await agent.assemble()
+                                                second_runtime = agent._sandbox_runtime
+                                                return first_runtime, second_runtime
 
-                                        first_runtime, second_runtime = asyncio.run(scenario())
+                                            first_runtime, second_runtime = asyncio.run(scenario())
 
         assert first_runtime is not None
         assert first_runtime is second_runtime
@@ -222,17 +256,247 @@ def test_assemble_creates_sandbox_runtime_once() -> None:
         shutil.rmtree(base_dir, ignore_errors=True)
 
 
-def test_astream_uses_agent_owned_sandbox_context() -> None:
-    """astream should inject the agent-owned sandbox backend into runtime context."""
+def test_assemble_without_sandbox_uses_one_filesystem_view_for_runtime_components() -> None:
+    """Assemble should wire memory, skills, tools, and prompt to one filesystem view."""
+
+    base_dir = _make_base_dir()
+    agent = _build_agent(base_dir)
+    fake_graph = FakeGraph()
+    captured: dict[str, Any] = {}
+    model = object()
+
+    async def fake_load_mcp_tools(_configs: Any) -> tuple[list[Any], None, list[Any]]:
+        return [], None, []
+
+    def fake_memory_middleware(**kwargs: Any) -> object:
+        captured["memory_kwargs"] = kwargs
+        return object()
+
+    def fake_skills_middleware(**kwargs: Any) -> object:
+        captured["skills_kwargs"] = kwargs
+        return object()
+
+    def fake_summarization_middleware(**kwargs: Any) -> object:
+        captured["summarization_kwargs"] = kwargs
+        return object()
+
+    def fake_get_system_prompt(**kwargs: Any) -> str:
+        captured["filesystem_view"] = kwargs["filesystem_view"]
+        return "system prompt"
+
+    def fake_create_deep_agent(**kwargs: Any) -> FakeGraph:
+        captured["tool_backend"] = kwargs["backend"]
+        return fake_graph
+
+    try:
+        with patch(
+            "deepagents_runtime.agent.create_model",
+            return_value=SimpleNamespace(
+                model=model,
+                model_name="gpt-5.2",
+                provider="openai",
+                context_limit=128000,
+            ),
+        ):
+            with patch(
+                "deepagents_runtime.agent.load_mcp_tools_from_configs",
+                fake_load_mcp_tools,
+            ):
+                with patch(
+                    "deepagents_runtime.agent.MemoryMiddleware",
+                    side_effect=fake_memory_middleware,
+                ):
+                    with patch(
+                        "deepagents_runtime.agent.RuntimeSkillsMiddleware",
+                        side_effect=fake_skills_middleware,
+                    ):
+                        with patch(
+                            "deepagents_runtime.agent.compute_summarization_defaults",
+                            return_value={
+                                "trigger": ("messages", 10),
+                                "keep": ("messages", 2),
+                                "truncate_args_settings": {"trigger": ("messages", 10)},
+                            },
+                        ):
+                            with patch(
+                                "deepagents_runtime.agent.SummarizationMiddleware",
+                                side_effect=fake_summarization_middleware,
+                            ):
+                                with patch(
+                                    "deepagents_runtime.agent.SummarizationToolMiddleware",
+                                    side_effect=lambda middleware: middleware,
+                                ):
+                                    with patch(
+                                        "deepagents_runtime.agent.create_deep_agent",
+                                        side_effect=fake_create_deep_agent,
+                                    ):
+                                        with patch(
+                                            "deepagents_runtime.agent.get_system_prompt",
+                                            side_effect=fake_get_system_prompt,
+                                        ):
+                                            asyncio.run(agent.assemble())
+
+        tool_backend = captured["tool_backend"]
+        filesystem_view = captured["filesystem_view"]
+
+        assert isinstance(tool_backend, LocalShellBackend)
+        assert tool_backend.cwd == filesystem_view.host_root_dir
+        assert tool_backend.virtual_mode is True
+        assert filesystem_view.host_root_dir == (
+            base_dir / "demo-agent" / "runtime"
+        ).resolve()
+        assert filesystem_view.visible_root_path == "/"
+        assert filesystem_view.visible_workspace_path == "/workspace"
+        assert filesystem_view.visible_skills_path == "/skills"
+        assert filesystem_view.visible_memory_path == "/memory/AGENTS.md"
+        assert filesystem_view.visible_history_path_prefix == "/conversation_history"
+        assert captured["memory_kwargs"] == {
+            "backend": tool_backend,
+            "sources": [filesystem_view.visible_memory_path],
+        }
+        assert captured["skills_kwargs"] == {
+            "backend": tool_backend,
+            "sources": [filesystem_view.visible_skills_path],
+        }
+        assert captured["summarization_kwargs"] == {
+            "model": model,
+            "backend": tool_backend,
+            "trigger": ("messages", 10),
+            "keep": ("messages", 2),
+            "trim_tokens_to_summarize": None,
+            "history_path_prefix": "/conversation_history",
+            "truncate_args_settings": {"trigger": ("messages", 10)},
+        }
+    finally:
+        shutil.rmtree(base_dir, ignore_errors=True)
+
+
+def test_local_runtime_filesystem_ls_root_lists_agent_runtime_tree() -> None:
+    """Local file tools should treat `/` as the agent runtime root."""
+
+    base_dir = _make_base_dir()
+    agent = _build_agent(base_dir)
+    filesystem_view = agent._build_filesystem_view(spec=None)
+    backend = agent._build_local_backend(filesystem_view=filesystem_view)
+    middleware = FilesystemMiddleware(backend=backend)
+    ls_tool = next(tool for tool in middleware.tools if tool.name == "ls")
+
+    try:
+        skills_dir = agent.registry.skills_dir(agent.spec.name) / "demo-skill"
+        skills_dir.mkdir(parents=True, exist_ok=True)
+        (skills_dir / "SKILL.md").write_text("# Demo Skill\n", encoding="utf-8")
+
+        result = ls_tool.invoke(
+            {
+                "path": "/",
+                "runtime": _make_tool_runtime(),
+            }
+        )
+
+        assert "/conversation_history/" in result
+        assert "/memory/" in result
+        assert "/skills/" in result
+        assert "/workspace/" in result
+    finally:
+        shutil.rmtree(base_dir, ignore_errors=True)
+
+
+def test_local_runtime_filesystem_reads_memory_via_virtual_root() -> None:
+    """Local file tools should read memory files through the agent virtual root."""
+
+    base_dir = _make_base_dir()
+    agent = _build_agent(base_dir)
+    filesystem_view = agent._build_filesystem_view(spec=None)
+    backend = agent._build_local_backend(filesystem_view=filesystem_view)
+    middleware = FilesystemMiddleware(backend=backend)
+    read_tool = next(tool for tool in middleware.tools if tool.name == "read_file")
+
+    try:
+        agent.registry.memory_dir(agent.spec.name).write_text(
+            "remember this preference\n",
+            encoding="utf-8",
+        )
+
+        result = read_tool.invoke(
+            {
+                "file_path": "/memory/AGENTS.md",
+                "runtime": _make_tool_runtime(),
+            }
+        )
+
+        assert "remember this preference" in result
+    finally:
+        shutil.rmtree(base_dir, ignore_errors=True)
+
+
+def test_local_runtime_shell_pwd_starts_in_agent_runtime_root() -> None:
+    """Local shell execution should start in the agent runtime root."""
+
+    base_dir = _make_base_dir()
+    agent = _build_agent(base_dir)
+    filesystem_view = agent._build_filesystem_view(spec=None)
+    backend = agent._build_local_backend(filesystem_view=filesystem_view)
+
+    try:
+        result = backend.execute("pwd")
+
+        assert result.exit_code == 0
+        assert result.output.strip() == str(filesystem_view.host_root_dir)
+    finally:
+        shutil.rmtree(base_dir, ignore_errors=True)
+
+
+def test_local_runtime_summarization_history_offloads_under_agent_root() -> None:
+    """Summarization offloads should stay within the agent runtime root."""
+
+    base_dir = _make_base_dir()
+    agent = _build_agent(base_dir)
+    filesystem_view = agent._build_filesystem_view(spec=None)
+    backend = agent._build_local_backend(filesystem_view=filesystem_view)
+    model = MagicMock()
+    model.profile = {"max_input_tokens": 200_000}
+    model._get_ls_params.return_value = {"ls_provider": "test"}
+    response = MagicMock()
+    response.text = "summary"
+    response.content = "summary"
+    model.invoke.return_value = response
+    model.ainvoke = MagicMock(return_value=response)
+    middleware = SummarizationMiddleware(
+        model=model,
+        backend=backend,
+        trigger=("messages", 10),
+        history_path_prefix=filesystem_view.visible_history_path_prefix,
+    )
+
+    try:
+        with patch.object(
+            middleware,
+            "_get_history_path",
+            return_value="/conversation_history/test-thread.md",
+        ):
+            path = middleware._offload_to_backend(
+                backend,
+                [HumanMessage(content="hello from history")],
+            )
+
+        assert path == "/conversation_history/test-thread.md"
+        history_file = agent.registry.history_dir(agent.spec.name) / "test-thread.md"
+        assert history_file.exists()
+        assert "hello from history" in history_file.read_text(encoding="utf-8")
+    finally:
+        shutil.rmtree(base_dir, ignore_errors=True)
+
+
+def test_astream_preserves_runtime_context() -> None:
+    """astream should pass the caller-provided runtime context through unchanged."""
 
     base_dir = _make_base_dir()
     agent = _build_agent(base_dir, sandbox={"resources": {"backend": "local"}})
-    sandbox_backend = object()
     graph = FakeGraph()
     agent._graph = graph
     agent._sandbox_runtime = SandboxRuntime(
         spec={"resources": {"backend": "local"}},
-        backend=sandbox_backend,
+        backend=object(),
     )
 
     try:
@@ -251,8 +515,7 @@ def test_astream_uses_agent_owned_sandbox_context() -> None:
         assert len(events) == 2
         assert graph.messages == ["hello sandbox"]
         assert graph.versions == ["v2"]
-        assert graph.contexts[0]["request_id"] == "req-1"
-        assert graph.contexts[0]["sandbox_backend"] is sandbox_backend
+        assert graph.contexts[0] == {"request_id": "req-1"}
         assert agent._runtime_status == "assembled"
     finally:
         shutil.rmtree(base_dir, ignore_errors=True)
@@ -286,22 +549,30 @@ def test_assemble_without_sandbox_spec_skips_sandbox_runtime() -> None:
                         side_effect=lambda **_kwargs: object(),
                     ):
                         with patch(
-                            "deepagents_runtime.agent.create_summarization_middleware",
-                            return_value=object(),
+                            "deepagents_runtime.agent.compute_summarization_defaults",
+                            return_value={
+                                "trigger": ("messages", 10),
+                                "keep": ("messages", 2),
+                                "truncate_args_settings": {"trigger": ("messages", 10)},
+                            },
                         ):
                             with patch(
-                                "deepagents_runtime.agent.SummarizationToolMiddleware",
-                                side_effect=lambda middleware: middleware,
+                                "deepagents_runtime.agent.SummarizationMiddleware",
+                                return_value=object(),
                             ):
                                 with patch(
-                                    "deepagents_runtime.agent.create_deep_agent",
-                                    return_value=fake_graph,
+                                    "deepagents_runtime.agent.SummarizationToolMiddleware",
+                                    side_effect=lambda middleware: middleware,
                                 ):
                                     with patch(
-                                        "deepagents_runtime.agent.get_system_prompt",
-                                        return_value="system prompt",
+                                        "deepagents_runtime.agent.create_deep_agent",
+                                        return_value=fake_graph,
                                     ):
-                                        asyncio.run(agent.assemble())
+                                        with patch(
+                                            "deepagents_runtime.agent.get_system_prompt",
+                                            return_value="system prompt",
+                                        ):
+                                            asyncio.run(agent.assemble())
 
         assert agent._sandbox_runtime is None
     finally:
@@ -368,11 +639,15 @@ def test_create_sandbox_runtime_uses_local_backend() -> None:
     try:
         runtime = asyncio.run(
             agent._create_sandbox_runtime(
-                spec={"resources": {"backend": "local"}}
+                spec={"resources": {"backend": "local"}},
+                filesystem_view=agent._build_filesystem_view(
+                    spec={"resources": {"backend": "local"}}
+                ),
             )
         )
 
         assert isinstance(runtime.backend, LocalShellBackend)
+        assert runtime.backend.cwd == (base_dir / "demo-agent" / "runtime").resolve()
     finally:
         shutil.rmtree(base_dir, ignore_errors=True)
 
@@ -384,7 +659,13 @@ def test_create_sandbox_runtime_uses_docker_backend() -> None:
     agent = _build_agent(base_dir)
     fake_backend = FakeManagedSandboxBackend()
 
-    async def fake_from_spec(_spec: dict[str, Any]) -> FakeManagedSandboxBackend:
+    async def fake_from_spec(
+        _spec: dict[str, Any],
+        *,
+        host_mount_dir: str | None = None,
+        container_root: str = "/agent",
+    ) -> FakeManagedSandboxBackend:
+        del host_mount_dir, container_root
         return fake_backend
 
     try:
@@ -394,7 +675,10 @@ def test_create_sandbox_runtime_uses_docker_backend() -> None:
         ):
             runtime = asyncio.run(
                 agent._create_sandbox_runtime(
-                    spec={"resources": {"backend": "docker"}, "image": "python:3.12"}
+                    spec={"resources": {"backend": "docker"}, "image": "python:3.12"},
+                    filesystem_view=agent._build_filesystem_view(
+                        spec={"resources": {"backend": "docker"}, "image": "python:3.12"}
+                    ),
                 )
             )
 
@@ -411,7 +695,13 @@ def test_create_sandbox_runtime_uses_image_as_docker_signal() -> None:
     agent = _build_agent(base_dir)
     fake_backend = FakeManagedSandboxBackend()
 
-    async def fake_from_spec(_spec: dict[str, Any]) -> FakeManagedSandboxBackend:
+    async def fake_from_spec(
+        _spec: dict[str, Any],
+        *,
+        host_mount_dir: str | None = None,
+        container_root: str = "/agent",
+    ) -> FakeManagedSandboxBackend:
+        del host_mount_dir, container_root
         return fake_backend
 
     try:
@@ -420,7 +710,12 @@ def test_create_sandbox_runtime_uses_image_as_docker_signal() -> None:
             new=fake_from_spec,
         ):
             runtime = asyncio.run(
-                agent._create_sandbox_runtime(spec={"image": "python:3.12"})
+                agent._create_sandbox_runtime(
+                    spec={"image": "python:3.12"},
+                    filesystem_view=agent._build_filesystem_view(
+                        spec={"image": "python:3.12"}
+                    ),
+                )
             )
 
         assert runtime.backend is fake_backend
@@ -439,7 +734,10 @@ def test_create_sandbox_runtime_rejects_unknown_backend() -> None:
         try:
             asyncio.run(
                 agent._create_sandbox_runtime(
-                    spec={"resources": {"backend": "modal"}}
+                    spec={"resources": {"backend": "modal"}},
+                    filesystem_view=agent._build_filesystem_view(
+                        spec={"resources": {"backend": "modal"}}
+                    ),
                 )
             )
         except ValueError as exc:
@@ -460,7 +758,10 @@ def test_create_sandbox_runtime_rejects_k8s_backend_until_implemented() -> None:
         try:
             asyncio.run(
                 agent._create_sandbox_runtime(
-                    spec={"resources": {"backend": "k8s"}, "image": "python:3.12"}
+                    spec={"resources": {"backend": "k8s"}, "image": "python:3.12"},
+                    filesystem_view=agent._build_filesystem_view(
+                        spec={"resources": {"backend": "k8s"}, "image": "python:3.12"}
+                    ),
                 )
             )
         except NotImplementedError as exc:

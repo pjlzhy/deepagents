@@ -33,6 +33,58 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type ImagePullPolicy int32
+
+const (
+	ImagePullPolicy_IMAGE_PULL_POLICY_UNSPECIFIED    ImagePullPolicy = 0
+	ImagePullPolicy_IMAGE_PULL_POLICY_IF_NOT_PRESENT ImagePullPolicy = 1
+	ImagePullPolicy_IMAGE_PULL_POLICY_ALWAYS         ImagePullPolicy = 2
+	ImagePullPolicy_IMAGE_PULL_POLICY_NEVER          ImagePullPolicy = 3
+)
+
+// Enum value maps for ImagePullPolicy.
+var (
+	ImagePullPolicy_name = map[int32]string{
+		0: "IMAGE_PULL_POLICY_UNSPECIFIED",
+		1: "IMAGE_PULL_POLICY_IF_NOT_PRESENT",
+		2: "IMAGE_PULL_POLICY_ALWAYS",
+		3: "IMAGE_PULL_POLICY_NEVER",
+	}
+	ImagePullPolicy_value = map[string]int32{
+		"IMAGE_PULL_POLICY_UNSPECIFIED":    0,
+		"IMAGE_PULL_POLICY_IF_NOT_PRESENT": 1,
+		"IMAGE_PULL_POLICY_ALWAYS":         2,
+		"IMAGE_PULL_POLICY_NEVER":          3,
+	}
+)
+
+func (x ImagePullPolicy) Enum() *ImagePullPolicy {
+	p := new(ImagePullPolicy)
+	*p = x
+	return p
+}
+
+func (x ImagePullPolicy) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ImagePullPolicy) Descriptor() protoreflect.EnumDescriptor {
+	return file_runtime_proto_enumTypes[0].Descriptor()
+}
+
+func (ImagePullPolicy) Type() protoreflect.EnumType {
+	return &file_runtime_proto_enumTypes[0]
+}
+
+func (x ImagePullPolicy) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ImagePullPolicy.Descriptor instead.
+func (ImagePullPolicy) EnumDescriptor() ([]byte, []int) {
+	return file_runtime_proto_rawDescGZIP(), []int{0}
+}
+
 type AgentRuntimeStatus int32
 
 const (
@@ -72,11 +124,11 @@ func (x AgentRuntimeStatus) String() string {
 }
 
 func (AgentRuntimeStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_runtime_proto_enumTypes[0].Descriptor()
+	return file_runtime_proto_enumTypes[1].Descriptor()
 }
 
 func (AgentRuntimeStatus) Type() protoreflect.EnumType {
-	return &file_runtime_proto_enumTypes[0]
+	return &file_runtime_proto_enumTypes[1]
 }
 
 func (x AgentRuntimeStatus) Number() protoreflect.EnumNumber {
@@ -85,7 +137,7 @@ func (x AgentRuntimeStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use AgentRuntimeStatus.Descriptor instead.
 func (AgentRuntimeStatus) EnumDescriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{0}
+	return file_runtime_proto_rawDescGZIP(), []int{1}
 }
 
 type SessionHistoryMode int32
@@ -121,11 +173,11 @@ func (x SessionHistoryMode) String() string {
 }
 
 func (SessionHistoryMode) Descriptor() protoreflect.EnumDescriptor {
-	return file_runtime_proto_enumTypes[1].Descriptor()
+	return file_runtime_proto_enumTypes[2].Descriptor()
 }
 
 func (SessionHistoryMode) Type() protoreflect.EnumType {
-	return &file_runtime_proto_enumTypes[1]
+	return &file_runtime_proto_enumTypes[2]
 }
 
 func (x SessionHistoryMode) Number() protoreflect.EnumNumber {
@@ -134,7 +186,7 @@ func (x SessionHistoryMode) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use SessionHistoryMode.Descriptor instead.
 func (SessionHistoryMode) EnumDescriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{1}
+	return file_runtime_proto_rawDescGZIP(), []int{2}
 }
 
 type SessionMessageRole int32
@@ -176,11 +228,11 @@ func (x SessionMessageRole) String() string {
 }
 
 func (SessionMessageRole) Descriptor() protoreflect.EnumDescriptor {
-	return file_runtime_proto_enumTypes[2].Descriptor()
+	return file_runtime_proto_enumTypes[3].Descriptor()
 }
 
 func (SessionMessageRole) Type() protoreflect.EnumType {
-	return &file_runtime_proto_enumTypes[2]
+	return &file_runtime_proto_enumTypes[3]
 }
 
 func (x SessionMessageRole) Number() protoreflect.EnumNumber {
@@ -189,7 +241,7 @@ func (x SessionMessageRole) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use SessionMessageRole.Descriptor instead.
 func (SessionMessageRole) EnumDescriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{2}
+	return file_runtime_proto_rawDescGZIP(), []int{3}
 }
 
 type ClientMessage struct {
@@ -2083,10 +2135,29 @@ func (*ToolsSpec) Descriptor() ([]byte, []int) {
 }
 
 type SandboxSpec struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Image         string                 `protobuf:"bytes,1,opt,name=image,proto3" json:"image,omitempty"`
-	Resources     map[string]string      `protobuf:"bytes,2,rep,name=resources,proto3" json:"resources,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // e.g., {"cpu": "2", "memory": "2Gi"}
-	Init          []string               `protobuf:"bytes,3,rep,name=init,proto3" json:"init,omitempty"`                                                                                     // initialization commands
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Legacy implicit sandbox fields kept for compatibility during migration.
+	//
+	// Deprecated: Marked as deprecated in runtime.proto.
+	Image string `protobuf:"bytes,1,opt,name=image,proto3" json:"image,omitempty"`
+	// Deprecated: Marked as deprecated in runtime.proto.
+	Resources map[string]string `protobuf:"bytes,2,rep,name=resources,proto3" json:"resources,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Deprecated: Marked as deprecated in runtime.proto.
+	Init []string `protobuf:"bytes,3,rep,name=init,proto3" json:"init,omitempty"`
+	// Common execution policy applied regardless of backend kind.
+	Execution *SandboxExecutionPolicy `protobuf:"bytes,10,opt,name=execution,proto3" json:"execution,omitempty"`
+	// Static environment variables injected into the sandbox process.
+	Env []*SandboxEnvVar `protobuf:"bytes,11,rep,name=env,proto3" json:"env,omitempty"`
+	// Commands executed once after sandbox startup and before the agent is used.
+	SetupCommands []string `protobuf:"bytes,12,rep,name=setup_commands,json=setupCommands,proto3" json:"setup_commands,omitempty"`
+	// Exactly one concrete backend must be selected for an executable sandbox.
+	//
+	// Types that are valid to be assigned to Backend:
+	//
+	//	*SandboxSpec_Local
+	//	*SandboxSpec_Docker
+	//	*SandboxSpec_Kubernetes
+	Backend       isSandboxSpec_Backend `protobuf_oneof:"backend"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2121,6 +2192,7 @@ func (*SandboxSpec) Descriptor() ([]byte, []int) {
 	return file_runtime_proto_rawDescGZIP(), []int{27}
 }
 
+// Deprecated: Marked as deprecated in runtime.proto.
 func (x *SandboxSpec) GetImage() string {
 	if x != nil {
 		return x.Image
@@ -2128,6 +2200,7 @@ func (x *SandboxSpec) GetImage() string {
 	return ""
 }
 
+// Deprecated: Marked as deprecated in runtime.proto.
 func (x *SandboxSpec) GetResources() map[string]string {
 	if x != nil {
 		return x.Resources
@@ -2135,9 +2208,523 @@ func (x *SandboxSpec) GetResources() map[string]string {
 	return nil
 }
 
+// Deprecated: Marked as deprecated in runtime.proto.
 func (x *SandboxSpec) GetInit() []string {
 	if x != nil {
 		return x.Init
+	}
+	return nil
+}
+
+func (x *SandboxSpec) GetExecution() *SandboxExecutionPolicy {
+	if x != nil {
+		return x.Execution
+	}
+	return nil
+}
+
+func (x *SandboxSpec) GetEnv() []*SandboxEnvVar {
+	if x != nil {
+		return x.Env
+	}
+	return nil
+}
+
+func (x *SandboxSpec) GetSetupCommands() []string {
+	if x != nil {
+		return x.SetupCommands
+	}
+	return nil
+}
+
+func (x *SandboxSpec) GetBackend() isSandboxSpec_Backend {
+	if x != nil {
+		return x.Backend
+	}
+	return nil
+}
+
+func (x *SandboxSpec) GetLocal() *LocalSandboxSpec {
+	if x != nil {
+		if x, ok := x.Backend.(*SandboxSpec_Local); ok {
+			return x.Local
+		}
+	}
+	return nil
+}
+
+func (x *SandboxSpec) GetDocker() *DockerSandboxSpec {
+	if x != nil {
+		if x, ok := x.Backend.(*SandboxSpec_Docker); ok {
+			return x.Docker
+		}
+	}
+	return nil
+}
+
+func (x *SandboxSpec) GetKubernetes() *KubernetesSandboxSpec {
+	if x != nil {
+		if x, ok := x.Backend.(*SandboxSpec_Kubernetes); ok {
+			return x.Kubernetes
+		}
+	}
+	return nil
+}
+
+type isSandboxSpec_Backend interface {
+	isSandboxSpec_Backend()
+}
+
+type SandboxSpec_Local struct {
+	Local *LocalSandboxSpec `protobuf:"bytes,20,opt,name=local,proto3,oneof"`
+}
+
+type SandboxSpec_Docker struct {
+	Docker *DockerSandboxSpec `protobuf:"bytes,21,opt,name=docker,proto3,oneof"`
+}
+
+type SandboxSpec_Kubernetes struct {
+	Kubernetes *KubernetesSandboxSpec `protobuf:"bytes,22,opt,name=kubernetes,proto3,oneof"`
+}
+
+func (*SandboxSpec_Local) isSandboxSpec_Backend() {}
+
+func (*SandboxSpec_Docker) isSandboxSpec_Backend() {}
+
+func (*SandboxSpec_Kubernetes) isSandboxSpec_Backend() {}
+
+type SandboxExecutionPolicy struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Per-command timeout used for normal shell execution. `0` means backend default.
+	CommandTimeoutSeconds int32 `protobuf:"varint,1,opt,name=command_timeout_seconds,json=commandTimeoutSeconds,proto3" json:"command_timeout_seconds,omitempty"`
+	// Timeout budget for one setup command. `0` means backend default.
+	SetupTimeoutSeconds int32 `protobuf:"varint,2,opt,name=setup_timeout_seconds,json=setupTimeoutSeconds,proto3" json:"setup_timeout_seconds,omitempty"`
+	// Timeout budget for sandbox startup. `0` means backend default.
+	StartupTimeoutSeconds int32 `protobuf:"varint,3,opt,name=startup_timeout_seconds,json=startupTimeoutSeconds,proto3" json:"startup_timeout_seconds,omitempty"`
+	// Maximum UTF-8 output bytes returned from a command. `0` means backend default.
+	MaxOutputBytes int64 `protobuf:"varint,4,opt,name=max_output_bytes,json=maxOutputBytes,proto3" json:"max_output_bytes,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *SandboxExecutionPolicy) Reset() {
+	*x = SandboxExecutionPolicy{}
+	mi := &file_runtime_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SandboxExecutionPolicy) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SandboxExecutionPolicy) ProtoMessage() {}
+
+func (x *SandboxExecutionPolicy) ProtoReflect() protoreflect.Message {
+	mi := &file_runtime_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SandboxExecutionPolicy.ProtoReflect.Descriptor instead.
+func (*SandboxExecutionPolicy) Descriptor() ([]byte, []int) {
+	return file_runtime_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *SandboxExecutionPolicy) GetCommandTimeoutSeconds() int32 {
+	if x != nil {
+		return x.CommandTimeoutSeconds
+	}
+	return 0
+}
+
+func (x *SandboxExecutionPolicy) GetSetupTimeoutSeconds() int32 {
+	if x != nil {
+		return x.SetupTimeoutSeconds
+	}
+	return 0
+}
+
+func (x *SandboxExecutionPolicy) GetStartupTimeoutSeconds() int32 {
+	if x != nil {
+		return x.StartupTimeoutSeconds
+	}
+	return 0
+}
+
+func (x *SandboxExecutionPolicy) GetMaxOutputBytes() int64 {
+	if x != nil {
+		return x.MaxOutputBytes
+	}
+	return 0
+}
+
+type SandboxEnvVar struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Value         string                 `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SandboxEnvVar) Reset() {
+	*x = SandboxEnvVar{}
+	mi := &file_runtime_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SandboxEnvVar) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SandboxEnvVar) ProtoMessage() {}
+
+func (x *SandboxEnvVar) ProtoReflect() protoreflect.Message {
+	mi := &file_runtime_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SandboxEnvVar.ProtoReflect.Descriptor instead.
+func (*SandboxEnvVar) Descriptor() ([]byte, []int) {
+	return file_runtime_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *SandboxEnvVar) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *SandboxEnvVar) GetValue() string {
+	if x != nil {
+		return x.Value
+	}
+	return ""
+}
+
+type LocalSandboxSpec struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LocalSandboxSpec) Reset() {
+	*x = LocalSandboxSpec{}
+	mi := &file_runtime_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LocalSandboxSpec) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LocalSandboxSpec) ProtoMessage() {}
+
+func (x *LocalSandboxSpec) ProtoReflect() protoreflect.Message {
+	mi := &file_runtime_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LocalSandboxSpec.ProtoReflect.Descriptor instead.
+func (*LocalSandboxSpec) Descriptor() ([]byte, []int) {
+	return file_runtime_proto_rawDescGZIP(), []int{30}
+}
+
+type ImageReference struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Reference     string                 `protobuf:"bytes,1,opt,name=reference,proto3" json:"reference,omitempty"`
+	PullPolicy    ImagePullPolicy        `protobuf:"varint,2,opt,name=pull_policy,json=pullPolicy,proto3,enum=deepagents.runtime.v1.ImagePullPolicy" json:"pull_policy,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ImageReference) Reset() {
+	*x = ImageReference{}
+	mi := &file_runtime_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ImageReference) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ImageReference) ProtoMessage() {}
+
+func (x *ImageReference) ProtoReflect() protoreflect.Message {
+	mi := &file_runtime_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ImageReference.ProtoReflect.Descriptor instead.
+func (*ImageReference) Descriptor() ([]byte, []int) {
+	return file_runtime_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *ImageReference) GetReference() string {
+	if x != nil {
+		return x.Reference
+	}
+	return ""
+}
+
+func (x *ImageReference) GetPullPolicy() ImagePullPolicy {
+	if x != nil {
+		return x.PullPolicy
+	}
+	return ImagePullPolicy_IMAGE_PULL_POLICY_UNSPECIFIED
+}
+
+type DockerSandboxSpec struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Image         *ImageReference        `protobuf:"bytes,1,opt,name=image,proto3" json:"image,omitempty"`
+	Resources     *DockerResourceSpec    `protobuf:"bytes,2,opt,name=resources,proto3" json:"resources,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DockerSandboxSpec) Reset() {
+	*x = DockerSandboxSpec{}
+	mi := &file_runtime_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DockerSandboxSpec) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DockerSandboxSpec) ProtoMessage() {}
+
+func (x *DockerSandboxSpec) ProtoReflect() protoreflect.Message {
+	mi := &file_runtime_proto_msgTypes[32]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DockerSandboxSpec.ProtoReflect.Descriptor instead.
+func (*DockerSandboxSpec) Descriptor() ([]byte, []int) {
+	return file_runtime_proto_rawDescGZIP(), []int{32}
+}
+
+func (x *DockerSandboxSpec) GetImage() *ImageReference {
+	if x != nil {
+		return x.Image
+	}
+	return nil
+}
+
+func (x *DockerSandboxSpec) GetResources() *DockerResourceSpec {
+	if x != nil {
+		return x.Resources
+	}
+	return nil
+}
+
+type DockerResourceSpec struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Cpu           string                 `protobuf:"bytes,1,opt,name=cpu,proto3" json:"cpu,omitempty"`
+	Memory        string                 `protobuf:"bytes,2,opt,name=memory,proto3" json:"memory,omitempty"`
+	ShmSize       string                 `protobuf:"bytes,3,opt,name=shm_size,json=shmSize,proto3" json:"shm_size,omitempty"`
+	PidsLimit     int64                  `protobuf:"varint,4,opt,name=pids_limit,json=pidsLimit,proto3" json:"pids_limit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DockerResourceSpec) Reset() {
+	*x = DockerResourceSpec{}
+	mi := &file_runtime_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DockerResourceSpec) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DockerResourceSpec) ProtoMessage() {}
+
+func (x *DockerResourceSpec) ProtoReflect() protoreflect.Message {
+	mi := &file_runtime_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DockerResourceSpec.ProtoReflect.Descriptor instead.
+func (*DockerResourceSpec) Descriptor() ([]byte, []int) {
+	return file_runtime_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *DockerResourceSpec) GetCpu() string {
+	if x != nil {
+		return x.Cpu
+	}
+	return ""
+}
+
+func (x *DockerResourceSpec) GetMemory() string {
+	if x != nil {
+		return x.Memory
+	}
+	return ""
+}
+
+func (x *DockerResourceSpec) GetShmSize() string {
+	if x != nil {
+		return x.ShmSize
+	}
+	return ""
+}
+
+func (x *DockerResourceSpec) GetPidsLimit() int64 {
+	if x != nil {
+		return x.PidsLimit
+	}
+	return 0
+}
+
+type KubernetesSandboxSpec struct {
+	state         protoimpl.MessageState          `protogen:"open.v1"`
+	Image         *ImageReference                 `protobuf:"bytes,1,opt,name=image,proto3" json:"image,omitempty"`
+	Resources     *KubernetesResourceRequirements `protobuf:"bytes,2,opt,name=resources,proto3" json:"resources,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *KubernetesSandboxSpec) Reset() {
+	*x = KubernetesSandboxSpec{}
+	mi := &file_runtime_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *KubernetesSandboxSpec) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*KubernetesSandboxSpec) ProtoMessage() {}
+
+func (x *KubernetesSandboxSpec) ProtoReflect() protoreflect.Message {
+	mi := &file_runtime_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use KubernetesSandboxSpec.ProtoReflect.Descriptor instead.
+func (*KubernetesSandboxSpec) Descriptor() ([]byte, []int) {
+	return file_runtime_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *KubernetesSandboxSpec) GetImage() *ImageReference {
+	if x != nil {
+		return x.Image
+	}
+	return nil
+}
+
+func (x *KubernetesSandboxSpec) GetResources() *KubernetesResourceRequirements {
+	if x != nil {
+		return x.Resources
+	}
+	return nil
+}
+
+type KubernetesResourceRequirements struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Requests      map[string]string      `protobuf:"bytes,1,rep,name=requests,proto3" json:"requests,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Limits        map[string]string      `protobuf:"bytes,2,rep,name=limits,proto3" json:"limits,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *KubernetesResourceRequirements) Reset() {
+	*x = KubernetesResourceRequirements{}
+	mi := &file_runtime_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *KubernetesResourceRequirements) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*KubernetesResourceRequirements) ProtoMessage() {}
+
+func (x *KubernetesResourceRequirements) ProtoReflect() protoreflect.Message {
+	mi := &file_runtime_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use KubernetesResourceRequirements.ProtoReflect.Descriptor instead.
+func (*KubernetesResourceRequirements) Descriptor() ([]byte, []int) {
+	return file_runtime_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *KubernetesResourceRequirements) GetRequests() map[string]string {
+	if x != nil {
+		return x.Requests
+	}
+	return nil
+}
+
+func (x *KubernetesResourceRequirements) GetLimits() map[string]string {
+	if x != nil {
+		return x.Limits
 	}
 	return nil
 }
@@ -2153,7 +2740,7 @@ type SkillFile struct {
 
 func (x *SkillFile) Reset() {
 	*x = SkillFile{}
-	mi := &file_runtime_proto_msgTypes[28]
+	mi := &file_runtime_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2165,7 +2752,7 @@ func (x *SkillFile) String() string {
 func (*SkillFile) ProtoMessage() {}
 
 func (x *SkillFile) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[28]
+	mi := &file_runtime_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2178,7 +2765,7 @@ func (x *SkillFile) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SkillFile.ProtoReflect.Descriptor instead.
 func (*SkillFile) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{28}
+	return file_runtime_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *SkillFile) GetPath() string {
@@ -2207,7 +2794,7 @@ type SkillContent struct {
 
 func (x *SkillContent) Reset() {
 	*x = SkillContent{}
-	mi := &file_runtime_proto_msgTypes[29]
+	mi := &file_runtime_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2219,7 +2806,7 @@ func (x *SkillContent) String() string {
 func (*SkillContent) ProtoMessage() {}
 
 func (x *SkillContent) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[29]
+	mi := &file_runtime_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2232,7 +2819,7 @@ func (x *SkillContent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SkillContent.ProtoReflect.Descriptor instead.
 func (*SkillContent) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{29}
+	return file_runtime_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *SkillContent) GetName() string {
@@ -2271,7 +2858,7 @@ type ModelConfig struct {
 
 func (x *ModelConfig) Reset() {
 	*x = ModelConfig{}
-	mi := &file_runtime_proto_msgTypes[30]
+	mi := &file_runtime_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2283,7 +2870,7 @@ func (x *ModelConfig) String() string {
 func (*ModelConfig) ProtoMessage() {}
 
 func (x *ModelConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[30]
+	mi := &file_runtime_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2296,7 +2883,7 @@ func (x *ModelConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModelConfig.ProtoReflect.Descriptor instead.
 func (*ModelConfig) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{30}
+	return file_runtime_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *ModelConfig) GetProvider() string {
@@ -2351,7 +2938,7 @@ type AssembleRequest struct {
 
 func (x *AssembleRequest) Reset() {
 	*x = AssembleRequest{}
-	mi := &file_runtime_proto_msgTypes[31]
+	mi := &file_runtime_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2363,7 +2950,7 @@ func (x *AssembleRequest) String() string {
 func (*AssembleRequest) ProtoMessage() {}
 
 func (x *AssembleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[31]
+	mi := &file_runtime_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2376,7 +2963,7 @@ func (x *AssembleRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssembleRequest.ProtoReflect.Descriptor instead.
 func (*AssembleRequest) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{31}
+	return file_runtime_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *AssembleRequest) GetAgentName() string {
@@ -2397,7 +2984,7 @@ type AssembleResponse struct {
 
 func (x *AssembleResponse) Reset() {
 	*x = AssembleResponse{}
-	mi := &file_runtime_proto_msgTypes[32]
+	mi := &file_runtime_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2409,7 +2996,7 @@ func (x *AssembleResponse) String() string {
 func (*AssembleResponse) ProtoMessage() {}
 
 func (x *AssembleResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[32]
+	mi := &file_runtime_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2422,7 +3009,7 @@ func (x *AssembleResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssembleResponse.ProtoReflect.Descriptor instead.
 func (*AssembleResponse) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{32}
+	return file_runtime_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *AssembleResponse) GetOk() bool {
@@ -2457,7 +3044,7 @@ type RemoveResourceRequest struct {
 
 func (x *RemoveResourceRequest) Reset() {
 	*x = RemoveResourceRequest{}
-	mi := &file_runtime_proto_msgTypes[33]
+	mi := &file_runtime_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2469,7 +3056,7 @@ func (x *RemoveResourceRequest) String() string {
 func (*RemoveResourceRequest) ProtoMessage() {}
 
 func (x *RemoveResourceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[33]
+	mi := &file_runtime_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2482,7 +3069,7 @@ func (x *RemoveResourceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveResourceRequest.ProtoReflect.Descriptor instead.
 func (*RemoveResourceRequest) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{33}
+	return file_runtime_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *RemoveResourceRequest) GetResourceType() string {
@@ -2509,7 +3096,7 @@ type SyncResponse struct {
 
 func (x *SyncResponse) Reset() {
 	*x = SyncResponse{}
-	mi := &file_runtime_proto_msgTypes[34]
+	mi := &file_runtime_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2521,7 +3108,7 @@ func (x *SyncResponse) String() string {
 func (*SyncResponse) ProtoMessage() {}
 
 func (x *SyncResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[34]
+	mi := &file_runtime_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2534,7 +3121,7 @@ func (x *SyncResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncResponse.ProtoReflect.Descriptor instead.
 func (*SyncResponse) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{34}
+	return file_runtime_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *SyncResponse) GetOk() bool {
@@ -2559,7 +3146,7 @@ type HealthRequest struct {
 
 func (x *HealthRequest) Reset() {
 	*x = HealthRequest{}
-	mi := &file_runtime_proto_msgTypes[35]
+	mi := &file_runtime_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2571,7 +3158,7 @@ func (x *HealthRequest) String() string {
 func (*HealthRequest) ProtoMessage() {}
 
 func (x *HealthRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[35]
+	mi := &file_runtime_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2584,7 +3171,7 @@ func (x *HealthRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthRequest.ProtoReflect.Descriptor instead.
 func (*HealthRequest) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{35}
+	return file_runtime_proto_rawDescGZIP(), []int{43}
 }
 
 type HealthResponse struct {
@@ -2607,7 +3194,7 @@ type HealthResponse struct {
 
 func (x *HealthResponse) Reset() {
 	*x = HealthResponse{}
-	mi := &file_runtime_proto_msgTypes[36]
+	mi := &file_runtime_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2619,7 +3206,7 @@ func (x *HealthResponse) String() string {
 func (*HealthResponse) ProtoMessage() {}
 
 func (x *HealthResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[36]
+	mi := &file_runtime_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2632,7 +3219,7 @@ func (x *HealthResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthResponse.ProtoReflect.Descriptor instead.
 func (*HealthResponse) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{36}
+	return file_runtime_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *HealthResponse) GetStatus() string {
@@ -2688,7 +3275,7 @@ type ListSessionsRequest struct {
 
 func (x *ListSessionsRequest) Reset() {
 	*x = ListSessionsRequest{}
-	mi := &file_runtime_proto_msgTypes[37]
+	mi := &file_runtime_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2700,7 +3287,7 @@ func (x *ListSessionsRequest) String() string {
 func (*ListSessionsRequest) ProtoMessage() {}
 
 func (x *ListSessionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[37]
+	mi := &file_runtime_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2713,7 +3300,7 @@ func (x *ListSessionsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSessionsRequest.ProtoReflect.Descriptor instead.
 func (*ListSessionsRequest) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{37}
+	return file_runtime_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *ListSessionsRequest) GetAgentName() string {
@@ -2747,7 +3334,7 @@ type ListSessionsResponse struct {
 
 func (x *ListSessionsResponse) Reset() {
 	*x = ListSessionsResponse{}
-	mi := &file_runtime_proto_msgTypes[38]
+	mi := &file_runtime_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2759,7 +3346,7 @@ func (x *ListSessionsResponse) String() string {
 func (*ListSessionsResponse) ProtoMessage() {}
 
 func (x *ListSessionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[38]
+	mi := &file_runtime_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2772,7 +3359,7 @@ func (x *ListSessionsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSessionsResponse.ProtoReflect.Descriptor instead.
 func (*ListSessionsResponse) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{38}
+	return file_runtime_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *ListSessionsResponse) GetSessions() []*SessionSummary {
@@ -2799,7 +3386,7 @@ type GetSessionRequest struct {
 
 func (x *GetSessionRequest) Reset() {
 	*x = GetSessionRequest{}
-	mi := &file_runtime_proto_msgTypes[39]
+	mi := &file_runtime_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2811,7 +3398,7 @@ func (x *GetSessionRequest) String() string {
 func (*GetSessionRequest) ProtoMessage() {}
 
 func (x *GetSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[39]
+	mi := &file_runtime_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2824,7 +3411,7 @@ func (x *GetSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSessionRequest.ProtoReflect.Descriptor instead.
 func (*GetSessionRequest) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{39}
+	return file_runtime_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *GetSessionRequest) GetThreadId() string {
@@ -2851,7 +3438,7 @@ type GetSessionResponse struct {
 
 func (x *GetSessionResponse) Reset() {
 	*x = GetSessionResponse{}
-	mi := &file_runtime_proto_msgTypes[40]
+	mi := &file_runtime_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2863,7 +3450,7 @@ func (x *GetSessionResponse) String() string {
 func (*GetSessionResponse) ProtoMessage() {}
 
 func (x *GetSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[40]
+	mi := &file_runtime_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2876,7 +3463,7 @@ func (x *GetSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSessionResponse.ProtoReflect.Descriptor instead.
 func (*GetSessionResponse) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{40}
+	return file_runtime_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *GetSessionResponse) GetFound() bool {
@@ -2902,7 +3489,7 @@ type GetLatestSessionRequest struct {
 
 func (x *GetLatestSessionRequest) Reset() {
 	*x = GetLatestSessionRequest{}
-	mi := &file_runtime_proto_msgTypes[41]
+	mi := &file_runtime_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2914,7 +3501,7 @@ func (x *GetLatestSessionRequest) String() string {
 func (*GetLatestSessionRequest) ProtoMessage() {}
 
 func (x *GetLatestSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[41]
+	mi := &file_runtime_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2927,7 +3514,7 @@ func (x *GetLatestSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetLatestSessionRequest.ProtoReflect.Descriptor instead.
 func (*GetLatestSessionRequest) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{41}
+	return file_runtime_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *GetLatestSessionRequest) GetAgentName() string {
@@ -2947,7 +3534,7 @@ type GetLatestSessionResponse struct {
 
 func (x *GetLatestSessionResponse) Reset() {
 	*x = GetLatestSessionResponse{}
-	mi := &file_runtime_proto_msgTypes[42]
+	mi := &file_runtime_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2959,7 +3546,7 @@ func (x *GetLatestSessionResponse) String() string {
 func (*GetLatestSessionResponse) ProtoMessage() {}
 
 func (x *GetLatestSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[42]
+	mi := &file_runtime_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2972,7 +3559,7 @@ func (x *GetLatestSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetLatestSessionResponse.ProtoReflect.Descriptor instead.
 func (*GetLatestSessionResponse) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{42}
+	return file_runtime_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *GetLatestSessionResponse) GetFound() bool {
@@ -2999,7 +3586,7 @@ type DeleteSessionRequest struct {
 
 func (x *DeleteSessionRequest) Reset() {
 	*x = DeleteSessionRequest{}
-	mi := &file_runtime_proto_msgTypes[43]
+	mi := &file_runtime_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3011,7 +3598,7 @@ func (x *DeleteSessionRequest) String() string {
 func (*DeleteSessionRequest) ProtoMessage() {}
 
 func (x *DeleteSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[43]
+	mi := &file_runtime_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3024,7 +3611,7 @@ func (x *DeleteSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteSessionRequest.ProtoReflect.Descriptor instead.
 func (*DeleteSessionRequest) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{43}
+	return file_runtime_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *DeleteSessionRequest) GetThreadId() string {
@@ -3050,7 +3637,7 @@ type DeleteSessionResponse struct {
 
 func (x *DeleteSessionResponse) Reset() {
 	*x = DeleteSessionResponse{}
-	mi := &file_runtime_proto_msgTypes[44]
+	mi := &file_runtime_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3062,7 +3649,7 @@ func (x *DeleteSessionResponse) String() string {
 func (*DeleteSessionResponse) ProtoMessage() {}
 
 func (x *DeleteSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[44]
+	mi := &file_runtime_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3075,7 +3662,7 @@ func (x *DeleteSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteSessionResponse.ProtoReflect.Descriptor instead.
 func (*DeleteSessionResponse) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{44}
+	return file_runtime_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *DeleteSessionResponse) GetDeleted() bool {
@@ -3100,7 +3687,7 @@ type GetSessionMessagesRequest struct {
 
 func (x *GetSessionMessagesRequest) Reset() {
 	*x = GetSessionMessagesRequest{}
-	mi := &file_runtime_proto_msgTypes[45]
+	mi := &file_runtime_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3112,7 +3699,7 @@ func (x *GetSessionMessagesRequest) String() string {
 func (*GetSessionMessagesRequest) ProtoMessage() {}
 
 func (x *GetSessionMessagesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[45]
+	mi := &file_runtime_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3125,7 +3712,7 @@ func (x *GetSessionMessagesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSessionMessagesRequest.ProtoReflect.Descriptor instead.
 func (*GetSessionMessagesRequest) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{45}
+	return file_runtime_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *GetSessionMessagesRequest) GetThreadId() string {
@@ -3191,7 +3778,7 @@ type GetSessionMessagesResponse struct {
 
 func (x *GetSessionMessagesResponse) Reset() {
 	*x = GetSessionMessagesResponse{}
-	mi := &file_runtime_proto_msgTypes[46]
+	mi := &file_runtime_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3203,7 +3790,7 @@ func (x *GetSessionMessagesResponse) String() string {
 func (*GetSessionMessagesResponse) ProtoMessage() {}
 
 func (x *GetSessionMessagesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[46]
+	mi := &file_runtime_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3216,7 +3803,7 @@ func (x *GetSessionMessagesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSessionMessagesResponse.ProtoReflect.Descriptor instead.
 func (*GetSessionMessagesResponse) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{46}
+	return file_runtime_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *GetSessionMessagesResponse) GetThreadId() string {
@@ -3277,7 +3864,7 @@ type SessionSummary struct {
 
 func (x *SessionSummary) Reset() {
 	*x = SessionSummary{}
-	mi := &file_runtime_proto_msgTypes[47]
+	mi := &file_runtime_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3289,7 +3876,7 @@ func (x *SessionSummary) String() string {
 func (*SessionSummary) ProtoMessage() {}
 
 func (x *SessionSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[47]
+	mi := &file_runtime_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3302,7 +3889,7 @@ func (x *SessionSummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionSummary.ProtoReflect.Descriptor instead.
 func (*SessionSummary) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{47}
+	return file_runtime_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *SessionSummary) GetThreadId() string {
@@ -3371,7 +3958,7 @@ type SessionDetail struct {
 
 func (x *SessionDetail) Reset() {
 	*x = SessionDetail{}
-	mi := &file_runtime_proto_msgTypes[48]
+	mi := &file_runtime_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3383,7 +3970,7 @@ func (x *SessionDetail) String() string {
 func (*SessionDetail) ProtoMessage() {}
 
 func (x *SessionDetail) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[48]
+	mi := &file_runtime_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3396,7 +3983,7 @@ func (x *SessionDetail) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionDetail.ProtoReflect.Descriptor instead.
 func (*SessionDetail) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{48}
+	return file_runtime_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *SessionDetail) GetSummary() *SessionSummary {
@@ -3428,7 +4015,7 @@ type SessionMessage struct {
 
 func (x *SessionMessage) Reset() {
 	*x = SessionMessage{}
-	mi := &file_runtime_proto_msgTypes[49]
+	mi := &file_runtime_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3440,7 +4027,7 @@ func (x *SessionMessage) String() string {
 func (*SessionMessage) ProtoMessage() {}
 
 func (x *SessionMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[49]
+	mi := &file_runtime_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3453,7 +4040,7 @@ func (x *SessionMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionMessage.ProtoReflect.Descriptor instead.
 func (*SessionMessage) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{49}
+	return file_runtime_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *SessionMessage) GetIndex() int32 {
@@ -3659,12 +4246,56 @@ const file_runtime_proto_rawDesc = "" +
 	"\n" +
 	"PromptSpec\x12\x16\n" +
 	"\x06system\x18\x01 \x01(\tR\x06systemJ\x04\b\x02\x10\x03R\x06memory\"&\n" +
-	"\tToolsSpecJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03R\bbuiltinsR\x03mcp\"\xc6\x01\n" +
-	"\vSandboxSpec\x12\x14\n" +
-	"\x05image\x18\x01 \x01(\tR\x05image\x12O\n" +
-	"\tresources\x18\x02 \x03(\v21.deepagents.runtime.v1.SandboxSpec.ResourcesEntryR\tresources\x12\x12\n" +
-	"\x04init\x18\x03 \x03(\tR\x04init\x1a<\n" +
+	"\tToolsSpecJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03R\bbuiltinsR\x03mcp\"\xde\x04\n" +
+	"\vSandboxSpec\x12\x18\n" +
+	"\x05image\x18\x01 \x01(\tB\x02\x18\x01R\x05image\x12S\n" +
+	"\tresources\x18\x02 \x03(\v21.deepagents.runtime.v1.SandboxSpec.ResourcesEntryB\x02\x18\x01R\tresources\x12\x16\n" +
+	"\x04init\x18\x03 \x03(\tB\x02\x18\x01R\x04init\x12K\n" +
+	"\texecution\x18\n" +
+	" \x01(\v2-.deepagents.runtime.v1.SandboxExecutionPolicyR\texecution\x126\n" +
+	"\x03env\x18\v \x03(\v2$.deepagents.runtime.v1.SandboxEnvVarR\x03env\x12%\n" +
+	"\x0esetup_commands\x18\f \x03(\tR\rsetupCommands\x12?\n" +
+	"\x05local\x18\x14 \x01(\v2'.deepagents.runtime.v1.LocalSandboxSpecH\x00R\x05local\x12B\n" +
+	"\x06docker\x18\x15 \x01(\v2(.deepagents.runtime.v1.DockerSandboxSpecH\x00R\x06docker\x12N\n" +
+	"\n" +
+	"kubernetes\x18\x16 \x01(\v2,.deepagents.runtime.v1.KubernetesSandboxSpecH\x00R\n" +
+	"kubernetes\x1a<\n" +
 	"\x0eResourcesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\t\n" +
+	"\abackend\"\xe6\x01\n" +
+	"\x16SandboxExecutionPolicy\x126\n" +
+	"\x17command_timeout_seconds\x18\x01 \x01(\x05R\x15commandTimeoutSeconds\x122\n" +
+	"\x15setup_timeout_seconds\x18\x02 \x01(\x05R\x13setupTimeoutSeconds\x126\n" +
+	"\x17startup_timeout_seconds\x18\x03 \x01(\x05R\x15startupTimeoutSeconds\x12(\n" +
+	"\x10max_output_bytes\x18\x04 \x01(\x03R\x0emaxOutputBytes\"9\n" +
+	"\rSandboxEnvVar\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value\"\x12\n" +
+	"\x10LocalSandboxSpec\"w\n" +
+	"\x0eImageReference\x12\x1c\n" +
+	"\treference\x18\x01 \x01(\tR\treference\x12G\n" +
+	"\vpull_policy\x18\x02 \x01(\x0e2&.deepagents.runtime.v1.ImagePullPolicyR\n" +
+	"pullPolicy\"\x99\x01\n" +
+	"\x11DockerSandboxSpec\x12;\n" +
+	"\x05image\x18\x01 \x01(\v2%.deepagents.runtime.v1.ImageReferenceR\x05image\x12G\n" +
+	"\tresources\x18\x02 \x01(\v2).deepagents.runtime.v1.DockerResourceSpecR\tresources\"x\n" +
+	"\x12DockerResourceSpec\x12\x10\n" +
+	"\x03cpu\x18\x01 \x01(\tR\x03cpu\x12\x16\n" +
+	"\x06memory\x18\x02 \x01(\tR\x06memory\x12\x19\n" +
+	"\bshm_size\x18\x03 \x01(\tR\ashmSize\x12\x1d\n" +
+	"\n" +
+	"pids_limit\x18\x04 \x01(\x03R\tpidsLimit\"\xa9\x01\n" +
+	"\x15KubernetesSandboxSpec\x12;\n" +
+	"\x05image\x18\x01 \x01(\v2%.deepagents.runtime.v1.ImageReferenceR\x05image\x12S\n" +
+	"\tresources\x18\x02 \x01(\v25.deepagents.runtime.v1.KubernetesResourceRequirementsR\tresources\"\xd4\x02\n" +
+	"\x1eKubernetesResourceRequirements\x12_\n" +
+	"\brequests\x18\x01 \x03(\v2C.deepagents.runtime.v1.KubernetesResourceRequirements.RequestsEntryR\brequests\x12Y\n" +
+	"\x06limits\x18\x02 \x03(\v2A.deepagents.runtime.v1.KubernetesResourceRequirements.LimitsEntryR\x06limits\x1a;\n" +
+	"\rRequestsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a9\n" +
+	"\vLimitsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"9\n" +
 	"\tSkillFile\x12\x12\n" +
@@ -3774,7 +4405,12 @@ const file_runtime_proto_rawDesc = "" +
 	"toolCallId\x12\x1b\n" +
 	"\ttool_name\x18\x05 \x01(\tR\btoolName\x12\x19\n" +
 	"\bis_error\x18\x06 \x01(\bR\aisError\x12)\n" +
-	"\x03raw\x18\a \x01(\v2\x17.google.protobuf.StructR\x03raw*\xc5\x01\n" +
+	"\x03raw\x18\a \x01(\v2\x17.google.protobuf.StructR\x03raw*\x95\x01\n" +
+	"\x0fImagePullPolicy\x12!\n" +
+	"\x1dIMAGE_PULL_POLICY_UNSPECIFIED\x10\x00\x12$\n" +
+	" IMAGE_PULL_POLICY_IF_NOT_PRESENT\x10\x01\x12\x1c\n" +
+	"\x18IMAGE_PULL_POLICY_ALWAYS\x10\x02\x12\x1b\n" +
+	"\x17IMAGE_PULL_POLICY_NEVER\x10\x03*\xc5\x01\n" +
 	"\x12AgentRuntimeStatus\x12$\n" +
 	" AGENT_RUNTIME_STATUS_UNSPECIFIED\x10\x00\x12 \n" +
 	"\x1cAGENT_RUNTIME_STATUS_UNKNOWN\x10\x01\x12\"\n" +
@@ -3821,151 +4457,174 @@ func file_runtime_proto_rawDescGZIP() []byte {
 	return file_runtime_proto_rawDescData
 }
 
-var file_runtime_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 55)
+var file_runtime_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
+var file_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 65)
 var file_runtime_proto_goTypes = []any{
-	(AgentRuntimeStatus)(0),            // 0: deepagents.runtime.v1.AgentRuntimeStatus
-	(SessionHistoryMode)(0),            // 1: deepagents.runtime.v1.SessionHistoryMode
-	(SessionMessageRole)(0),            // 2: deepagents.runtime.v1.SessionMessageRole
-	(*ClientMessage)(nil),              // 3: deepagents.runtime.v1.ClientMessage
-	(*RunRequest)(nil),                 // 4: deepagents.runtime.v1.RunRequest
-	(*HITLDecision)(nil),               // 5: deepagents.runtime.v1.HITLDecision
-	(*Action)(nil),                     // 6: deepagents.runtime.v1.Action
-	(*Decision)(nil),                   // 7: deepagents.runtime.v1.Decision
-	(*CancelRequest)(nil),              // 8: deepagents.runtime.v1.CancelRequest
-	(*AgentEvent)(nil),                 // 9: deepagents.runtime.v1.AgentEvent
-	(*RunStarted)(nil),                 // 10: deepagents.runtime.v1.RunStarted
-	(*TextDelta)(nil),                  // 11: deepagents.runtime.v1.TextDelta
-	(*TextDone)(nil),                   // 12: deepagents.runtime.v1.TextDone
-	(*ToolCallStart)(nil),              // 13: deepagents.runtime.v1.ToolCallStart
-	(*ToolCallDone)(nil),               // 14: deepagents.runtime.v1.ToolCallDone
-	(*ToolResult)(nil),                 // 15: deepagents.runtime.v1.ToolResult
-	(*HITLRequest)(nil),                // 16: deepagents.runtime.v1.HITLRequest
-	(*ActionRequest)(nil),              // 17: deepagents.runtime.v1.ActionRequest
-	(*ReviewConfig)(nil),               // 18: deepagents.runtime.v1.ReviewConfig
-	(*RunEnded)(nil),                   // 19: deepagents.runtime.v1.RunEnded
-	(*RunCanceled)(nil),                // 20: deepagents.runtime.v1.RunCanceled
-	(*UsageStats)(nil),                 // 21: deepagents.runtime.v1.UsageStats
-	(*ErrorOccurred)(nil),              // 22: deepagents.runtime.v1.ErrorOccurred
-	(*SyncSkillRequest)(nil),           // 23: deepagents.runtime.v1.SyncSkillRequest
-	(*SyncMcpRequest)(nil),             // 24: deepagents.runtime.v1.SyncMcpRequest
-	(*SyncAgentSpecRequest)(nil),       // 25: deepagents.runtime.v1.SyncAgentSpecRequest
-	(*SubagentSpec)(nil),               // 26: deepagents.runtime.v1.SubagentSpec
-	(*McpServerConfig)(nil),            // 27: deepagents.runtime.v1.McpServerConfig
-	(*PromptSpec)(nil),                 // 28: deepagents.runtime.v1.PromptSpec
-	(*ToolsSpec)(nil),                  // 29: deepagents.runtime.v1.ToolsSpec
-	(*SandboxSpec)(nil),                // 30: deepagents.runtime.v1.SandboxSpec
-	(*SkillFile)(nil),                  // 31: deepagents.runtime.v1.SkillFile
-	(*SkillContent)(nil),               // 32: deepagents.runtime.v1.SkillContent
-	(*ModelConfig)(nil),                // 33: deepagents.runtime.v1.ModelConfig
-	(*AssembleRequest)(nil),            // 34: deepagents.runtime.v1.AssembleRequest
-	(*AssembleResponse)(nil),           // 35: deepagents.runtime.v1.AssembleResponse
-	(*RemoveResourceRequest)(nil),      // 36: deepagents.runtime.v1.RemoveResourceRequest
-	(*SyncResponse)(nil),               // 37: deepagents.runtime.v1.SyncResponse
-	(*HealthRequest)(nil),              // 38: deepagents.runtime.v1.HealthRequest
-	(*HealthResponse)(nil),             // 39: deepagents.runtime.v1.HealthResponse
-	(*ListSessionsRequest)(nil),        // 40: deepagents.runtime.v1.ListSessionsRequest
-	(*ListSessionsResponse)(nil),       // 41: deepagents.runtime.v1.ListSessionsResponse
-	(*GetSessionRequest)(nil),          // 42: deepagents.runtime.v1.GetSessionRequest
-	(*GetSessionResponse)(nil),         // 43: deepagents.runtime.v1.GetSessionResponse
-	(*GetLatestSessionRequest)(nil),    // 44: deepagents.runtime.v1.GetLatestSessionRequest
-	(*GetLatestSessionResponse)(nil),   // 45: deepagents.runtime.v1.GetLatestSessionResponse
-	(*DeleteSessionRequest)(nil),       // 46: deepagents.runtime.v1.DeleteSessionRequest
-	(*DeleteSessionResponse)(nil),      // 47: deepagents.runtime.v1.DeleteSessionResponse
-	(*GetSessionMessagesRequest)(nil),  // 48: deepagents.runtime.v1.GetSessionMessagesRequest
-	(*GetSessionMessagesResponse)(nil), // 49: deepagents.runtime.v1.GetSessionMessagesResponse
-	(*SessionSummary)(nil),             // 50: deepagents.runtime.v1.SessionSummary
-	(*SessionDetail)(nil),              // 51: deepagents.runtime.v1.SessionDetail
-	(*SessionMessage)(nil),             // 52: deepagents.runtime.v1.SessionMessage
-	nil,                                // 53: deepagents.runtime.v1.RunRequest.MetadataEntry
-	nil,                                // 54: deepagents.runtime.v1.SyncMcpRequest.EnvEntry
-	nil,                                // 55: deepagents.runtime.v1.McpServerConfig.EnvEntry
-	nil,                                // 56: deepagents.runtime.v1.SandboxSpec.ResourcesEntry
-	nil,                                // 57: deepagents.runtime.v1.ModelConfig.ExtraParamsEntry
-	(*structpb.Struct)(nil),            // 58: google.protobuf.Struct
-	(*timestamppb.Timestamp)(nil),      // 59: google.protobuf.Timestamp
-	(*structpb.Value)(nil),             // 60: google.protobuf.Value
+	(ImagePullPolicy)(0),                   // 0: deepagents.runtime.v1.ImagePullPolicy
+	(AgentRuntimeStatus)(0),                // 1: deepagents.runtime.v1.AgentRuntimeStatus
+	(SessionHistoryMode)(0),                // 2: deepagents.runtime.v1.SessionHistoryMode
+	(SessionMessageRole)(0),                // 3: deepagents.runtime.v1.SessionMessageRole
+	(*ClientMessage)(nil),                  // 4: deepagents.runtime.v1.ClientMessage
+	(*RunRequest)(nil),                     // 5: deepagents.runtime.v1.RunRequest
+	(*HITLDecision)(nil),                   // 6: deepagents.runtime.v1.HITLDecision
+	(*Action)(nil),                         // 7: deepagents.runtime.v1.Action
+	(*Decision)(nil),                       // 8: deepagents.runtime.v1.Decision
+	(*CancelRequest)(nil),                  // 9: deepagents.runtime.v1.CancelRequest
+	(*AgentEvent)(nil),                     // 10: deepagents.runtime.v1.AgentEvent
+	(*RunStarted)(nil),                     // 11: deepagents.runtime.v1.RunStarted
+	(*TextDelta)(nil),                      // 12: deepagents.runtime.v1.TextDelta
+	(*TextDone)(nil),                       // 13: deepagents.runtime.v1.TextDone
+	(*ToolCallStart)(nil),                  // 14: deepagents.runtime.v1.ToolCallStart
+	(*ToolCallDone)(nil),                   // 15: deepagents.runtime.v1.ToolCallDone
+	(*ToolResult)(nil),                     // 16: deepagents.runtime.v1.ToolResult
+	(*HITLRequest)(nil),                    // 17: deepagents.runtime.v1.HITLRequest
+	(*ActionRequest)(nil),                  // 18: deepagents.runtime.v1.ActionRequest
+	(*ReviewConfig)(nil),                   // 19: deepagents.runtime.v1.ReviewConfig
+	(*RunEnded)(nil),                       // 20: deepagents.runtime.v1.RunEnded
+	(*RunCanceled)(nil),                    // 21: deepagents.runtime.v1.RunCanceled
+	(*UsageStats)(nil),                     // 22: deepagents.runtime.v1.UsageStats
+	(*ErrorOccurred)(nil),                  // 23: deepagents.runtime.v1.ErrorOccurred
+	(*SyncSkillRequest)(nil),               // 24: deepagents.runtime.v1.SyncSkillRequest
+	(*SyncMcpRequest)(nil),                 // 25: deepagents.runtime.v1.SyncMcpRequest
+	(*SyncAgentSpecRequest)(nil),           // 26: deepagents.runtime.v1.SyncAgentSpecRequest
+	(*SubagentSpec)(nil),                   // 27: deepagents.runtime.v1.SubagentSpec
+	(*McpServerConfig)(nil),                // 28: deepagents.runtime.v1.McpServerConfig
+	(*PromptSpec)(nil),                     // 29: deepagents.runtime.v1.PromptSpec
+	(*ToolsSpec)(nil),                      // 30: deepagents.runtime.v1.ToolsSpec
+	(*SandboxSpec)(nil),                    // 31: deepagents.runtime.v1.SandboxSpec
+	(*SandboxExecutionPolicy)(nil),         // 32: deepagents.runtime.v1.SandboxExecutionPolicy
+	(*SandboxEnvVar)(nil),                  // 33: deepagents.runtime.v1.SandboxEnvVar
+	(*LocalSandboxSpec)(nil),               // 34: deepagents.runtime.v1.LocalSandboxSpec
+	(*ImageReference)(nil),                 // 35: deepagents.runtime.v1.ImageReference
+	(*DockerSandboxSpec)(nil),              // 36: deepagents.runtime.v1.DockerSandboxSpec
+	(*DockerResourceSpec)(nil),             // 37: deepagents.runtime.v1.DockerResourceSpec
+	(*KubernetesSandboxSpec)(nil),          // 38: deepagents.runtime.v1.KubernetesSandboxSpec
+	(*KubernetesResourceRequirements)(nil), // 39: deepagents.runtime.v1.KubernetesResourceRequirements
+	(*SkillFile)(nil),                      // 40: deepagents.runtime.v1.SkillFile
+	(*SkillContent)(nil),                   // 41: deepagents.runtime.v1.SkillContent
+	(*ModelConfig)(nil),                    // 42: deepagents.runtime.v1.ModelConfig
+	(*AssembleRequest)(nil),                // 43: deepagents.runtime.v1.AssembleRequest
+	(*AssembleResponse)(nil),               // 44: deepagents.runtime.v1.AssembleResponse
+	(*RemoveResourceRequest)(nil),          // 45: deepagents.runtime.v1.RemoveResourceRequest
+	(*SyncResponse)(nil),                   // 46: deepagents.runtime.v1.SyncResponse
+	(*HealthRequest)(nil),                  // 47: deepagents.runtime.v1.HealthRequest
+	(*HealthResponse)(nil),                 // 48: deepagents.runtime.v1.HealthResponse
+	(*ListSessionsRequest)(nil),            // 49: deepagents.runtime.v1.ListSessionsRequest
+	(*ListSessionsResponse)(nil),           // 50: deepagents.runtime.v1.ListSessionsResponse
+	(*GetSessionRequest)(nil),              // 51: deepagents.runtime.v1.GetSessionRequest
+	(*GetSessionResponse)(nil),             // 52: deepagents.runtime.v1.GetSessionResponse
+	(*GetLatestSessionRequest)(nil),        // 53: deepagents.runtime.v1.GetLatestSessionRequest
+	(*GetLatestSessionResponse)(nil),       // 54: deepagents.runtime.v1.GetLatestSessionResponse
+	(*DeleteSessionRequest)(nil),           // 55: deepagents.runtime.v1.DeleteSessionRequest
+	(*DeleteSessionResponse)(nil),          // 56: deepagents.runtime.v1.DeleteSessionResponse
+	(*GetSessionMessagesRequest)(nil),      // 57: deepagents.runtime.v1.GetSessionMessagesRequest
+	(*GetSessionMessagesResponse)(nil),     // 58: deepagents.runtime.v1.GetSessionMessagesResponse
+	(*SessionSummary)(nil),                 // 59: deepagents.runtime.v1.SessionSummary
+	(*SessionDetail)(nil),                  // 60: deepagents.runtime.v1.SessionDetail
+	(*SessionMessage)(nil),                 // 61: deepagents.runtime.v1.SessionMessage
+	nil,                                    // 62: deepagents.runtime.v1.RunRequest.MetadataEntry
+	nil,                                    // 63: deepagents.runtime.v1.SyncMcpRequest.EnvEntry
+	nil,                                    // 64: deepagents.runtime.v1.McpServerConfig.EnvEntry
+	nil,                                    // 65: deepagents.runtime.v1.SandboxSpec.ResourcesEntry
+	nil,                                    // 66: deepagents.runtime.v1.KubernetesResourceRequirements.RequestsEntry
+	nil,                                    // 67: deepagents.runtime.v1.KubernetesResourceRequirements.LimitsEntry
+	nil,                                    // 68: deepagents.runtime.v1.ModelConfig.ExtraParamsEntry
+	(*structpb.Struct)(nil),                // 69: google.protobuf.Struct
+	(*timestamppb.Timestamp)(nil),          // 70: google.protobuf.Timestamp
+	(*structpb.Value)(nil),                 // 71: google.protobuf.Value
 }
 var file_runtime_proto_depIdxs = []int32{
-	4,  // 0: deepagents.runtime.v1.ClientMessage.run_request:type_name -> deepagents.runtime.v1.RunRequest
-	5,  // 1: deepagents.runtime.v1.ClientMessage.hitl_decision:type_name -> deepagents.runtime.v1.HITLDecision
-	8,  // 2: deepagents.runtime.v1.ClientMessage.cancel:type_name -> deepagents.runtime.v1.CancelRequest
-	53, // 3: deepagents.runtime.v1.RunRequest.metadata:type_name -> deepagents.runtime.v1.RunRequest.MetadataEntry
-	7,  // 4: deepagents.runtime.v1.HITLDecision.decisions:type_name -> deepagents.runtime.v1.Decision
-	58, // 5: deepagents.runtime.v1.Action.args:type_name -> google.protobuf.Struct
-	6,  // 6: deepagents.runtime.v1.Decision.edited_action:type_name -> deepagents.runtime.v1.Action
-	59, // 7: deepagents.runtime.v1.AgentEvent.timestamp:type_name -> google.protobuf.Timestamp
-	10, // 8: deepagents.runtime.v1.AgentEvent.run_started:type_name -> deepagents.runtime.v1.RunStarted
-	11, // 9: deepagents.runtime.v1.AgentEvent.text_delta:type_name -> deepagents.runtime.v1.TextDelta
-	12, // 10: deepagents.runtime.v1.AgentEvent.text_done:type_name -> deepagents.runtime.v1.TextDone
-	13, // 11: deepagents.runtime.v1.AgentEvent.tool_call_start:type_name -> deepagents.runtime.v1.ToolCallStart
-	14, // 12: deepagents.runtime.v1.AgentEvent.tool_call_done:type_name -> deepagents.runtime.v1.ToolCallDone
-	15, // 13: deepagents.runtime.v1.AgentEvent.tool_result:type_name -> deepagents.runtime.v1.ToolResult
-	16, // 14: deepagents.runtime.v1.AgentEvent.hitl_request:type_name -> deepagents.runtime.v1.HITLRequest
-	19, // 15: deepagents.runtime.v1.AgentEvent.run_ended:type_name -> deepagents.runtime.v1.RunEnded
-	22, // 16: deepagents.runtime.v1.AgentEvent.error:type_name -> deepagents.runtime.v1.ErrorOccurred
-	20, // 17: deepagents.runtime.v1.AgentEvent.run_canceled:type_name -> deepagents.runtime.v1.RunCanceled
-	58, // 18: deepagents.runtime.v1.ToolCallStart.args:type_name -> google.protobuf.Struct
-	60, // 19: deepagents.runtime.v1.ToolResult.payload:type_name -> google.protobuf.Value
-	17, // 20: deepagents.runtime.v1.HITLRequest.action_requests:type_name -> deepagents.runtime.v1.ActionRequest
-	18, // 21: deepagents.runtime.v1.HITLRequest.review_configs:type_name -> deepagents.runtime.v1.ReviewConfig
-	58, // 22: deepagents.runtime.v1.ActionRequest.args:type_name -> google.protobuf.Struct
-	58, // 23: deepagents.runtime.v1.ReviewConfig.args_schema:type_name -> google.protobuf.Struct
-	21, // 24: deepagents.runtime.v1.RunEnded.stats:type_name -> deepagents.runtime.v1.UsageStats
-	31, // 25: deepagents.runtime.v1.SyncSkillRequest.files:type_name -> deepagents.runtime.v1.SkillFile
-	54, // 26: deepagents.runtime.v1.SyncMcpRequest.env:type_name -> deepagents.runtime.v1.SyncMcpRequest.EnvEntry
-	28, // 27: deepagents.runtime.v1.SyncAgentSpecRequest.prompt:type_name -> deepagents.runtime.v1.PromptSpec
-	32, // 28: deepagents.runtime.v1.SyncAgentSpecRequest.skills:type_name -> deepagents.runtime.v1.SkillContent
-	29, // 29: deepagents.runtime.v1.SyncAgentSpecRequest.tools:type_name -> deepagents.runtime.v1.ToolsSpec
-	26, // 30: deepagents.runtime.v1.SyncAgentSpecRequest.subagents:type_name -> deepagents.runtime.v1.SubagentSpec
-	30, // 31: deepagents.runtime.v1.SyncAgentSpecRequest.sandbox:type_name -> deepagents.runtime.v1.SandboxSpec
-	27, // 32: deepagents.runtime.v1.SyncAgentSpecRequest.mcp_servers:type_name -> deepagents.runtime.v1.McpServerConfig
-	33, // 33: deepagents.runtime.v1.SyncAgentSpecRequest.model_config:type_name -> deepagents.runtime.v1.ModelConfig
-	55, // 34: deepagents.runtime.v1.McpServerConfig.env:type_name -> deepagents.runtime.v1.McpServerConfig.EnvEntry
-	56, // 35: deepagents.runtime.v1.SandboxSpec.resources:type_name -> deepagents.runtime.v1.SandboxSpec.ResourcesEntry
-	31, // 36: deepagents.runtime.v1.SkillContent.files:type_name -> deepagents.runtime.v1.SkillFile
-	57, // 37: deepagents.runtime.v1.ModelConfig.extra_params:type_name -> deepagents.runtime.v1.ModelConfig.ExtraParamsEntry
-	50, // 38: deepagents.runtime.v1.ListSessionsResponse.sessions:type_name -> deepagents.runtime.v1.SessionSummary
-	51, // 39: deepagents.runtime.v1.GetSessionResponse.session:type_name -> deepagents.runtime.v1.SessionDetail
-	50, // 40: deepagents.runtime.v1.GetLatestSessionResponse.session:type_name -> deepagents.runtime.v1.SessionSummary
-	1,  // 41: deepagents.runtime.v1.GetSessionMessagesRequest.requested_mode:type_name -> deepagents.runtime.v1.SessionHistoryMode
-	1,  // 42: deepagents.runtime.v1.GetSessionMessagesResponse.actual_mode:type_name -> deepagents.runtime.v1.SessionHistoryMode
-	52, // 43: deepagents.runtime.v1.GetSessionMessagesResponse.messages:type_name -> deepagents.runtime.v1.SessionMessage
-	59, // 44: deepagents.runtime.v1.SessionSummary.updated_at:type_name -> google.protobuf.Timestamp
-	1,  // 45: deepagents.runtime.v1.SessionSummary.history_mode:type_name -> deepagents.runtime.v1.SessionHistoryMode
-	0,  // 46: deepagents.runtime.v1.SessionSummary.agent_status:type_name -> deepagents.runtime.v1.AgentRuntimeStatus
-	50, // 47: deepagents.runtime.v1.SessionDetail.summary:type_name -> deepagents.runtime.v1.SessionSummary
-	2,  // 48: deepagents.runtime.v1.SessionMessage.role:type_name -> deepagents.runtime.v1.SessionMessageRole
-	58, // 49: deepagents.runtime.v1.SessionMessage.raw:type_name -> google.protobuf.Struct
-	3,  // 50: deepagents.runtime.v1.AgentExecutor.Run:input_type -> deepagents.runtime.v1.ClientMessage
-	23, // 51: deepagents.runtime.v1.ResourceSync.SyncSkill:input_type -> deepagents.runtime.v1.SyncSkillRequest
-	24, // 52: deepagents.runtime.v1.ResourceSync.SyncMcp:input_type -> deepagents.runtime.v1.SyncMcpRequest
-	25, // 53: deepagents.runtime.v1.ResourceSync.SyncAgentSpec:input_type -> deepagents.runtime.v1.SyncAgentSpecRequest
-	34, // 54: deepagents.runtime.v1.ResourceSync.Assemble:input_type -> deepagents.runtime.v1.AssembleRequest
-	36, // 55: deepagents.runtime.v1.ResourceSync.RemoveResource:input_type -> deepagents.runtime.v1.RemoveResourceRequest
-	38, // 56: deepagents.runtime.v1.ResourceSync.Health:input_type -> deepagents.runtime.v1.HealthRequest
-	40, // 57: deepagents.runtime.v1.SessionQuery.ListSessions:input_type -> deepagents.runtime.v1.ListSessionsRequest
-	42, // 58: deepagents.runtime.v1.SessionQuery.GetSession:input_type -> deepagents.runtime.v1.GetSessionRequest
-	48, // 59: deepagents.runtime.v1.SessionQuery.GetSessionMessages:input_type -> deepagents.runtime.v1.GetSessionMessagesRequest
-	44, // 60: deepagents.runtime.v1.SessionQuery.GetLatestSession:input_type -> deepagents.runtime.v1.GetLatestSessionRequest
-	46, // 61: deepagents.runtime.v1.SessionQuery.DeleteSession:input_type -> deepagents.runtime.v1.DeleteSessionRequest
-	9,  // 62: deepagents.runtime.v1.AgentExecutor.Run:output_type -> deepagents.runtime.v1.AgentEvent
-	37, // 63: deepagents.runtime.v1.ResourceSync.SyncSkill:output_type -> deepagents.runtime.v1.SyncResponse
-	37, // 64: deepagents.runtime.v1.ResourceSync.SyncMcp:output_type -> deepagents.runtime.v1.SyncResponse
-	37, // 65: deepagents.runtime.v1.ResourceSync.SyncAgentSpec:output_type -> deepagents.runtime.v1.SyncResponse
-	35, // 66: deepagents.runtime.v1.ResourceSync.Assemble:output_type -> deepagents.runtime.v1.AssembleResponse
-	37, // 67: deepagents.runtime.v1.ResourceSync.RemoveResource:output_type -> deepagents.runtime.v1.SyncResponse
-	39, // 68: deepagents.runtime.v1.ResourceSync.Health:output_type -> deepagents.runtime.v1.HealthResponse
-	41, // 69: deepagents.runtime.v1.SessionQuery.ListSessions:output_type -> deepagents.runtime.v1.ListSessionsResponse
-	43, // 70: deepagents.runtime.v1.SessionQuery.GetSession:output_type -> deepagents.runtime.v1.GetSessionResponse
-	49, // 71: deepagents.runtime.v1.SessionQuery.GetSessionMessages:output_type -> deepagents.runtime.v1.GetSessionMessagesResponse
-	45, // 72: deepagents.runtime.v1.SessionQuery.GetLatestSession:output_type -> deepagents.runtime.v1.GetLatestSessionResponse
-	47, // 73: deepagents.runtime.v1.SessionQuery.DeleteSession:output_type -> deepagents.runtime.v1.DeleteSessionResponse
-	62, // [62:74] is the sub-list for method output_type
-	50, // [50:62] is the sub-list for method input_type
-	50, // [50:50] is the sub-list for extension type_name
-	50, // [50:50] is the sub-list for extension extendee
-	0,  // [0:50] is the sub-list for field type_name
+	5,  // 0: deepagents.runtime.v1.ClientMessage.run_request:type_name -> deepagents.runtime.v1.RunRequest
+	6,  // 1: deepagents.runtime.v1.ClientMessage.hitl_decision:type_name -> deepagents.runtime.v1.HITLDecision
+	9,  // 2: deepagents.runtime.v1.ClientMessage.cancel:type_name -> deepagents.runtime.v1.CancelRequest
+	62, // 3: deepagents.runtime.v1.RunRequest.metadata:type_name -> deepagents.runtime.v1.RunRequest.MetadataEntry
+	8,  // 4: deepagents.runtime.v1.HITLDecision.decisions:type_name -> deepagents.runtime.v1.Decision
+	69, // 5: deepagents.runtime.v1.Action.args:type_name -> google.protobuf.Struct
+	7,  // 6: deepagents.runtime.v1.Decision.edited_action:type_name -> deepagents.runtime.v1.Action
+	70, // 7: deepagents.runtime.v1.AgentEvent.timestamp:type_name -> google.protobuf.Timestamp
+	11, // 8: deepagents.runtime.v1.AgentEvent.run_started:type_name -> deepagents.runtime.v1.RunStarted
+	12, // 9: deepagents.runtime.v1.AgentEvent.text_delta:type_name -> deepagents.runtime.v1.TextDelta
+	13, // 10: deepagents.runtime.v1.AgentEvent.text_done:type_name -> deepagents.runtime.v1.TextDone
+	14, // 11: deepagents.runtime.v1.AgentEvent.tool_call_start:type_name -> deepagents.runtime.v1.ToolCallStart
+	15, // 12: deepagents.runtime.v1.AgentEvent.tool_call_done:type_name -> deepagents.runtime.v1.ToolCallDone
+	16, // 13: deepagents.runtime.v1.AgentEvent.tool_result:type_name -> deepagents.runtime.v1.ToolResult
+	17, // 14: deepagents.runtime.v1.AgentEvent.hitl_request:type_name -> deepagents.runtime.v1.HITLRequest
+	20, // 15: deepagents.runtime.v1.AgentEvent.run_ended:type_name -> deepagents.runtime.v1.RunEnded
+	23, // 16: deepagents.runtime.v1.AgentEvent.error:type_name -> deepagents.runtime.v1.ErrorOccurred
+	21, // 17: deepagents.runtime.v1.AgentEvent.run_canceled:type_name -> deepagents.runtime.v1.RunCanceled
+	69, // 18: deepagents.runtime.v1.ToolCallStart.args:type_name -> google.protobuf.Struct
+	71, // 19: deepagents.runtime.v1.ToolResult.payload:type_name -> google.protobuf.Value
+	18, // 20: deepagents.runtime.v1.HITLRequest.action_requests:type_name -> deepagents.runtime.v1.ActionRequest
+	19, // 21: deepagents.runtime.v1.HITLRequest.review_configs:type_name -> deepagents.runtime.v1.ReviewConfig
+	69, // 22: deepagents.runtime.v1.ActionRequest.args:type_name -> google.protobuf.Struct
+	69, // 23: deepagents.runtime.v1.ReviewConfig.args_schema:type_name -> google.protobuf.Struct
+	22, // 24: deepagents.runtime.v1.RunEnded.stats:type_name -> deepagents.runtime.v1.UsageStats
+	40, // 25: deepagents.runtime.v1.SyncSkillRequest.files:type_name -> deepagents.runtime.v1.SkillFile
+	63, // 26: deepagents.runtime.v1.SyncMcpRequest.env:type_name -> deepagents.runtime.v1.SyncMcpRequest.EnvEntry
+	29, // 27: deepagents.runtime.v1.SyncAgentSpecRequest.prompt:type_name -> deepagents.runtime.v1.PromptSpec
+	41, // 28: deepagents.runtime.v1.SyncAgentSpecRequest.skills:type_name -> deepagents.runtime.v1.SkillContent
+	30, // 29: deepagents.runtime.v1.SyncAgentSpecRequest.tools:type_name -> deepagents.runtime.v1.ToolsSpec
+	27, // 30: deepagents.runtime.v1.SyncAgentSpecRequest.subagents:type_name -> deepagents.runtime.v1.SubagentSpec
+	31, // 31: deepagents.runtime.v1.SyncAgentSpecRequest.sandbox:type_name -> deepagents.runtime.v1.SandboxSpec
+	28, // 32: deepagents.runtime.v1.SyncAgentSpecRequest.mcp_servers:type_name -> deepagents.runtime.v1.McpServerConfig
+	42, // 33: deepagents.runtime.v1.SyncAgentSpecRequest.model_config:type_name -> deepagents.runtime.v1.ModelConfig
+	64, // 34: deepagents.runtime.v1.McpServerConfig.env:type_name -> deepagents.runtime.v1.McpServerConfig.EnvEntry
+	65, // 35: deepagents.runtime.v1.SandboxSpec.resources:type_name -> deepagents.runtime.v1.SandboxSpec.ResourcesEntry
+	32, // 36: deepagents.runtime.v1.SandboxSpec.execution:type_name -> deepagents.runtime.v1.SandboxExecutionPolicy
+	33, // 37: deepagents.runtime.v1.SandboxSpec.env:type_name -> deepagents.runtime.v1.SandboxEnvVar
+	34, // 38: deepagents.runtime.v1.SandboxSpec.local:type_name -> deepagents.runtime.v1.LocalSandboxSpec
+	36, // 39: deepagents.runtime.v1.SandboxSpec.docker:type_name -> deepagents.runtime.v1.DockerSandboxSpec
+	38, // 40: deepagents.runtime.v1.SandboxSpec.kubernetes:type_name -> deepagents.runtime.v1.KubernetesSandboxSpec
+	0,  // 41: deepagents.runtime.v1.ImageReference.pull_policy:type_name -> deepagents.runtime.v1.ImagePullPolicy
+	35, // 42: deepagents.runtime.v1.DockerSandboxSpec.image:type_name -> deepagents.runtime.v1.ImageReference
+	37, // 43: deepagents.runtime.v1.DockerSandboxSpec.resources:type_name -> deepagents.runtime.v1.DockerResourceSpec
+	35, // 44: deepagents.runtime.v1.KubernetesSandboxSpec.image:type_name -> deepagents.runtime.v1.ImageReference
+	39, // 45: deepagents.runtime.v1.KubernetesSandboxSpec.resources:type_name -> deepagents.runtime.v1.KubernetesResourceRequirements
+	66, // 46: deepagents.runtime.v1.KubernetesResourceRequirements.requests:type_name -> deepagents.runtime.v1.KubernetesResourceRequirements.RequestsEntry
+	67, // 47: deepagents.runtime.v1.KubernetesResourceRequirements.limits:type_name -> deepagents.runtime.v1.KubernetesResourceRequirements.LimitsEntry
+	40, // 48: deepagents.runtime.v1.SkillContent.files:type_name -> deepagents.runtime.v1.SkillFile
+	68, // 49: deepagents.runtime.v1.ModelConfig.extra_params:type_name -> deepagents.runtime.v1.ModelConfig.ExtraParamsEntry
+	59, // 50: deepagents.runtime.v1.ListSessionsResponse.sessions:type_name -> deepagents.runtime.v1.SessionSummary
+	60, // 51: deepagents.runtime.v1.GetSessionResponse.session:type_name -> deepagents.runtime.v1.SessionDetail
+	59, // 52: deepagents.runtime.v1.GetLatestSessionResponse.session:type_name -> deepagents.runtime.v1.SessionSummary
+	2,  // 53: deepagents.runtime.v1.GetSessionMessagesRequest.requested_mode:type_name -> deepagents.runtime.v1.SessionHistoryMode
+	2,  // 54: deepagents.runtime.v1.GetSessionMessagesResponse.actual_mode:type_name -> deepagents.runtime.v1.SessionHistoryMode
+	61, // 55: deepagents.runtime.v1.GetSessionMessagesResponse.messages:type_name -> deepagents.runtime.v1.SessionMessage
+	70, // 56: deepagents.runtime.v1.SessionSummary.updated_at:type_name -> google.protobuf.Timestamp
+	2,  // 57: deepagents.runtime.v1.SessionSummary.history_mode:type_name -> deepagents.runtime.v1.SessionHistoryMode
+	1,  // 58: deepagents.runtime.v1.SessionSummary.agent_status:type_name -> deepagents.runtime.v1.AgentRuntimeStatus
+	59, // 59: deepagents.runtime.v1.SessionDetail.summary:type_name -> deepagents.runtime.v1.SessionSummary
+	3,  // 60: deepagents.runtime.v1.SessionMessage.role:type_name -> deepagents.runtime.v1.SessionMessageRole
+	69, // 61: deepagents.runtime.v1.SessionMessage.raw:type_name -> google.protobuf.Struct
+	4,  // 62: deepagents.runtime.v1.AgentExecutor.Run:input_type -> deepagents.runtime.v1.ClientMessage
+	24, // 63: deepagents.runtime.v1.ResourceSync.SyncSkill:input_type -> deepagents.runtime.v1.SyncSkillRequest
+	25, // 64: deepagents.runtime.v1.ResourceSync.SyncMcp:input_type -> deepagents.runtime.v1.SyncMcpRequest
+	26, // 65: deepagents.runtime.v1.ResourceSync.SyncAgentSpec:input_type -> deepagents.runtime.v1.SyncAgentSpecRequest
+	43, // 66: deepagents.runtime.v1.ResourceSync.Assemble:input_type -> deepagents.runtime.v1.AssembleRequest
+	45, // 67: deepagents.runtime.v1.ResourceSync.RemoveResource:input_type -> deepagents.runtime.v1.RemoveResourceRequest
+	47, // 68: deepagents.runtime.v1.ResourceSync.Health:input_type -> deepagents.runtime.v1.HealthRequest
+	49, // 69: deepagents.runtime.v1.SessionQuery.ListSessions:input_type -> deepagents.runtime.v1.ListSessionsRequest
+	51, // 70: deepagents.runtime.v1.SessionQuery.GetSession:input_type -> deepagents.runtime.v1.GetSessionRequest
+	57, // 71: deepagents.runtime.v1.SessionQuery.GetSessionMessages:input_type -> deepagents.runtime.v1.GetSessionMessagesRequest
+	53, // 72: deepagents.runtime.v1.SessionQuery.GetLatestSession:input_type -> deepagents.runtime.v1.GetLatestSessionRequest
+	55, // 73: deepagents.runtime.v1.SessionQuery.DeleteSession:input_type -> deepagents.runtime.v1.DeleteSessionRequest
+	10, // 74: deepagents.runtime.v1.AgentExecutor.Run:output_type -> deepagents.runtime.v1.AgentEvent
+	46, // 75: deepagents.runtime.v1.ResourceSync.SyncSkill:output_type -> deepagents.runtime.v1.SyncResponse
+	46, // 76: deepagents.runtime.v1.ResourceSync.SyncMcp:output_type -> deepagents.runtime.v1.SyncResponse
+	46, // 77: deepagents.runtime.v1.ResourceSync.SyncAgentSpec:output_type -> deepagents.runtime.v1.SyncResponse
+	44, // 78: deepagents.runtime.v1.ResourceSync.Assemble:output_type -> deepagents.runtime.v1.AssembleResponse
+	46, // 79: deepagents.runtime.v1.ResourceSync.RemoveResource:output_type -> deepagents.runtime.v1.SyncResponse
+	48, // 80: deepagents.runtime.v1.ResourceSync.Health:output_type -> deepagents.runtime.v1.HealthResponse
+	50, // 81: deepagents.runtime.v1.SessionQuery.ListSessions:output_type -> deepagents.runtime.v1.ListSessionsResponse
+	52, // 82: deepagents.runtime.v1.SessionQuery.GetSession:output_type -> deepagents.runtime.v1.GetSessionResponse
+	58, // 83: deepagents.runtime.v1.SessionQuery.GetSessionMessages:output_type -> deepagents.runtime.v1.GetSessionMessagesResponse
+	54, // 84: deepagents.runtime.v1.SessionQuery.GetLatestSession:output_type -> deepagents.runtime.v1.GetLatestSessionResponse
+	56, // 85: deepagents.runtime.v1.SessionQuery.DeleteSession:output_type -> deepagents.runtime.v1.DeleteSessionResponse
+	74, // [74:86] is the sub-list for method output_type
+	62, // [62:74] is the sub-list for method input_type
+	62, // [62:62] is the sub-list for extension type_name
+	62, // [62:62] is the sub-list for extension extendee
+	0,  // [0:62] is the sub-list for field type_name
 }
 
 func init() { file_runtime_proto_init() }
@@ -3990,13 +4649,18 @@ func file_runtime_proto_init() {
 		(*AgentEvent_Error)(nil),
 		(*AgentEvent_RunCanceled)(nil),
 	}
+	file_runtime_proto_msgTypes[27].OneofWrappers = []any{
+		(*SandboxSpec_Local)(nil),
+		(*SandboxSpec_Docker)(nil),
+		(*SandboxSpec_Kubernetes)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_runtime_proto_rawDesc), len(file_runtime_proto_rawDesc)),
-			NumEnums:      3,
-			NumMessages:   55,
+			NumEnums:      4,
+			NumMessages:   65,
 			NumExtensions: 0,
 			NumServices:   3,
 		},

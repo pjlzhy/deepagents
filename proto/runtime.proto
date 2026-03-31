@@ -392,9 +392,81 @@ message ToolsSpec {
 }
 
 message SandboxSpec {
-  string image = 1;
-  map<string, string> resources = 2;  // e.g., {"cpu": "2", "memory": "2Gi"}
-  repeated string init = 3;           // initialization commands
+  // Legacy implicit sandbox fields kept for compatibility during migration.
+  string image = 1 [deprecated = true];
+  map<string, string> resources = 2 [deprecated = true];
+  repeated string init = 3 [deprecated = true];
+
+  // Common execution policy applied regardless of backend kind.
+  SandboxExecutionPolicy execution = 10;
+
+  // Static environment variables injected into the sandbox process.
+  repeated SandboxEnvVar env = 11;
+
+  // Commands executed once after sandbox startup and before the agent is used.
+  repeated string setup_commands = 12;
+
+  // Exactly one concrete backend must be selected for an executable sandbox.
+  oneof backend {
+    LocalSandboxSpec local = 20;
+    DockerSandboxSpec docker = 21;
+    KubernetesSandboxSpec kubernetes = 22;
+  }
+}
+
+message SandboxExecutionPolicy {
+  // Per-command timeout used for normal shell execution. `0` means backend default.
+  int32 command_timeout_seconds = 1;
+
+  // Timeout budget for one setup command. `0` means backend default.
+  int32 setup_timeout_seconds = 2;
+
+  // Timeout budget for sandbox startup. `0` means backend default.
+  int32 startup_timeout_seconds = 3;
+
+  // Maximum UTF-8 output bytes returned from a command. `0` means backend default.
+  int64 max_output_bytes = 4;
+}
+
+message SandboxEnvVar {
+  string name = 1;
+  string value = 2;
+}
+
+message LocalSandboxSpec {}
+
+message ImageReference {
+  string reference = 1;
+  ImagePullPolicy pull_policy = 2;
+}
+
+enum ImagePullPolicy {
+  IMAGE_PULL_POLICY_UNSPECIFIED = 0;
+  IMAGE_PULL_POLICY_IF_NOT_PRESENT = 1;
+  IMAGE_PULL_POLICY_ALWAYS = 2;
+  IMAGE_PULL_POLICY_NEVER = 3;
+}
+
+message DockerSandboxSpec {
+  ImageReference image = 1;
+  DockerResourceSpec resources = 2;
+}
+
+message DockerResourceSpec {
+  string cpu = 1;
+  string memory = 2;
+  string shm_size = 3;
+  int64 pids_limit = 4;
+}
+
+message KubernetesSandboxSpec {
+  ImageReference image = 1;
+  KubernetesResourceRequirements resources = 2;
+}
+
+message KubernetesResourceRequirements {
+  map<string, string> requests = 1;
+  map<string, string> limits = 2;
 }
 
 // One additional file embedded in a skill directory snapshot.
@@ -581,5 +653,4 @@ message SessionMessage {
   bool is_error = 6;
   google.protobuf.Struct raw = 7;
 }
-
 

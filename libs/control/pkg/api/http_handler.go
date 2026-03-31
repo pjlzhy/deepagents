@@ -88,6 +88,10 @@ func (h *HTTPHandler) registerRoutes() {
 	h.serveMux.HandleFunc("PUT /api/v1/mcps/{name}", h.handleUpsertMCPConfig)
 	h.serveMux.HandleFunc("GET /api/v1/mcps/{name}", h.handleGetMCPConfig)
 	h.serveMux.HandleFunc("DELETE /api/v1/mcps/{name}", h.handleDeleteMCPConfig)
+	h.serveMux.HandleFunc("GET /api/v1/sandboxes", h.handleListSandboxConfigs)
+	h.serveMux.HandleFunc("PUT /api/v1/sandboxes/{name}", h.handleUpsertSandboxConfig)
+	h.serveMux.HandleFunc("GET /api/v1/sandboxes/{name}", h.handleGetSandboxConfig)
+	h.serveMux.HandleFunc("DELETE /api/v1/sandboxes/{name}", h.handleDeleteSandboxConfig)
 	h.serveMux.HandleFunc("GET /api/v1/agents", h.handleListAgentSpecs)
 	h.serveMux.HandleFunc("PUT /api/v1/agents/{name}", h.handleUpsertAgentSpec)
 	h.serveMux.HandleFunc("GET /api/v1/agents/{name}", h.handleGetAgentSpec)
@@ -567,6 +571,65 @@ func (h *HTTPHandler) handleDeleteMCPConfig(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if err := h.service.DeleteMCPConfig(r.Context(), name); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *HTTPHandler) handleListSandboxConfigs(w http.ResponseWriter, r *http.Request) {
+	query, err := decodeResourcePageQuery(r)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	page, err := h.service.ListSandboxConfigsPage(r.Context(), query)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, sandboxConfigsListResponse{
+		Sandboxes:    newHTTPSandboxConfigResponses(page.Items),
+		pageResponse: newHTTPPageResponse(page.PageMetadata),
+	})
+}
+
+func (h *HTTPHandler) handleUpsertSandboxConfig(w http.ResponseWriter, r *http.Request) {
+	config, err := decodeSandboxConfigRequest(r)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+	stored, err := h.service.UpsertSandboxConfig(r.Context(), config)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, newHTTPSandboxConfigResponse(stored))
+}
+
+func (h *HTTPHandler) handleGetSandboxConfig(w http.ResponseWriter, r *http.Request) {
+	name, err := decodeResourceName(r, "name")
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+	config, err := h.service.GetSandboxConfig(r.Context(), name)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, newHTTPSandboxConfigResponse(config))
+}
+
+func (h *HTTPHandler) handleDeleteSandboxConfig(w http.ResponseWriter, r *http.Request) {
+	name, err := decodeResourceName(r, "name")
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := h.service.DeleteSandboxConfig(r.Context(), name); err != nil {
 		writeServiceError(w, err)
 		return
 	}
@@ -1090,10 +1153,75 @@ type subagentSpecPayload struct {
 	Model        modelSpecPayload `json:"model"`
 }
 
+type sandboxExecutionPolicyPayload struct {
+	CommandTimeoutSeconds int32 `json:"command_timeout_seconds,omitempty"`
+	SetupTimeoutSeconds   int32 `json:"setup_timeout_seconds,omitempty"`
+	StartupTimeoutSeconds int32 `json:"startup_timeout_seconds,omitempty"`
+	MaxOutputBytes        int64 `json:"max_output_bytes,omitempty"`
+}
+
+type sandboxEnvVarPayload struct {
+	Name  string `json:"name,omitempty"`
+	Value string `json:"value,omitempty"`
+}
+
+type imageReferencePayload struct {
+	Reference  string `json:"reference,omitempty"`
+	PullPolicy string `json:"pull_policy,omitempty"`
+}
+
+type dockerResourceSpecPayload struct {
+	CPU       string `json:"cpu,omitempty"`
+	Memory    string `json:"memory,omitempty"`
+	ShmSize   string `json:"shm_size,omitempty"`
+	PidsLimit int64  `json:"pids_limit,omitempty"`
+}
+
+type dockerSandboxSpecPayload struct {
+	Image     imageReferencePayload     `json:"image"`
+	Resources dockerResourceSpecPayload `json:"resources"`
+}
+
+type kubernetesResourceRequirementsPayload struct {
+	Requests map[string]string `json:"requests,omitempty"`
+	Limits   map[string]string `json:"limits,omitempty"`
+}
+
+type kubernetesSandboxSpecPayload struct {
+	Image     imageReferencePayload                 `json:"image"`
+	Resources kubernetesResourceRequirementsPayload `json:"resources"`
+}
+
 type sandboxSpecPayload struct {
-	Image     string            `json:"image,omitempty"`
-	Resources map[string]string `json:"resources,omitempty"`
-	Init      []string          `json:"init,omitempty"`
+	Image         string                         `json:"image,omitempty"`
+	Resources     map[string]string              `json:"resources,omitempty"`
+	Init          []string                       `json:"init,omitempty"`
+	Execution     *sandboxExecutionPolicyPayload `json:"execution,omitempty"`
+	Env           []sandboxEnvVarPayload         `json:"env,omitempty"`
+	SetupCommands []string                       `json:"setup_commands,omitempty"`
+	Local         *struct{}                      `json:"local,omitempty"`
+	Docker        *dockerSandboxSpecPayload      `json:"docker,omitempty"`
+	Kubernetes    *kubernetesSandboxSpecPayload  `json:"kubernetes,omitempty"`
+}
+
+type sandboxConfigUpsertRequest struct {
+	Description string             `json:"description,omitempty"`
+	Spec        sandboxSpecPayload `json:"spec"`
+	Status      string             `json:"status,omitempty"`
+}
+
+type sandboxConfigResponse struct {
+	Name        string             `json:"name,omitempty"`
+	Description string             `json:"description,omitempty"`
+	Spec        sandboxSpecPayload `json:"spec"`
+	Status      string             `json:"status,omitempty"`
+	CreatedAt   string             `json:"created_at,omitempty"`
+	UpdatedAt   string             `json:"updated_at,omitempty"`
+}
+
+type sandboxConfigsListResponse struct {
+	Sandboxes []sandboxConfigResponse `json:"sandboxes"`
+	pageResponse
 }
 
 type agentSpecUpsertRequest struct {
@@ -1104,8 +1232,8 @@ type agentSpecUpsertRequest struct {
 	Prompt      promptSpecPayload     `json:"prompt"`
 	SkillRefs   []string              `json:"skill_refs,omitempty"`
 	MCPRefs     []string              `json:"mcp_refs,omitempty"`
+	SandboxRef  string                `json:"sandbox_ref,omitempty"`
 	Subagents   []subagentSpecPayload `json:"subagents,omitempty"`
-	Sandbox     sandboxSpecPayload    `json:"sandbox"`
 	InterruptOn []string              `json:"interrupt_on,omitempty"`
 	Status      string                `json:"status,omitempty"`
 }
@@ -1119,8 +1247,8 @@ type agentSpecResponse struct {
 	Prompt      promptSpecPayload     `json:"prompt"`
 	SkillRefs   []string              `json:"skill_refs,omitempty"`
 	MCPRefs     []string              `json:"mcp_refs,omitempty"`
+	SandboxRef  string                `json:"sandbox_ref,omitempty"`
 	Subagents   []subagentSpecPayload `json:"subagents,omitempty"`
-	Sandbox     sandboxSpecPayload    `json:"sandbox"`
 	InterruptOn []string              `json:"interrupt_on,omitempty"`
 	Status      string                `json:"status,omitempty"`
 	CreatedAt   string                `json:"created_at,omitempty"`
@@ -1428,6 +1556,32 @@ func decodeMCPConfigRequest(r *http.Request) (domain.MCPConfig, error) {
 	}, nil
 }
 
+func decodeSandboxConfigRequest(r *http.Request) (domain.SandboxConfig, error) {
+	name, err := decodeResourceName(r, "name")
+	if err != nil {
+		return domain.SandboxConfig{}, err
+	}
+	request, err := decodeJSON[sandboxConfigUpsertRequest](r, false)
+	if err != nil {
+		return domain.SandboxConfig{}, err
+	}
+	status, err := parseOptionalAuthoredStatus(request.Status)
+	if err != nil {
+		return domain.SandboxConfig{}, err
+	}
+	spec, err := newDomainSandboxSpec(&request.Spec)
+	if err != nil {
+		return domain.SandboxConfig{}, err
+	}
+
+	return domain.SandboxConfig{
+		Name:        name,
+		Description: request.Description,
+		Spec:        spec,
+		Status:      status,
+	}, nil
+}
+
 func decodeAgentSpecRequest(r *http.Request) (domain.AuthoredAgentSpec, error) {
 	name, err := decodeResourceName(r, "name")
 	if err != nil {
@@ -1441,7 +1595,6 @@ func decodeAgentSpecRequest(r *http.Request) (domain.AuthoredAgentSpec, error) {
 	if err != nil {
 		return domain.AuthoredAgentSpec{}, err
 	}
-
 	subagents := make([]domain.SubagentSpec, 0, len(request.Subagents))
 	for _, subagent := range request.Subagents {
 		subagents = append(subagents, domain.SubagentSpec{
@@ -1461,8 +1614,8 @@ func decodeAgentSpecRequest(r *http.Request) (domain.AuthoredAgentSpec, error) {
 		Prompt:      domain.PromptSpec{System: request.Prompt.System},
 		SkillRefs:   trimStrings(request.SkillRefs),
 		MCPRefs:     trimStrings(request.MCPRefs),
+		SandboxRef:  strings.TrimSpace(request.SandboxRef),
 		Subagents:   subagents,
-		Sandbox:     newDomainSandboxSpec(request.Sandbox),
 		InterruptOn: trimStrings(request.InterruptOn),
 		Status:      status,
 	}, nil
@@ -1842,6 +1995,25 @@ func newHTTPModelConfigResponses(configs []domain.ModelConfig) []modelConfigResp
 	return responses
 }
 
+func newHTTPSandboxConfigResponse(config domain.SandboxConfig) sandboxConfigResponse {
+	return sandboxConfigResponse{
+		Name:        config.Name,
+		Description: config.Description,
+		Spec:        newHTTPSandboxSpec(config.Spec),
+		Status:      string(config.Status),
+		CreatedAt:   formatOptionalTime(config.CreatedAt),
+		UpdatedAt:   formatOptionalTime(config.UpdatedAt),
+	}
+}
+
+func newHTTPSandboxConfigResponses(configs []domain.SandboxConfig) []sandboxConfigResponse {
+	responses := make([]sandboxConfigResponse, 0, len(configs))
+	for _, config := range configs {
+		responses = append(responses, newHTTPSandboxConfigResponse(config))
+	}
+	return responses
+}
+
 func newHTTPAgentSpecResponse(spec domain.AuthoredAgentSpec) agentSpecResponse {
 	return agentSpecResponse{
 		Name:        spec.Name,
@@ -1852,8 +2024,8 @@ func newHTTPAgentSpecResponse(spec domain.AuthoredAgentSpec) agentSpecResponse {
 		Prompt:      promptSpecPayload{System: spec.Prompt.System},
 		SkillRefs:   spec.SkillRefs,
 		MCPRefs:     spec.MCPRefs,
+		SandboxRef:  spec.SandboxRef,
 		Subagents:   newHTTPSubagentSpecs(spec.Subagents),
-		Sandbox:     newHTTPSandboxSpec(spec.Sandbox),
 		InterruptOn: spec.InterruptOn,
 		Status:      string(spec.Status),
 		CreatedAt:   formatOptionalTime(spec.CreatedAt),
@@ -1893,11 +2065,54 @@ func newHTTPSubagentSpecs(specs []domain.SubagentSpec) []subagentSpecPayload {
 }
 
 func newHTTPSandboxSpec(spec domain.SandboxSpec) sandboxSpecPayload {
-	return sandboxSpecPayload{
-		Image:     spec.Image,
-		Resources: spec.Resources,
-		Init:      spec.Init,
+	payload := sandboxSpecPayload{}
+	if spec.Execution != (domain.SandboxExecutionPolicy{}) {
+		payload.Execution = &sandboxExecutionPolicyPayload{
+			CommandTimeoutSeconds: spec.Execution.CommandTimeoutSeconds,
+			SetupTimeoutSeconds:   spec.Execution.SetupTimeoutSeconds,
+			StartupTimeoutSeconds: spec.Execution.StartupTimeoutSeconds,
+			MaxOutputBytes:        spec.Execution.MaxOutputBytes,
+		}
 	}
+	if len(spec.Env) > 0 {
+		payload.Env = make([]sandboxEnvVarPayload, 0, len(spec.Env))
+		for _, item := range spec.Env {
+			payload.Env = append(payload.Env, sandboxEnvVarPayload{
+				Name:  item.Name,
+				Value: item.Value,
+			})
+		}
+	}
+	payload.SetupCommands = cloneStringSlice(spec.SetupCommands)
+	switch {
+	case spec.Local != nil:
+		payload.Local = &struct{}{}
+	case spec.Docker != nil:
+		payload.Docker = &dockerSandboxSpecPayload{
+			Image: imageReferencePayload{
+				Reference:  spec.Docker.Image.Reference,
+				PullPolicy: string(spec.Docker.Image.PullPolicy),
+			},
+			Resources: dockerResourceSpecPayload{
+				CPU:       spec.Docker.Resources.CPU,
+				Memory:    spec.Docker.Resources.Memory,
+				ShmSize:   spec.Docker.Resources.ShmSize,
+				PidsLimit: spec.Docker.Resources.PidsLimit,
+			},
+		}
+	case spec.Kubernetes != nil:
+		payload.Kubernetes = &kubernetesSandboxSpecPayload{
+			Image: imageReferencePayload{
+				Reference:  spec.Kubernetes.Image.Reference,
+				PullPolicy: string(spec.Kubernetes.Image.PullPolicy),
+			},
+			Resources: kubernetesResourceRequirementsPayload{
+				Requests: cloneStringMap(spec.Kubernetes.Resources.Requests),
+				Limits:   cloneStringMap(spec.Kubernetes.Resources.Limits),
+			},
+		}
+	}
+	return payload
 }
 
 func newDomainModelSpec(spec modelSpecPayload) domain.ModelSpec {
@@ -1910,12 +2125,76 @@ func newDomainModelSpec(spec modelSpecPayload) domain.ModelSpec {
 	}
 }
 
-func newDomainSandboxSpec(spec sandboxSpecPayload) domain.SandboxSpec {
-	return domain.SandboxSpec{
-		Image:     strings.TrimSpace(spec.Image),
-		Resources: spec.Resources,
-		Init:      trimStrings(spec.Init),
+func newDomainSandboxSpec(spec *sandboxSpecPayload) (domain.SandboxSpec, error) {
+	if spec == nil {
+		return domain.SandboxSpec{}, nil
 	}
+	if spec.Local != nil || spec.Docker != nil || spec.Kubernetes != nil || spec.Execution != nil ||
+		len(spec.Env) > 0 || len(spec.SetupCommands) > 0 {
+		domainSpec := domain.SandboxSpec{
+			Env:           make([]domain.SandboxEnvVar, 0, len(spec.Env)),
+			SetupCommands: trimStrings(spec.SetupCommands),
+		}
+		if spec.Execution != nil {
+			domainSpec.Execution = domain.SandboxExecutionPolicy{
+				CommandTimeoutSeconds: spec.Execution.CommandTimeoutSeconds,
+				SetupTimeoutSeconds:   spec.Execution.SetupTimeoutSeconds,
+				StartupTimeoutSeconds: spec.Execution.StartupTimeoutSeconds,
+				MaxOutputBytes:        spec.Execution.MaxOutputBytes,
+			}
+		}
+		for _, item := range spec.Env {
+			domainSpec.Env = append(domainSpec.Env, domain.SandboxEnvVar{
+				Name:  strings.TrimSpace(item.Name),
+				Value: item.Value,
+			})
+		}
+		switch {
+		case spec.Local != nil:
+			domainSpec.Local = &domain.LocalSandboxSpec{}
+		case spec.Docker != nil:
+			domainSpec.Docker = &domain.DockerSandboxSpec{
+				Image: domain.ImageReference{
+					Reference:  strings.TrimSpace(spec.Docker.Image.Reference),
+					PullPolicy: domain.ImagePullPolicy(strings.TrimSpace(spec.Docker.Image.PullPolicy)),
+				},
+				Resources: domain.DockerResourceSpec{
+					CPU:       strings.TrimSpace(spec.Docker.Resources.CPU),
+					Memory:    strings.TrimSpace(spec.Docker.Resources.Memory),
+					ShmSize:   strings.TrimSpace(spec.Docker.Resources.ShmSize),
+					PidsLimit: spec.Docker.Resources.PidsLimit,
+				},
+			}
+		case spec.Kubernetes != nil:
+			domainSpec.Kubernetes = &domain.KubernetesSandboxSpec{
+				Image: domain.ImageReference{
+					Reference:  strings.TrimSpace(spec.Kubernetes.Image.Reference),
+					PullPolicy: domain.ImagePullPolicy(strings.TrimSpace(spec.Kubernetes.Image.PullPolicy)),
+				},
+				Resources: domain.KubernetesResourceRequirements{
+					Requests: cloneStringMap(spec.Kubernetes.Resources.Requests),
+					Limits:   cloneStringMap(spec.Kubernetes.Resources.Limits),
+				},
+			}
+		}
+		normalized, err := domain.NormalizeSandboxSpec(domainSpec)
+		if err != nil {
+			return domain.SandboxSpec{}, err
+		}
+		return normalized, nil
+	}
+	if strings.TrimSpace(spec.Image) == "" && len(spec.Resources) == 0 && len(spec.Init) == 0 {
+		return domain.SandboxSpec{}, nil
+	}
+	legacy, err := domain.LegacySandboxSpec(
+		strings.TrimSpace(spec.Image),
+		cloneStringMap(spec.Resources),
+		trimStrings(spec.Init),
+	)
+	if err != nil {
+		return domain.SandboxSpec{}, err
+	}
+	return legacy, nil
 }
 
 func trimStrings(values []string) []string {
@@ -1924,6 +2203,23 @@ func trimStrings(values []string) []string {
 		trimmed = append(trimmed, strings.TrimSpace(value))
 	}
 	return trimmed
+}
+
+func cloneStringSlice(values []string) []string {
+	cloned := make([]string, 0, len(values))
+	cloned = append(cloned, values...)
+	return cloned
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	cloned := make(map[string]string, len(values))
+	for key, value := range values {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func formatOptionalTime(value time.Time) string {

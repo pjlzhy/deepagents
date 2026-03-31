@@ -19,6 +19,9 @@ import type {
   SessionMessagePageDTO,
   SessionMessagesDTO,
   SessionSummaryDTO,
+  SandboxConfigDTO,
+  SandboxConfigListDTO,
+  SandboxConfigUpsertRequestDTO,
   SkillDTO,
   SkillListDTO,
   SkillUpsertRequestDTO,
@@ -118,6 +121,23 @@ export const controlClient = {
     },
     delete(name: string) {
       return httpClient.delete<void>(`/api/v1/mcps/${encodeURIComponent(name)}`);
+    },
+  },
+  sandboxes: {
+    list(params: NumberPageQuery) {
+      return httpClient.get<SandboxConfigListDTO>('/api/v1/sandboxes', resourceQuery(params));
+    },
+    get(name: string) {
+      return httpClient.get<SandboxConfigDTO>(`/api/v1/sandboxes/${encodeURIComponent(name)}`);
+    },
+    upsert(name: string, body: SandboxConfigUpsertRequestDTO) {
+      return httpClient.put<SandboxConfigUpsertRequestDTO, SandboxConfigDTO>(
+        `/api/v1/sandboxes/${encodeURIComponent(name)}`,
+        body,
+      );
+    },
+    delete(name: string) {
+      return httpClient.delete<void>(`/api/v1/sandboxes/${encodeURIComponent(name)}`);
     },
   },
   agents: {

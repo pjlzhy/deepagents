@@ -4,8 +4,7 @@ import os
 import time
 import uuid
 
-from pathlib import Path
-from types import SimpleNamespace
+from pathlib import Path, PurePosixPath
 
 from typing import Any
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -22,12 +21,14 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
 from deepagents.graph import create_deep_agent
-from deepagents.backends import CompositeBackend, FilesystemBackend, LocalShellBackend
+from deepagents.backends import LocalShellBackend
+from deepagents.backends.protocol import SandboxBackendProtocol, execute_accepts_timeout
 from deepagents.middleware.subagents import SubAgent
 from deepagents.middleware.memory import MemoryMiddleware
 from deepagents.middleware.summarization import (
+    SummarizationMiddleware,
     SummarizationToolMiddleware,
-    create_summarization_middleware,
+    compute_summarization_defaults,
 )
 from deepagents_runtime import events
 from deepagents_runtime.events import RuntimeEvent
@@ -43,7 +44,11 @@ from deepagents_runtime.spec import (
     MCPRuntime,
     SandboxRuntime,
     AgentStatus,
-    resolve_sandbox_backend_kind,
+    DockerSandboxSpec,
+    KubernetesSandboxSpec,
+    LocalSandboxSpec,
+    SandboxSpec,
+    parse_sandbox_spec,
     validate_agent_spec,
 )
 from deepagents_runtime.streams import StreamParserState, parse_stream_part
@@ -56,6 +61,23 @@ _MAX_HITL_ITERATIONS = 50
 logger = logging.getLogger(__name__)
 
 HITLHandler = Callable[[dict[str, Any]], Awaitable[list[dict[str, Any]]]]
+
+
+@dataclass(frozen=True)
+class AgentFilesystemView:
+    """Runtime-visible filesystem contract for one assembled agent."""
+
+    host_root_dir: Path
+    visible_root_path: str
+    visible_workspace_path: str
+    visible_skills_path: str
+    visible_memory_path: str
+    visible_history_path_prefix: str
+
+
+def _join_visible_path(root: str, *parts: str) -> str:
+    """Join backend-visible path components using POSIX semantics."""
+    return str(PurePosixPath(root, *parts))
 
 # ---------------------------------------------------------------------------
 # Default system prompt (hardcoded)
@@ -206,8 +228,7 @@ When something isn't working:
 {model_identity_section}{working_dir_section}### Skills Directory
 
 Your skills are stored at: `{skills_path}`
-Skills may contain scripts or supporting files. When executing skill scripts with bash, use the real filesystem path:
-Example: `bash python {skills_path}/web-research/script.py`
+Skills may contain scripts or supporting files. When running shell commands, use child paths from your current runtime root such as `skills/web-research/script.py`.
 
 ### Human-in-the-Loop Tool Approval
 
@@ -249,7 +270,7 @@ def get_system_prompt(
         *,
         prompt: str,
         model: ModelResult,
-        skills_dir: str,
+        filesystem_view: AgentFilesystemView,
 ) -> str:
     """Build the full system prompt.
 
@@ -259,7 +280,7 @@ def get_system_prompt(
     """
     template = DEFAULT_SYSTEM_PROMPT
 
-    skills_path = skills_dir
+    skills_path = filesystem_view.visible_skills_path
 
     # Model identity section
     model_identity_section = (
@@ -273,16 +294,21 @@ def get_system_prompt(
         )
     model_identity_section += f"Your name is {agent_name}.\n\n"
 
-    # Working directory section
-    cwd = Path.cwd()
+    runtime_root = filesystem_view.visible_root_path
+    workspace_path = filesystem_view.visible_workspace_path
+    memory_path = filesystem_view.visible_memory_path
+    history_path = filesystem_view.visible_history_path_prefix
     working_dir_section = (
-        f"### Current Working Directory\n\n"
-        f"The filesystem backend is currently operating in: `{cwd}`\n\n"
+        f"### Runtime File System\n\n"
+        f"Filesystem tools operate within the agent-local root: `{runtime_root}`\n\n"
         f"### File System and Paths\n\n"
         f"**IMPORTANT - Path Handling:**\n"
-        f"- All file paths must be absolute paths (e.g., `{cwd}/file.txt`)\n"
-        f"- Use the working directory to construct absolute paths\n"
-        f"- Never use relative paths - always construct full absolute paths\n\n"
+        f"- All file paths must be absolute paths (e.g., `{workspace_path}/file.txt`)\n"
+        f"- Your task workspace lives at: `{workspace_path}`\n"
+        f"- Agent memory lives at: `{memory_path}`\n"
+        f"- Conversation history offloads live under: `{history_path}`\n"
+        f"- Shell commands start in the runtime root, so use child paths like `workspace/...` or `skills/...` when invoking scripts from the shell\n"
+        f"- When using file tools, always use backend-visible absolute paths\n\n"
     )
 
     if prompt:
@@ -461,74 +487,156 @@ class RuntimeAgent:
         """Return whether compiled runtime resources are currently loaded."""
         return self._graph is not None
 
-    def _build_workspace_backend(self) -> LocalShellBackend:
-        """Create the default workspace-local backend for this agent."""
-        return LocalShellBackend(
-            root_dir=str(self.registry.workspace_dir(self.spec.name)),
-            inherit_env=True,
-            virtual_mode=False,
+    def _ensure_runtime_filesystem(self) -> None:
+        """Create the runtime-visible filesystem layout for this agent."""
+        runtime_root = self.registry.runtime_dir(self.spec.name)
+        runtime_root.mkdir(parents=True, exist_ok=True)
+        self.registry.skills_dir(self.spec.name).mkdir(parents=True, exist_ok=True)
+        self.registry.workspace_dir(self.spec.name).mkdir(parents=True, exist_ok=True)
+        self.registry.history_dir(self.spec.name).mkdir(parents=True, exist_ok=True)
+        memory_file = self.registry.memory_dir(self.spec.name)
+        memory_file.parent.mkdir(parents=True, exist_ok=True)
+        memory_file.touch(exist_ok=True)
+
+    def _build_filesystem_view(
+            self,
+            *,
+            spec: SandboxSpec | dict[str, Any] | None,
+    ) -> AgentFilesystemView:
+        """Describe the agent-visible filesystem for the selected backend."""
+        self._ensure_runtime_filesystem()
+
+        host_root_dir = self.registry.runtime_dir(self.spec.name).resolve()
+        normalized_spec = parse_sandbox_spec(spec)
+        backend = normalized_spec.backend if normalized_spec is not None else None
+
+        visible_root_path = (
+            "/agent" if isinstance(backend, (DockerSandboxSpec, KubernetesSandboxSpec))
+            else "/"
         )
 
-    async def _build_sandbox_backend(self, *, spec: dict[str, Any]) -> Any:
+        return AgentFilesystemView(
+            host_root_dir=host_root_dir,
+            visible_root_path=visible_root_path,
+            visible_workspace_path=_join_visible_path(visible_root_path, "workspace"),
+            visible_skills_path=_join_visible_path(visible_root_path, "skills"),
+            visible_memory_path=_join_visible_path(
+                visible_root_path,
+                "memory",
+                "AGENTS.md",
+            ),
+            visible_history_path_prefix=_join_visible_path(
+                visible_root_path,
+                "conversation_history",
+            ),
+        )
+
+    def _build_local_backend(
+            self,
+            *,
+            filesystem_view: AgentFilesystemView,
+    ) -> LocalShellBackend:
+        """Create the local backend for the agent-visible runtime root."""
+        return LocalShellBackend(
+            root_dir=str(filesystem_view.host_root_dir),
+            inherit_env=True,
+            virtual_mode=True,
+        )
+
+    async def _build_sandbox_backend(
+            self,
+            *,
+            spec: SandboxSpec | dict[str, Any],
+            filesystem_view: AgentFilesystemView,
+    ) -> Any:
         """Create the concrete backend selected by the sandbox spec."""
-        backend_kind = resolve_sandbox_backend_kind(spec)
-        if backend_kind == "local":
-            return self._build_workspace_backend()
-        if backend_kind == "docker":
-            backend = await DockerSandboxBackend.from_spec(spec)
-            await backend.start()
+        normalized_spec = parse_sandbox_spec(spec)
+        if normalized_spec is None:
+            msg = "sandbox backend must be set before runtime assembly"
+            raise ValueError(msg)
+        backend = normalized_spec.backend
+        if isinstance(backend, LocalSandboxSpec):
+            return self._build_local_backend(filesystem_view=filesystem_view)
+        if isinstance(backend, DockerSandboxSpec):
+            backend = await DockerSandboxBackend.from_spec(
+                normalized_spec,
+                host_mount_dir=str(filesystem_view.host_root_dir),
+                container_root=filesystem_view.visible_root_path,
+            )
+            startup_timeout = normalized_spec.execution.startup_timeout_seconds
+            if startup_timeout > 0:
+                await backend.start(timeout_seconds=startup_timeout)
+            else:
+                await backend.start()
             return backend
-        if backend_kind == "k8s":
-            backend = await K8sSandboxBackend.from_spec(spec)
+        if isinstance(backend, KubernetesSandboxSpec):
+            backend = await K8sSandboxBackend.from_spec(normalized_spec)
             await backend.start()
             return backend
 
-        msg = f"unsupported sandbox backend '{backend_kind}'"
+        msg = "sandbox backend must be set before runtime assembly"
         raise ValueError(msg)
 
-    async def _create_sandbox_runtime(self, *, spec: dict[str, Any]) -> SandboxRuntime:
+    async def _run_sandbox_setup_commands(
+            self,
+            *,
+            spec: SandboxSpec | dict[str, Any],
+            sandbox_backend: Any,
+    ) -> None:
+        """Execute sandbox setup commands exactly once for a new backend."""
+        normalized_spec = parse_sandbox_spec(spec)
+        if normalized_spec is None:
+            return
+        if not normalized_spec.setup_commands:
+            return
+        if not isinstance(sandbox_backend, SandboxBackendProtocol):
+            msg = "sandbox backend does not support command execution for setup_commands"
+            raise RuntimeError(msg)
+
+        timeout = (
+            normalized_spec.execution.setup_timeout_seconds
+            if normalized_spec.execution.setup_timeout_seconds > 0
+            else None
+        )
+        for command in normalized_spec.setup_commands:
+            if timeout is not None and execute_accepts_timeout(type(sandbox_backend)):
+                result = await sandbox_backend.aexecute(command, timeout=timeout)
+            else:
+                result = await sandbox_backend.aexecute(command)
+            if result.exit_code != 0:
+                msg = (
+                    "sandbox setup command failed "
+                    f"(exit_code={result.exit_code}): {command}"
+                )
+                raise RuntimeError(msg)
+
+    async def _create_sandbox_runtime(
+            self,
+            *,
+            spec: SandboxSpec | dict[str, Any],
+            filesystem_view: AgentFilesystemView,
+    ) -> SandboxRuntime:
         """Create the agent-scoped sandbox runtime owner."""
-        backend = await self._build_sandbox_backend(spec=spec)
+        normalized_spec = parse_sandbox_spec(spec)
+        if normalized_spec is None:
+            msg = "sandbox backend must be set before runtime assembly"
+            raise ValueError(msg)
+        backend = await self._build_sandbox_backend(
+            spec=normalized_spec,
+            filesystem_view=filesystem_view,
+        )
+        try:
+            await self._run_sandbox_setup_commands(
+                spec=normalized_spec,
+                sandbox_backend=backend,
+            )
+        except Exception:
+            await self._cleanup_sandbox_backend(backend)
+            raise
 
         return SandboxRuntime(
-            spec=spec,
+            spec=normalized_spec,
             backend=backend,
-        )
-
-    def _merge_runtime_context(
-            self,
-            context: Any,
-            *,
-            sandbox_backend: Any,
-    ) -> Any:
-        """Overlay the sandbox backend onto a graph runtime context."""
-        if context is None:
-            return {"sandbox_backend": sandbox_backend}
-        if isinstance(context, dict):
-            merged_context = dict(context)
-            merged_context["sandbox_backend"] = sandbox_backend
-            return merged_context
-        overlay = SimpleNamespace(sandbox_backend=sandbox_backend)
-        for attr in dir(context):
-            if attr.startswith("_") or hasattr(overlay, attr):
-                continue
-            try:
-                setattr(overlay, attr, getattr(context, attr))
-            except AttributeError:
-                continue
-        return overlay
-
-    @asynccontextmanager
-    async def _sandbox_context(self, context: Any) -> AsyncIterator[Any]:
-        """Inject the agent-owned sandbox backend into the runtime context."""
-        sandbox_runtime = self._sandbox_runtime
-        if sandbox_runtime is None:
-            yield context
-            return
-
-        yield self._merge_runtime_context(
-            context,
-            sandbox_backend=sandbox_runtime.backend,
         )
 
     async def _cleanup_sandbox_backend(self, sandbox_backend: Any) -> None:
@@ -643,7 +751,8 @@ class RuntimeAgent:
                 len(mcp_tools), self.spec.name, len(mcp_server_infos),
             )
 
-        desired_sandbox_spec = dict(self.spec.sandbox or {})
+        desired_sandbox_spec = self.spec.sandbox
+        filesystem_view = self._build_filesystem_view(spec=desired_sandbox_spec)
         existing_sandbox_runtime = self._sandbox_runtime
         replace_sandbox_runtime = (
             existing_sandbox_runtime is not None
@@ -653,9 +762,10 @@ class RuntimeAgent:
         created_sandbox_runtime: SandboxRuntime | None = None
         if replace_sandbox_runtime:
             sandbox_runtime = None
-        if sandbox_runtime is None and desired_sandbox_spec:
+        if sandbox_runtime is None and desired_sandbox_spec is not None:
             sandbox_runtime = await self._create_sandbox_runtime(
-                spec=desired_sandbox_spec
+                spec=desired_sandbox_spec,
+                filesystem_view=filesystem_view,
             )
             created_sandbox_runtime = sandbox_runtime
 
@@ -663,52 +773,41 @@ class RuntimeAgent:
         fallback_backend = (
             sandbox_runtime.backend
             if sandbox_runtime is not None
-            else self._build_workspace_backend()
+            else self._build_local_backend(filesystem_view=filesystem_view)
         )
-
-        def runtime_backend_factory(tool_runtime: Any) -> Any:
-            """Resolve the backend for the current tool call.
-
-            When an invocation provides an agent-owned sandbox backend via
-            runtime context, file and execute tools should use that backend.
-            Otherwise the assembled agent falls back to the workspace-local
-            shell backend.
-            """
-            sandbox_backend = None
-            context = getattr(tool_runtime, "context", None)
-            if isinstance(context, dict):
-                sandbox_backend = context.get("sandbox_backend")
-            elif context is not None:
-                sandbox_backend = getattr(context, "sandbox_backend", None)
-
-            backend = sandbox_backend or fallback_backend
-            if isinstance(backend, CompositeBackend):
-                return backend
-            return CompositeBackend(default=backend, routes={})
+        tool_backend = fallback_backend
 
         agent_middleware: list[Any] = []
 
         # Memory middleware
         agent_middleware.append(
             MemoryMiddleware(
-                backend=FilesystemBackend(virtual_mode=False),
-                sources=[str(self.registry.memory_dir(self.spec.name))],
+                backend=tool_backend,
+                sources=[filesystem_view.visible_memory_path],
             )
         )
 
         # Skills middleware
         agent_middleware.append(
             RuntimeSkillsMiddleware(
-                backend=FilesystemBackend(virtual_mode=False),
-                sources=[str(self.registry.skills_dir(self.spec.name))],
+                backend=tool_backend,
+                sources=[filesystem_view.visible_skills_path],
             )
         )
 
         # Expose summarization through an explicit tool-backed middleware.
+        summarization_defaults = compute_summarization_defaults(result.model)
+        summarization_middleware = SummarizationMiddleware(
+            model=result.model,
+            backend=tool_backend,
+            trigger=summarization_defaults["trigger"],
+            keep=summarization_defaults["keep"],
+            trim_tokens_to_summarize=None,
+            history_path_prefix=filesystem_view.visible_history_path_prefix,
+            truncate_args_settings=summarization_defaults["truncate_args_settings"],
+        )
         agent_middleware.append(
-            SummarizationToolMiddleware(
-                create_summarization_middleware(result.model, runtime_backend_factory)
-            )
+            SummarizationToolMiddleware(summarization_middleware)
         )
 
         # 4. Build the final system prompt.
@@ -717,7 +816,7 @@ class RuntimeAgent:
             agent_name=self.spec.name,
             prompt=prompt_system,
             model=result,
-            skills_dir=str(self.registry.skills_dir(self.spec.name)),
+            filesystem_view=filesystem_view,
         )
 
         # 5. Build the interrupt_on mapping.
@@ -750,7 +849,7 @@ class RuntimeAgent:
                 system_prompt=system_prompt,
                 middleware=agent_middleware,
                 subagents=custom_subagents if custom_subagents else None,
-                backend=runtime_backend_factory,
+                backend=tool_backend,
                 interrupt_on=interrupt_on,
                 checkpointer=checkpointer,
             )
@@ -823,70 +922,70 @@ class RuntimeAgent:
             "messages": [{"role": "user", "content": message}],
         }
 
-        async with self._sandbox_context(context) as runtime_context:
-            while True:
-                pending_interrupts: dict[str, Any] = {}
+        runtime_context = context
+        while True:
+            pending_interrupts: dict[str, Any] = {}
 
-                async for part in self._graph.astream(
-                        stream_input,
-                        config=config,
-                        context=runtime_context,
-                        stream_mode=["messages", "updates"],
-                        subgraphs=True,
-                        version="v2",
-                ):
-                    parsed = parse_stream_part(part, parser_state)
-                    pending_interrupts.update(parsed.interrupts)
-                    for event in parsed.events:
-                        yield event
+            async for part in self._graph.astream(
+                    stream_input,
+                    config=config,
+                    context=runtime_context,
+                    stream_mode=["messages", "updates"],
+                    subgraphs=True,
+                    version="v2",
+            ):
+                parsed = parse_stream_part(part, parser_state)
+                pending_interrupts.update(parsed.interrupts)
+                for event in parsed.events:
+                    yield event
 
-                if not pending_interrupts:
-                    break
+            if not pending_interrupts:
+                break
 
-                iteration += 1
-                if iteration > _MAX_HITL_ITERATIONS:
-                    msg = (
-                        f"HITL loop exceeded {_MAX_HITL_ITERATIONS} iterations "
-                        f"for agent '{self.spec.name}'"
-                    )
-                    raise RuntimeError(msg)
+            iteration += 1
+            if iteration > _MAX_HITL_ITERATIONS:
+                msg = (
+                    f"HITL loop exceeded {_MAX_HITL_ITERATIONS} iterations "
+                    f"for agent '{self.spec.name}'"
+                )
+                raise RuntimeError(msg)
 
-                hitl_response: dict[str, Any] = {}
-                for interrupt_id, request in pending_interrupts.items():
-                    action_requests = (
-                        request.get("action_requests", [])
-                        if isinstance(request, dict)
-                        else []
-                    )
-                    yield events.hitl_request(
-                        interrupt_id=interrupt_id,
-                        action_requests=[dict(ar) for ar in action_requests],
-                        review_configs=[
-                            dict(config)
-                            for config in request.get("review_configs", [])
-                        ]
-                        if isinstance(request, dict)
-                        else [],
-                        run_id=run_id,
-                        agent_name=self.spec.name,
-                    )
+            hitl_response: dict[str, Any] = {}
+            for interrupt_id, request in pending_interrupts.items():
+                action_requests = (
+                    request.get("action_requests", [])
+                    if isinstance(request, dict)
+                    else []
+                )
+                yield events.hitl_request(
+                    interrupt_id=interrupt_id,
+                    action_requests=[dict(ar) for ar in action_requests],
+                    review_configs=[
+                        dict(config)
+                        for config in request.get("review_configs", [])
+                    ]
+                    if isinstance(request, dict)
+                    else [],
+                    run_id=run_id,
+                    agent_name=self.spec.name,
+                )
 
-                    if hitl_handler is not None:
-                        decisions = await hitl_handler({
-                            "interrupt_id": interrupt_id,
-                            "action_requests": action_requests,
-                            "review_configs": (
-                                request.get("review_configs", [])
-                                if isinstance(request, dict)
-                                else []
-                            ),
-                        })
-                    else:
-                        decisions = [{"type": "approve"} for _ in action_requests]
+                if hitl_handler is not None:
+                    decisions = await hitl_handler({
+                        "interrupt_id": interrupt_id,
+                        "action_requests": action_requests,
+                        "review_configs": (
+                            request.get("review_configs", [])
+                            if isinstance(request, dict)
+                            else []
+                        ),
+                    })
+                else:
+                    decisions = [{"type": "approve"} for _ in action_requests]
 
-                    hitl_response[interrupt_id] = {"decisions": decisions}
+                hitl_response[interrupt_id] = {"decisions": decisions}
 
-                stream_input = Command(resume=hitl_response)
+            stream_input = Command(resume=hitl_response)
 
         wall_time = time.monotonic() - wall_start
         parser_state.stats.wall_time_seconds = wall_time

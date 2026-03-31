@@ -59,6 +59,7 @@ export default function AgentsPage() {
             { label: 'model_ref', value: item.model_ref ?? 'n/a' },
             { label: 'skills', value: String(item.skill_refs?.length ?? 0) },
             { label: 'mcps', value: String(item.mcp_refs?.length ?? 0) },
+            { label: 'sandbox_ref', value: item.sandbox_ref ?? 'n/a' },
           ],
           actions: (
             <>

@@ -75,10 +75,8 @@ def test_validate_agent_spec_rejects_duplicate_interrupt_entries() -> None:
 def test_validate_agent_spec_rejects_unknown_sandbox_backend() -> None:
     """Sandbox backend selection should reject unsupported backend kinds."""
 
-    spec = AgentSpec(
-        name="demo-agent",
-        sandbox={"resources": {"backend": "modal"}},
-    )
-
     with pytest.raises(ValueError, match="sandbox backend 'modal' must be one of"):
-        validate_agent_spec(spec)
+        AgentSpec(
+            name="demo-agent",
+            sandbox={"resources": {"backend": "modal"}},
+        )

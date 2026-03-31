@@ -57,10 +57,6 @@ func (r *SQLiteRegistry) UpsertAgentSpec(ctx context.Context, spec domain.Author
 	if err != nil {
 		return fmt.Errorf("marshal agent spec subagents: %w", err)
 	}
-	sandboxJSON, err := marshalJSON(spec.Sandbox)
-	if err != nil {
-		return fmt.Errorf("marshal agent spec sandbox: %w", err)
-	}
 	interruptOnJSON, err := marshalJSON(spec.InterruptOn)
 	if err != nil {
 		return fmt.Errorf("marshal agent spec interrupt_on: %w", err)
@@ -70,7 +66,7 @@ func (r *SQLiteRegistry) UpsertAgentSpec(ctx context.Context, spec domain.Author
 		ctx,
 		`INSERT INTO agent_specs (
             name, version, description, tags_json, model_ref, prompt_json,
-            skill_refs_json, mcp_refs_json, subagents_json, sandbox_json,
+            skill_refs_json, mcp_refs_json, sandbox_ref, subagents_json,
             interrupt_on_json, status, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(name) DO UPDATE SET
@@ -81,8 +77,8 @@ func (r *SQLiteRegistry) UpsertAgentSpec(ctx context.Context, spec domain.Author
             prompt_json = excluded.prompt_json,
             skill_refs_json = excluded.skill_refs_json,
             mcp_refs_json = excluded.mcp_refs_json,
+            sandbox_ref = excluded.sandbox_ref,
             subagents_json = excluded.subagents_json,
-            sandbox_json = excluded.sandbox_json,
             interrupt_on_json = excluded.interrupt_on_json,
             status = excluded.status,
             created_at = excluded.created_at,
@@ -95,8 +91,8 @@ func (r *SQLiteRegistry) UpsertAgentSpec(ctx context.Context, spec domain.Author
 		promptJSON,
 		skillRefsJSON,
 		mcpRefsJSON,
+		spec.SandboxRef,
 		subagentsJSON,
-		sandboxJSON,
 		interruptOnJSON,
 		string(spec.Status),
 		formatTime(spec.CreatedAt),
@@ -117,6 +113,12 @@ func normalizeAuthoredAgentSpec(spec domain.AuthoredAgentSpec) (domain.AuthoredA
 	spec.ModelRef = strings.TrimSpace(spec.ModelRef)
 	if err := validateRequiredSimpleName(spec.ModelRef, "agent model_ref"); err != nil {
 		return domain.AuthoredAgentSpec{}, err
+	}
+	spec.SandboxRef = strings.TrimSpace(spec.SandboxRef)
+	if spec.SandboxRef != "" {
+		if err := validateRequiredSimpleName(spec.SandboxRef, "agent sandbox_ref"); err != nil {
+			return domain.AuthoredAgentSpec{}, err
+		}
 	}
 
 	var err error
@@ -193,6 +195,16 @@ func (r *SQLiteRegistry) ensureAgentSpecReferencesExist(
 				"validate agent spec %q mcp ref %q: %w",
 				spec.Name,
 				name,
+				err,
+			)
+		}
+	}
+	if spec.SandboxRef != "" {
+		if err := ensureExists(ctx, r.db, "sandbox_configs", spec.SandboxRef, "sandbox config"); err != nil {
+			return fmt.Errorf(
+				"validate agent spec %q sandbox ref %q: %w",
+				spec.Name,
+				spec.SandboxRef,
 				err,
 			)
 		}
@@ -325,7 +337,7 @@ func (r *SQLiteRegistry) GetAgentSpec(ctx context.Context, name string) (domain.
 	row := r.db.QueryRowContext(
 		ctx,
 		`SELECT version, description, tags_json, model_ref, prompt_json, skill_refs_json,
-        mcp_refs_json, subagents_json, sandbox_json, interrupt_on_json, status,
+        mcp_refs_json, sandbox_ref, subagents_json, interrupt_on_json, status,
         created_at, updated_at
         FROM agent_specs WHERE name = ?`,
 		name,
@@ -337,8 +349,8 @@ func (r *SQLiteRegistry) GetAgentSpec(ctx context.Context, name string) (domain.
 	var promptJSON string
 	var skillRefsJSON string
 	var mcpRefsJSON string
+	var sandboxRef string
 	var subagentsJSON string
-	var sandboxJSON string
 	var interruptOnJSON string
 	var status string
 	var createdAt string
@@ -351,8 +363,8 @@ func (r *SQLiteRegistry) GetAgentSpec(ctx context.Context, name string) (domain.
 		&promptJSON,
 		&skillRefsJSON,
 		&mcpRefsJSON,
+		&sandboxRef,
 		&subagentsJSON,
-		&sandboxJSON,
 		&interruptOnJSON,
 		&status,
 		&createdAt,
@@ -365,6 +377,7 @@ func (r *SQLiteRegistry) GetAgentSpec(ctx context.Context, name string) (domain.
 	}
 	spec.Name = name
 	spec.ModelRef = strings.TrimSpace(modelRef)
+	spec.SandboxRef = strings.TrimSpace(sandboxRef)
 	spec.Status = domain.AuthoredStatus(status)
 	if err := unmarshalJSON(tagsJSON, &spec.Tags); err != nil {
 		return domain.AuthoredAgentSpec{}, fmt.Errorf("decode agent tags: %w", err)
@@ -380,9 +393,6 @@ func (r *SQLiteRegistry) GetAgentSpec(ctx context.Context, name string) (domain.
 	}
 	if err := unmarshalJSON(subagentsJSON, &spec.Subagents); err != nil {
 		return domain.AuthoredAgentSpec{}, fmt.Errorf("decode agent subagents: %w", err)
-	}
-	if err := unmarshalJSON(sandboxJSON, &spec.Sandbox); err != nil {
-		return domain.AuthoredAgentSpec{}, fmt.Errorf("decode agent sandbox: %w", err)
 	}
 	if err := unmarshalJSON(interruptOnJSON, &spec.InterruptOn); err != nil {
 		return domain.AuthoredAgentSpec{}, fmt.Errorf("decode agent interrupt_on: %w", err)

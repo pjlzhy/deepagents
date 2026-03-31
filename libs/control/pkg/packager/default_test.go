@@ -18,6 +18,7 @@ func TestDefaultPackagerPackagesResolvedAgentInput(t *testing.T) {
 			Prompt:      domain.PromptSpec{System: "You are helpful."},
 			SkillRefs:   []string{"research", "ops"},
 			MCPRefs:     []string{"github", "docs"},
+			SandboxRef:  "python-slim",
 			Subagents: []domain.SubagentSpec{
 				{
 					Name:         "planner",
@@ -33,11 +34,6 @@ func TestDefaultPackagerPackagesResolvedAgentInput(t *testing.T) {
 						Model:    "gpt-5-mini",
 					},
 				},
-			},
-			Sandbox: domain.SandboxSpec{
-				Image:     "python:3.12",
-				Resources: map[string]string{"backend": "docker", "cpu": "2"},
-				Init:      []string{"echo ready"},
 			},
 			InterruptOn: []string{"approval"},
 		},
@@ -81,6 +77,18 @@ func TestDefaultPackagerPackagesResolvedAgentInput(t *testing.T) {
 				Transport: "sse",
 			},
 		},
+		SandboxConfig: &domain.SandboxConfig{
+			Name: "python-slim",
+			Spec: domain.SandboxSpec{
+				Docker: &domain.DockerSandboxSpec{
+					Image: domain.ImageReference{Reference: "python:3.12"},
+					Resources: domain.DockerResourceSpec{
+						CPU: "2",
+					},
+				},
+				SetupCommands: []string{"echo ready"},
+			},
+		},
 		Target: domain.RuntimeTarget{
 			Name:     "runtime-a",
 			Endpoint: "127.0.0.1:50051",
@@ -110,7 +118,7 @@ func TestDefaultPackagerPackagesResolvedAgentInput(t *testing.T) {
 	if len(got.Subagents) != 2 || got.Subagents[1].Model.Model != "gpt-5-mini" {
 		t.Fatalf("unexpected subagents: %#v", got.Subagents)
 	}
-	if got.Sandbox.Resources["backend"] != "docker" || len(got.Sandbox.Init) != 1 {
+	if got.Sandbox.Docker == nil || got.Sandbox.Docker.Resources.CPU != "2" || len(got.Sandbox.SetupCommands) != 1 {
 		t.Fatalf("unexpected sandbox: %#v", got.Sandbox)
 	}
 	if len(got.InterruptOn) != 1 || got.InterruptOn[0] != "approval" {
@@ -121,7 +129,7 @@ func TestDefaultPackagerPackagesResolvedAgentInput(t *testing.T) {
 	input.ModelConfig.Spec.ExtraParams["temperature"] = "0.9"
 	input.Skills[0].Files[0].Content = "mutated"
 	input.MCPConfigs[0].Env["GITHUB_TOKEN"] = "mutated"
-	input.Agent.Sandbox.Resources["backend"] = "local"
+	input.SandboxConfig.Spec.Docker.Resources.CPU = "4"
 
 	if got.Tags[0] != "assistant" {
 		t.Fatalf("expected tags to be cloned, got: %#v", got.Tags)
@@ -135,8 +143,8 @@ func TestDefaultPackagerPackagesResolvedAgentInput(t *testing.T) {
 	if got.MCPServers[0].Env["GITHUB_TOKEN"] != "env:GITHUB_TOKEN" {
 		t.Fatalf("expected mcp env to be cloned, got: %#v", got.MCPServers[0].Env)
 	}
-	if got.Sandbox.Resources["backend"] != "docker" {
-		t.Fatalf("expected sandbox resources to be cloned, got: %#v", got.Sandbox.Resources)
+	if got.Sandbox.Docker == nil || got.Sandbox.Docker.Resources.CPU != "2" {
+		t.Fatalf("expected sandbox spec to be cloned, got: %#v", got.Sandbox)
 	}
 }
 

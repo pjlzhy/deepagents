@@ -52,6 +52,24 @@ def test_from_spec_reads_max_output_bytes() -> None:
     assert backend._max_output_bytes == 2048
 
 
+def test_from_spec_accepts_runtime_mount_contract() -> None:
+    """Docker backend should retain the runtime root mount configuration."""
+
+    backend = __import__("asyncio").run(
+        DockerSandboxBackend.from_spec(
+            {
+                "image": "python:3.12",
+                "resources": {"backend": "docker"},
+            },
+            host_mount_dir="/tmp/runtime-agent",
+            container_root="/agent",
+        )
+    )
+
+    assert backend._host_mount_dir == "/tmp/runtime-agent"
+    assert backend._container_root == "/agent"
+
+
 def test_execute_passes_timeout_and_truncates_output() -> None:
     """Docker execute should pass timeout through to exec_run and truncate oversized output."""
 

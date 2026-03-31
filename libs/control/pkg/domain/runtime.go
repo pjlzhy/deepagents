@@ -36,11 +36,12 @@ type Deployment struct {
 
 // ResolvedAgentInput contains the authored resources needed by the packager.
 type ResolvedAgentInput struct {
-	Agent       AuthoredAgentSpec
-	ModelConfig ModelConfig
-	Skills      []Skill
-	MCPConfigs  []MCPConfig
-	Target      RuntimeTarget
+	Agent         AuthoredAgentSpec
+	ModelConfig   ModelConfig
+	Skills        []Skill
+	MCPConfigs    []MCPConfig
+	SandboxConfig *SandboxConfig
+	Target        RuntimeTarget
 }
 
 // RunRequest is shared across northbound and southbound run flows.

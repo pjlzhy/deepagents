@@ -1,20 +1,23 @@
 """File-system-backed resource registry for agent specs.
 
 Stores agent definitions as YAML files under a base directory
-(default ``~/.deepagents/agents/{name}/agent.yaml``).  The registry
-also manages the directory layout for each agent's resources.
+(default ``~/.deepagents/agents/{name}/agent.yaml``). The registry keeps
+storage metadata separate from the runtime-visible filesystem that agents use
+during execution.
 
-Directory layout::
+Storage layout::
 
     base_dir/
     └── agents/
         └── {agent_name}/
-            ├── agent.yaml        ← full AgentSpec
-            ├── skills/           ← SKILL.md files written from spec
-            │   └── {skill}/
-            │       └── SKILL.md
-            ├── memory/           ← auto-created for MemoryMiddleware
-            └── workspace/        ← agent working directory
+            ├── agent.yaml        ← full AgentSpec (registry/private)
+            └── runtime/          ← filesystem exposed to the agent runtime
+                ├── skills/
+                │   └── {skill}/
+                │       └── SKILL.md
+                ├── memory/
+                │   └── AGENTS.md
+                └── workspace/
 """
 
 from __future__ import annotations
@@ -29,6 +32,7 @@ import yaml
 from deepagents_runtime.spec import (
     AgentMeta,
     AgentSpec,
+    sandbox_spec_to_dict,
     validate_agent_spec,
 )
 
@@ -50,6 +54,10 @@ def _agent_dir(base_dir: Path, name: str) -> Path:
 
 def _agent_yaml(base_dir: Path, name: str) -> Path:
     return _agent_dir(base_dir, name) / "agent.yaml"
+
+
+def _agent_runtime_dir(base_dir: Path, name: str) -> Path:
+    return _agent_dir(base_dir, name) / "runtime"
 
 
 def _resolve_skill_file_path(skill_dir: Path, relative_path: str) -> Path:
@@ -138,7 +146,7 @@ def _spec_to_yaml_dict(spec: AgentSpec) -> dict[str, Any]:
         "tools": {},
         "subagents": subagents,
         "mcp_servers": mcp_servers,
-        "sandbox": dict(spec.sandbox) if spec.sandbox else {},
+        "sandbox": sandbox_spec_to_dict(spec.sandbox),
         "interrupt_on": spec.interrupt_on,
     }
     if spec.model_config:
@@ -158,10 +166,10 @@ def _spec_to_yaml_dict(spec: AgentSpec) -> dict[str, Any]:
 class Registry:
     """File-system registry for agent specs.
 
-    Manages the directory layout for each agent, including skills,
-    memory, and workspace directories. When an agent spec is added,
-    the registry writes skill directory snapshots to disk and creates
-    the standard subdirectory structure.
+    Manages the runtime-visible directory layout for each agent, including
+    skills, memory, and workspace directories under `runtime/`. When an
+    agent spec is added, the registry writes skill directory snapshots to
+    disk and creates the standard runtime subdirectory structure.
     """
 
     def __init__(self, base_dir: Path | None = None) -> None:
@@ -175,39 +183,51 @@ class Registry:
     # ── Path helpers ──
 
     def agent_dir(self, name: str) -> Path:
-        """Return the agent's root directory."""
+        """Return the agent's storage root directory."""
         return _agent_dir(self._base_dir, name)
 
+    def runtime_dir(self, name: str) -> Path:
+        """Return the agent's runtime-visible root directory."""
+        return _agent_runtime_dir(self._base_dir, name)
+
     def skills_dir(self, name: str) -> Path:
-        """Return the agent's skills directory."""
-        return _agent_dir(self._base_dir, name) / "skills"
+        """Return the agent's runtime-visible skills directory."""
+        return self.runtime_dir(name) / "skills"
 
     def memory_dir(self, name: str) -> Path:
-        """Return the agent's memory directory."""
-        return _agent_dir(self._base_dir, name) / "memory" / "AGENTS.md"
+        """Return the agent's runtime-visible memory file path."""
+        return self.runtime_dir(name) / "memory" / "AGENTS.md"
+
+    def history_dir(self, name: str) -> Path:
+        """Return the agent's runtime-visible conversation history directory."""
+        return self.runtime_dir(name) / "conversation_history"
 
     def workspace_dir(self, name: str) -> Path:
-        """Return the agent's workspace directory."""
-        return _agent_dir(self._base_dir, name) / "workspace"
+        """Return the agent's runtime-visible workspace directory."""
+        return self.runtime_dir(name) / "workspace"
 
     # ── Agent Specs ──
 
     async def add_agent_spec(self, spec: AgentSpec) -> None:
         """Write an agent spec to disk and populate resource directories.
 
-        Creates the standard subdirectory structure and writes each
-        skill directory snapshot under ``skills/{name}/``.
+        Creates the standard runtime subdirectory structure under
+        `runtime/` and writes each skill directory snapshot under
+        ``runtime/skills/{name}/``.
         """
         validate_agent_spec(spec)
         agent_dir = _agent_dir(self._base_dir, spec.name)
         agent_dir.mkdir(parents=True, exist_ok=True)
 
         # Create standard subdirectories
-        skills_base = agent_dir / "skills"
+        runtime_dir = self.runtime_dir(spec.name)
+        runtime_dir.mkdir(parents=True, exist_ok=True)
+        skills_base = runtime_dir / "skills"
         shutil.rmtree(skills_base, ignore_errors=True)
         skills_base.mkdir(exist_ok=True)
-        (agent_dir / "memory").mkdir(exist_ok=True)
-        (agent_dir / "workspace").mkdir(exist_ok=True)
+        (runtime_dir / "memory").mkdir(exist_ok=True)
+        (runtime_dir / "conversation_history").mkdir(exist_ok=True)
+        (runtime_dir / "workspace").mkdir(exist_ok=True)
 
         # Write skill directory snapshots
         for skill in spec.skills:
@@ -239,7 +259,7 @@ class Registry:
                 )
 
         # 确保AGENTS.md 存在
-        agent_md = agent_dir / "memory" / "AGENTS.md"
+        agent_md = runtime_dir / "memory" / "AGENTS.md"
         if not agent_md.exists():
             # Create empty file for user customizations
             # Base instructions are loaded fresh from get_system_prompt()

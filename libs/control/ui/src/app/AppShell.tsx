@@ -14,6 +14,9 @@ function resolveSelectedKey(pathname: string): string {
   if (pathname.startsWith('/registry/mcps')) {
     return links.mcps();
   }
+  if (pathname.startsWith('/registry/sandboxes')) {
+    return links.sandboxes();
+  }
   if (pathname.startsWith('/registry/agents')) {
     return links.agents();
   }
@@ -76,6 +79,7 @@ export default function AppShell() {
             <Menu.Item key={links.models()}>Models</Menu.Item>
             <Menu.Item key={links.skills()}>Skills</Menu.Item>
             <Menu.Item key={links.mcps()}>MCPs</Menu.Item>
+            <Menu.Item key={links.sandboxes()}>Sandboxes</Menu.Item>
             <Menu.Item key={links.agents()}>Agents</Menu.Item>
           </Menu.SubMenu>
           <Menu.Item key={links.chatRoot()}>

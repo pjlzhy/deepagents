@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from deepagents_runtime.spec import SandboxSpec
+from deepagents_runtime.spec import KubernetesSandboxSpec, SandboxSpec, parse_sandbox_spec
 
 
 class K8sSandboxBackend:
@@ -28,14 +28,20 @@ class K8sSandboxBackend:
         self._pod_name: str | None = None
 
     @classmethod
-    async def from_spec(
-        cls, spec: SandboxSpec, namespace: str = "deepagents"
-    ) -> K8sSandboxBackend:
+    async def from_spec(cls, spec: SandboxSpec | dict[str, Any]) -> K8sSandboxBackend:
         """Create a K8s sandbox from a SandboxSpec.
 
         Raises:
             NotImplementedError: K8s sandbox is not yet implemented.
         """
+        normalized_spec = parse_sandbox_spec(spec)
+        if normalized_spec is None:
+            msg = "kubernetes sandbox backend requires a sandbox spec"
+            raise ValueError(msg)
+        backend = normalized_spec.backend
+        if not isinstance(backend, KubernetesSandboxSpec):
+            msg = "kubernetes sandbox backend requires a KubernetesSandboxSpec"
+            raise ValueError(msg)
         raise NotImplementedError(
             "K8s sandbox is not yet implemented. "
             "Use the default local filesystem backend."

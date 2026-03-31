@@ -2,7 +2,6 @@ import {
   formatJsonValue,
   formatMultilineList,
   parseMultilineList,
-  parseOptionalStringMap,
   parseOptionalSubagents,
 } from '@/features/registry/formCodecs';
 import type { AgentSpecDTO, AgentSpecUpsertRequestDTO } from '@/shared/types/api';
@@ -17,10 +16,8 @@ export type AgentFormValues = {
   promptSystem: string;
   skillRefs: string[];
   mcpRefs: string[];
+  sandboxRef: string;
   interruptOnText: string;
-  sandboxImage: string;
-  sandboxResourcesJson: string;
-  sandboxInitText: string;
   subagentsJson: string;
 };
 
@@ -35,15 +32,15 @@ export function toAgentFormValues(agent?: AgentSpecDTO): AgentFormValues {
     promptSystem: agent?.prompt?.system ?? '',
     skillRefs: agent?.skill_refs ?? [],
     mcpRefs: agent?.mcp_refs ?? [],
+    sandboxRef: agent?.sandbox_ref ?? '',
     interruptOnText: formatMultilineList(agent?.interrupt_on),
-    sandboxImage: agent?.sandbox?.image ?? '',
-    sandboxResourcesJson: formatJsonValue(agent?.sandbox?.resources),
-    sandboxInitText: formatMultilineList(agent?.sandbox?.init),
     subagentsJson: formatJsonValue(agent?.subagents),
   };
 }
 
-export function toAgentUpsertRequest(values: AgentFormValues): AgentSpecUpsertRequestDTO {
+export function toAgentUpsertRequest(
+  values: AgentFormValues,
+): AgentSpecUpsertRequestDTO {
   return {
     version: values.version.trim() || undefined,
     description: values.description.trim() || undefined,
@@ -54,12 +51,8 @@ export function toAgentUpsertRequest(values: AgentFormValues): AgentSpecUpsertRe
     },
     skill_refs: values.skillRefs,
     mcp_refs: values.mcpRefs,
+    sandbox_ref: values.sandboxRef.trim() || undefined,
     subagents: parseOptionalSubagents(values.subagentsJson),
-    sandbox: {
-      image: values.sandboxImage.trim() || undefined,
-      resources: parseOptionalStringMap(values.sandboxResourcesJson, 'sandbox.resources'),
-      init: parseMultilineList(values.sandboxInitText),
-    },
     interrupt_on: parseMultilineList(values.interruptOnText),
     status: values.status || undefined,
   };

@@ -57,10 +57,20 @@ func (r *RegistryResolver) ResolveAgent(
 		mcpConfigs = append(mcpConfigs, config)
 	}
 
+	var sandboxConfig *domain.SandboxConfig
+	if agent.SandboxRef != "" {
+		resolvedSandbox, err := r.registry.GetSandboxConfig(ctx, agent.SandboxRef)
+		if err != nil {
+			return domain.ResolvedAgentInput{}, err
+		}
+		sandboxConfig = &resolvedSandbox
+	}
+
 	return domain.ResolvedAgentInput{
-		Agent:       agent,
-		ModelConfig: modelConfig,
-		Skills:      skills,
-		MCPConfigs:  mcpConfigs,
+		Agent:         agent,
+		ModelConfig:   modelConfig,
+		Skills:        skills,
+		MCPConfigs:    mcpConfigs,
+		SandboxConfig: sandboxConfig,
 	}, nil
 }

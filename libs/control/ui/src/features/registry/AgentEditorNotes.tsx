@@ -13,8 +13,8 @@ export default function AgentEditorNotes(props: { agent?: AgentSpecDTO }) {
             Registry-backed references
           </Typography.Paragraph>
           <Typography.Paragraph className='!mb-0'>
-            `model_ref`, `skill_refs`, and `mcp_refs` load registry options on demand in paged batches instead of
-            pulling the full registry into the form upfront.
+            `model_ref`, `skill_refs`, `mcp_refs`, and `sandbox_ref` load registry options on demand in paged batches
+            instead of pulling the full registry into the form upfront.
           </Typography.Paragraph>
         </div>
         <div>
@@ -22,7 +22,8 @@ export default function AgentEditorNotes(props: { agent?: AgentSpecDTO }) {
             Structured fields
           </Typography.Paragraph>
           <Typography.Paragraph className='!mb-0'>
-            `subagents` and `sandbox.resources` are edited as JSON for now to keep the northbound contract complete.
+            `subagents` are still edited as JSON, while reusable sandbox configs move to the dedicated `Sandboxes`
+            registry page and are attached through `sandbox_ref`.
           </Typography.Paragraph>
         </div>
         {props.agent ? (

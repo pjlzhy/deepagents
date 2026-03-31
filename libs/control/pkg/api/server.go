@@ -34,6 +34,11 @@ type AgentService interface {
 	ListMCPConfigs(ctx context.Context) ([]domain.MCPConfig, error)
 	ListMCPConfigsPage(ctx context.Context, query domain.PageQuery) (domain.ResourcePage[domain.MCPConfig], error)
 	DeleteMCPConfig(ctx context.Context, name string) error
+	UpsertSandboxConfig(ctx context.Context, config domain.SandboxConfig) (domain.SandboxConfig, error)
+	GetSandboxConfig(ctx context.Context, name string) (domain.SandboxConfig, error)
+	ListSandboxConfigs(ctx context.Context) ([]domain.SandboxConfig, error)
+	ListSandboxConfigsPage(ctx context.Context, query domain.PageQuery) (domain.ResourcePage[domain.SandboxConfig], error)
+	DeleteSandboxConfig(ctx context.Context, name string) error
 	UpsertAgentSpec(ctx context.Context, spec domain.AuthoredAgentSpec) (domain.AuthoredAgentSpec, error)
 	GetAgentSpec(ctx context.Context, name string) (domain.AuthoredAgentSpec, error)
 	ListAgentSpecs(ctx context.Context) ([]domain.AuthoredAgentSpec, error)
@@ -198,6 +203,37 @@ func (s *Server) ListMCPConfigsPage(
 // DeleteMCPConfig forwards one MCP config delete request.
 func (s *Server) DeleteMCPConfig(ctx context.Context, name string) error {
 	return s.service.DeleteMCPConfig(ctx, name)
+}
+
+// UpsertSandboxConfig forwards one sandbox config upsert request.
+func (s *Server) UpsertSandboxConfig(
+	ctx context.Context,
+	config domain.SandboxConfig,
+) (domain.SandboxConfig, error) {
+	return s.service.UpsertSandboxConfig(ctx, config)
+}
+
+// GetSandboxConfig forwards one sandbox config lookup.
+func (s *Server) GetSandboxConfig(ctx context.Context, name string) (domain.SandboxConfig, error) {
+	return s.service.GetSandboxConfig(ctx, name)
+}
+
+// ListSandboxConfigs forwards the sandbox config list query.
+func (s *Server) ListSandboxConfigs(ctx context.Context) ([]domain.SandboxConfig, error) {
+	return s.service.ListSandboxConfigs(ctx)
+}
+
+// ListSandboxConfigsPage forwards the sandbox config page query.
+func (s *Server) ListSandboxConfigsPage(
+	ctx context.Context,
+	query domain.PageQuery,
+) (domain.ResourcePage[domain.SandboxConfig], error) {
+	return s.service.ListSandboxConfigsPage(ctx, query)
+}
+
+// DeleteSandboxConfig forwards one sandbox config delete request.
+func (s *Server) DeleteSandboxConfig(ctx context.Context, name string) error {
+	return s.service.DeleteSandboxConfig(ctx, name)
 }
 
 // UpsertAgentSpec forwards one agent spec upsert request.

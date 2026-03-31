@@ -86,6 +86,19 @@ type fakeAgentService struct {
 	deleteMCPErr  error
 	deleteMCPName string
 
+	upsertSandboxResp  domain.SandboxConfig
+	upsertSandboxErr   error
+	upsertSandboxReq   domain.SandboxConfig
+	getSandboxResp     domain.SandboxConfig
+	getSandboxErr      error
+	getSandboxName     string
+	listSandboxesResp  []domain.SandboxConfig
+	listSandboxesPage  domain.ResourcePage[domain.SandboxConfig]
+	listSandboxesQuery domain.PageQuery
+	listSandboxesErr   error
+	deleteSandboxErr   error
+	deleteSandboxName  string
+
 	upsertAgentResp domain.AuthoredAgentSpec
 	upsertAgentErr  error
 	upsertAgentReq  domain.AuthoredAgentSpec
@@ -245,6 +258,36 @@ func (f *fakeAgentService) ListMCPConfigsPage(
 func (f *fakeAgentService) DeleteMCPConfig(_ context.Context, name string) error {
 	f.deleteMCPName = name
 	return f.deleteMCPErr
+}
+
+func (f *fakeAgentService) UpsertSandboxConfig(
+	_ context.Context,
+	config domain.SandboxConfig,
+) (domain.SandboxConfig, error) {
+	f.upsertSandboxReq = config
+	return f.upsertSandboxResp, f.upsertSandboxErr
+}
+
+func (f *fakeAgentService) GetSandboxConfig(_ context.Context, name string) (domain.SandboxConfig, error) {
+	f.getSandboxName = name
+	return f.getSandboxResp, f.getSandboxErr
+}
+
+func (f *fakeAgentService) ListSandboxConfigs(context.Context) ([]domain.SandboxConfig, error) {
+	return f.listSandboxesResp, f.listSandboxesErr
+}
+
+func (f *fakeAgentService) ListSandboxConfigsPage(
+	_ context.Context,
+	query domain.PageQuery,
+) (domain.ResourcePage[domain.SandboxConfig], error) {
+	f.listSandboxesQuery = query
+	return f.listSandboxesPage, f.listSandboxesErr
+}
+
+func (f *fakeAgentService) DeleteSandboxConfig(_ context.Context, name string) error {
+	f.deleteSandboxName = name
+	return f.deleteSandboxErr
 }
 
 func (f *fakeAgentService) UpsertAgentSpec(

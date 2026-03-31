@@ -51,18 +51,29 @@ class FakeRegistry:
     async def delete_agent_spec(self, name: str) -> bool:
         return self._specs.pop(name, None) is not None
 
+    def runtime_dir(self, name: str) -> Path:
+        path = self._base_dir / name / "runtime"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
     def workspace_dir(self, name: str) -> Path:
-        path = self._base_dir / name / "workspace"
+        path = self.runtime_dir(name) / "workspace"
         path.mkdir(parents=True, exist_ok=True)
         return path
 
     def memory_dir(self, name: str) -> Path:
-        path = self._base_dir / name / "memory"
+        path = self.runtime_dir(name) / "memory" / "AGENTS.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch(exist_ok=True)
+        return path
+
+    def history_dir(self, name: str) -> Path:
+        path = self.runtime_dir(name) / "conversation_history"
         path.mkdir(parents=True, exist_ok=True)
         return path
 
     def skills_dir(self, name: str) -> Path:
-        path = self._base_dir / name / "skills"
+        path = self.runtime_dir(name) / "skills"
         path.mkdir(parents=True, exist_ok=True)
         return path
 

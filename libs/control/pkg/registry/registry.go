@@ -25,6 +25,12 @@ type Registry interface {
 	ListMCPConfigsPage(ctx context.Context, query domain.PageQuery) (domain.ResourcePage[domain.MCPConfig], error)
 	DeleteMCPConfig(ctx context.Context, name string) error
 
+	UpsertSandboxConfig(ctx context.Context, config domain.SandboxConfig) error
+	GetSandboxConfig(ctx context.Context, name string) (domain.SandboxConfig, error)
+	ListSandboxConfigs(ctx context.Context) ([]domain.SandboxConfig, error)
+	ListSandboxConfigsPage(ctx context.Context, query domain.PageQuery) (domain.ResourcePage[domain.SandboxConfig], error)
+	DeleteSandboxConfig(ctx context.Context, name string) error
+
 	UpsertAgentSpec(ctx context.Context, spec domain.AuthoredAgentSpec) error
 	GetAgentSpec(ctx context.Context, name string) (domain.AuthoredAgentSpec, error)
 	ListAgentSpecs(ctx context.Context) ([]domain.AuthoredAgentSpec, error)

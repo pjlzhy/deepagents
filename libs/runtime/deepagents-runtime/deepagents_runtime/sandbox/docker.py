@@ -16,7 +16,12 @@ from typing import Any
 
 from deepagents.backends.protocol import ExecuteResponse, FileDownloadResponse, FileUploadResponse
 from deepagents.backends.sandbox import BaseSandbox
-from deepagents_runtime.spec import SandboxSpec
+from deepagents_runtime.spec import (
+    DockerSandboxSpec,
+    ImagePullPolicy,
+    SandboxSpec,
+    parse_sandbox_spec,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,9 +42,23 @@ class DockerSandboxBackend(BaseSandbox):
         self,
         image: str = "python:3.12-slim",
         *,
+        image_pull_policy: ImagePullPolicy = ImagePullPolicy.UNSPECIFIED,
+        host_mount_dir: str | None = None,
+        container_root: str = "/agent",
+        cpu: str = "",
+        memory: str = "",
+        shm_size: str = "",
+        pids_limit: int = 0,
         max_output_bytes: int = 100_000,
     ) -> None:
         self._image = image
+        self._image_pull_policy = image_pull_policy
+        self._host_mount_dir = host_mount_dir
+        self._container_root = container_root
+        self._cpu = cpu
+        self._memory = memory
+        self._shm_size = shm_size
+        self._pids_limit = pids_limit
         self._container: Any = None
         self._client: Any = None
         self._max_output_bytes = max_output_bytes
@@ -51,25 +70,58 @@ class DockerSandboxBackend(BaseSandbox):
         return self._sandbox_id
 
     @classmethod
-    async def from_spec(cls, spec: SandboxSpec) -> DockerSandboxBackend:
+    async def from_spec(
+        cls,
+        spec: SandboxSpec | dict[str, Any],
+        *,
+        host_mount_dir: str | None = None,
+        container_root: str = "/agent",
+    ) -> DockerSandboxBackend:
         """Create a Docker sandbox from a SandboxSpec.
 
         Args:
-            spec: Sandbox specification with image, resources, init commands.
+            spec: Normalized sandbox specification with a Docker backend.
 
         Returns:
             An initialized (but not yet started) DockerSandboxBackend.
         """
-        image = spec.get("image", "python:3.12-slim")
-        resources = spec.get("resources") or {}
-        max_output_bytes = 100_000
-        if isinstance(resources, dict) and resources.get("max_output_bytes") is not None:
-            max_output_bytes = int(resources["max_output_bytes"])
-        backend = cls(image=image, max_output_bytes=max_output_bytes)
-        return backend
+        normalized_spec = parse_sandbox_spec(spec)
+        if normalized_spec is None:
+            msg = "docker sandbox backend requires a sandbox spec"
+            raise ValueError(msg)
 
-    async def start(self) -> None:
+        backend_spec = normalized_spec.backend
+        if not isinstance(backend_spec, DockerSandboxSpec):
+            msg = "docker sandbox backend requires a DockerSandboxSpec"
+            raise ValueError(msg)
+
+        max_output_bytes = normalized_spec.execution.max_output_bytes or 100_000
+        return cls(
+            image=backend_spec.image.reference,
+            image_pull_policy=backend_spec.image.pull_policy,
+            host_mount_dir=host_mount_dir,
+            container_root=container_root,
+            cpu=backend_spec.resources.cpu,
+            memory=backend_spec.resources.memory,
+            shm_size=backend_spec.resources.shm_size,
+            pids_limit=backend_spec.resources.pids_limit,
+            max_output_bytes=max_output_bytes,
+        )
+
+    async def start(self, *, timeout_seconds: int = 0) -> None:
         """Create and start the Docker container."""
+        if self._container is not None:
+            return
+        if timeout_seconds > 0:
+            await asyncio.wait_for(
+                self._start_impl(),
+                timeout=float(timeout_seconds),
+            )
+            return
+        await self._start_impl()
+
+    async def _start_impl(self) -> None:
+        """Create and start the Docker container without timeout wrapping."""
         if self._container is not None:
             return
 
@@ -83,17 +135,38 @@ class DockerSandboxBackend(BaseSandbox):
 
         loop = asyncio.get_running_loop()
         self._client = await loop.run_in_executor(None, docker.from_env)
+        await self._pull_image_if_needed(loop)
 
         # Keep the container alive so exec calls can reuse the same sandbox.
+        run_kwargs: dict[str, Any] = {
+            "command": ["sh", "-c", "while true; do sleep 3600; done"],
+            "detach": True,
+            "stdin_open": True,
+            "tty": False,
+            "remove": False,
+            "working_dir": self._container_root,
+        }
+        if self._host_mount_dir:
+            run_kwargs["volumes"] = {
+                self._host_mount_dir: {
+                    "bind": self._container_root,
+                    "mode": "rw",
+                }
+            }
+        if self._memory:
+            run_kwargs["mem_limit"] = self._memory
+        if self._shm_size:
+            run_kwargs["shm_size"] = self._shm_size
+        if self._pids_limit > 0:
+            run_kwargs["pids_limit"] = self._pids_limit
+        if self._cpu:
+            run_kwargs["nano_cpus"] = _docker_nano_cpus(self._cpu)
+
         self._container = await loop.run_in_executor(
             None,
             lambda: self._client.containers.run(
                 self._image,
-                command=["sh", "-c", "while true; do sleep 3600; done"],
-                detach=True,
-                stdin_open=True,
-                tty=False,
-                remove=False,
+                **run_kwargs,
             ),
         )
         logger.info(
@@ -101,6 +174,27 @@ class DockerSandboxBackend(BaseSandbox):
             self._container.short_id,
             self._image,
         )
+
+    async def _pull_image_if_needed(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Apply the configured image pull policy before starting the container."""
+        if self._client is None:
+            return
+
+        if self._image_pull_policy is ImagePullPolicy.ALWAYS:
+            await loop.run_in_executor(
+                None,
+                lambda: self._client.images.pull(self._image),
+            )
+            return
+        if self._image_pull_policy is ImagePullPolicy.NEVER:
+            try:
+                await loop.run_in_executor(
+                    None,
+                    lambda: self._client.images.get(self._image),
+                )
+            except Exception as exc:
+                msg = f"docker image {self._image!r} is not available locally"
+                raise RuntimeError(msg) from exc
 
     def execute(
         self,
@@ -243,6 +337,19 @@ def _normalize_container_path(path: str) -> str:
     if any(part == ".." for part in parts):
         raise ValueError(path)
     return normalized
+
+
+def _docker_nano_cpus(value: str) -> int:
+    """Convert a Docker CPU string into `nano_cpus`."""
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        msg = f"docker cpu value must be numeric, got {value!r}"
+        raise ValueError(msg) from exc
+    if parsed <= 0:
+        msg = f"docker cpu value must be positive, got {value!r}"
+        raise ValueError(msg)
+    return int(parsed * 1_000_000_000)
 
 
 def _docker_upload_command(*, path_b64: str, content_b64: str) -> str:

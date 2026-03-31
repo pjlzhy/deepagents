@@ -381,7 +381,17 @@ def _patch_runtime_dependencies(
         )
         stack.enter_context(
             patch(
-                "deepagents_runtime.agent.create_summarization_middleware",
+                "deepagents_runtime.agent.compute_summarization_defaults",
+                return_value={
+                    "trigger": ("messages", 10),
+                    "keep": ("messages", 2),
+                    "truncate_args_settings": {"trigger": ("messages", 10)},
+                },
+            )
+        )
+        stack.enter_context(
+            patch(
+                "deepagents_runtime.agent.SummarizationMiddleware",
                 return_value=object(),
             )
         )

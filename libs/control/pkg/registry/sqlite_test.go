@@ -80,9 +80,22 @@ func TestSQLiteRegistryRoundTripsCoreResources(t *testing.T) {
 			Description:  "secondary",
 			SystemPrompt: "Assist the primary agent.",
 		}},
-		Sandbox:     domain.SandboxSpec{Image: "python:3.12", Resources: map[string]string{"backend": "docker"}},
+		SandboxRef:  "python-slim",
 		InterruptOn: []string{"execute"},
 		Status:      domain.AuthoredStatusPublished,
+	}
+	sandboxConfig := domain.SandboxConfig{
+		Name:        "python-slim",
+		Description: "python sandbox",
+		Spec: domain.SandboxSpec{
+			Docker: &domain.DockerSandboxSpec{
+				Image: domain.ImageReference{Reference: "python:3.12"},
+			},
+		},
+		Status: domain.AuthoredStatusPublished,
+	}
+	if err := reg.UpsertSandboxConfig(ctx, sandboxConfig); err != nil {
+		t.Fatalf("upsert sandbox config: %v", err)
 	}
 	if err := reg.UpsertAgentSpec(ctx, spec); err != nil {
 		t.Fatalf("upsert agent spec: %v", err)

@@ -108,6 +108,26 @@ func ensureMCPDeleteAllowed(ctx context.Context, tx *sql.Tx, name string) error 
 	return rows.Err()
 }
 
+func ensureSandboxDeleteAllowed(ctx context.Context, tx *sql.Tx, name string) error {
+	rows, err := tx.QueryContext(ctx, `SELECT name, sandbox_ref FROM agent_specs`)
+	if err != nil {
+		return fmt.Errorf("query sandbox references: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var agentName string
+		var sandboxRef string
+		if err := rows.Scan(&agentName, &sandboxRef); err != nil {
+			return fmt.Errorf("scan sandbox references: %w", err)
+		}
+		if sandboxRef == name {
+			return fmt.Errorf("%w: sandbox config %q is referenced by agent %q", ErrConflict, name, agentName)
+		}
+	}
+	return rows.Err()
+}
+
 func ensureModelConfigDeleteAllowed(ctx context.Context, tx *sql.Tx, name string) error {
 	rows, err := tx.QueryContext(ctx, `SELECT name, model_ref FROM agent_specs`)
 	if err != nil {

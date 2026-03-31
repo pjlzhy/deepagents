@@ -430,6 +430,75 @@ func (s *Service) DeleteMCPConfig(ctx context.Context, name string) error {
 	return nil
 }
 
+// UpsertSandboxConfig persists one sandbox config and returns the stored value.
+func (s *Service) UpsertSandboxConfig(
+	ctx context.Context,
+	config domain.SandboxConfig,
+) (domain.SandboxConfig, error) {
+	reg, err := s.registryOrError()
+	if err != nil {
+		return domain.SandboxConfig{}, err
+	}
+	if err := reg.UpsertSandboxConfig(ctx, config); err != nil {
+		return domain.SandboxConfig{}, fmt.Errorf("upsert sandbox config %q: %w", config.Name, err)
+	}
+	stored, err := reg.GetSandboxConfig(ctx, config.Name)
+	if err != nil {
+		return domain.SandboxConfig{}, fmt.Errorf("get sandbox config %q after upsert: %w", config.Name, err)
+	}
+	return stored, nil
+}
+
+// GetSandboxConfig returns one sandbox config by name.
+func (s *Service) GetSandboxConfig(ctx context.Context, name string) (domain.SandboxConfig, error) {
+	reg, err := s.registryOrError()
+	if err != nil {
+		return domain.SandboxConfig{}, err
+	}
+	config, err := reg.GetSandboxConfig(ctx, name)
+	if err != nil {
+		return domain.SandboxConfig{}, fmt.Errorf("get sandbox config %q: %w", name, err)
+	}
+	return config, nil
+}
+
+// ListSandboxConfigs returns all sandbox configs ordered by name.
+func (s *Service) ListSandboxConfigs(ctx context.Context) ([]domain.SandboxConfig, error) {
+	page, err := s.ListSandboxConfigsPage(ctx, domain.PageQuery{})
+	if err != nil {
+		return nil, err
+	}
+	return page.Items, nil
+}
+
+// ListSandboxConfigsPage returns one page of sandbox configs ordered by name.
+func (s *Service) ListSandboxConfigsPage(
+	ctx context.Context,
+	query domain.PageQuery,
+) (domain.ResourcePage[domain.SandboxConfig], error) {
+	reg, err := s.registryOrError()
+	if err != nil {
+		return domain.ResourcePage[domain.SandboxConfig]{}, err
+	}
+	page, err := reg.ListSandboxConfigsPage(ctx, query)
+	if err != nil {
+		return domain.ResourcePage[domain.SandboxConfig]{}, fmt.Errorf("list sandbox config page: %w", err)
+	}
+	return page, nil
+}
+
+// DeleteSandboxConfig removes one sandbox config.
+func (s *Service) DeleteSandboxConfig(ctx context.Context, name string) error {
+	reg, err := s.registryOrError()
+	if err != nil {
+		return err
+	}
+	if err := reg.DeleteSandboxConfig(ctx, name); err != nil {
+		return fmt.Errorf("delete sandbox config %q: %w", name, err)
+	}
+	return nil
+}
+
 // UpsertAgentSpec persists one authored agent spec and returns the stored value.
 func (s *Service) UpsertAgentSpec(
 	ctx context.Context,

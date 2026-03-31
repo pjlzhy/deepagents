@@ -4,6 +4,7 @@ import type {
   HTTPReviewConfigDTO,
   SessionMessageDTO,
 } from '@/shared/types/api';
+import { v4 as uuidv4 } from 'uuid';
 
 export type RunStatusVM =
   | 'idle'
@@ -93,7 +94,7 @@ export type RuntimeState = {
 const draftItemId = 'assistant-draft';
 
 function createId(prefix: string): string {
-  return `${prefix}-${crypto.randomUUID()}`;
+  return `${prefix}-${uuidv4()}`;
 }
 
 function finalizeDraft(timeline: TimelineItemVM[], fallbackText?: string, createdAt?: string): TimelineItemVM[] {

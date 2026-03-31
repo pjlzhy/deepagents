@@ -304,6 +304,107 @@ def sync_mcp_request_to_mcp_config(msg: pb2.SyncMcpRequest) -> McpConfig:
     )
 
 
+def _image_pull_policy_from_proto(value: int) -> str:
+    """Convert a protobuf image pull policy enum into the runtime string value."""
+    mapping = {
+        pb2.IMAGE_PULL_POLICY_UNSPECIFIED: "",
+        pb2.IMAGE_PULL_POLICY_IF_NOT_PRESENT: "if_not_present",
+        pb2.IMAGE_PULL_POLICY_ALWAYS: "always",
+        pb2.IMAGE_PULL_POLICY_NEVER: "never",
+    }
+    return mapping.get(value, "")
+
+
+def _sandbox_from_proto(msg: pb2.SandboxSpec) -> dict[str, Any]:
+    """Convert a protobuf sandbox message into the runtime's raw sandbox mapping."""
+    sandbox: dict[str, Any] = {}
+    if msg.HasField("execution"):
+        execution: dict[str, Any] = {}
+        if msg.execution.command_timeout_seconds:
+            execution["command_timeout_seconds"] = (
+                msg.execution.command_timeout_seconds
+            )
+        if msg.execution.setup_timeout_seconds:
+            execution["setup_timeout_seconds"] = (
+                msg.execution.setup_timeout_seconds
+            )
+        if msg.execution.startup_timeout_seconds:
+            execution["startup_timeout_seconds"] = (
+                msg.execution.startup_timeout_seconds
+            )
+        if msg.execution.max_output_bytes:
+            execution["max_output_bytes"] = msg.execution.max_output_bytes
+        if execution:
+            sandbox["execution"] = execution
+
+    if msg.env:
+        sandbox["env"] = [
+            {"name": item.name, "value": item.value}
+            for item in msg.env
+        ]
+    if msg.setup_commands:
+        sandbox["setup_commands"] = list(msg.setup_commands)
+
+    backend_field = msg.WhichOneof("backend")
+    if backend_field == "local":
+        sandbox["local"] = {}
+    elif backend_field == "docker":
+        docker: dict[str, Any] = {}
+        if msg.docker.HasField("image"):
+            docker_image: dict[str, Any] = {
+                "reference": msg.docker.image.reference,
+            }
+            pull_policy = _image_pull_policy_from_proto(
+                msg.docker.image.pull_policy
+            )
+            if pull_policy:
+                docker_image["pull_policy"] = pull_policy
+            docker["image"] = docker_image
+        if msg.docker.HasField("resources"):
+            resources: dict[str, Any] = {}
+            if msg.docker.resources.cpu:
+                resources["cpu"] = msg.docker.resources.cpu
+            if msg.docker.resources.memory:
+                resources["memory"] = msg.docker.resources.memory
+            if msg.docker.resources.shm_size:
+                resources["shm_size"] = msg.docker.resources.shm_size
+            if msg.docker.resources.pids_limit:
+                resources["pids_limit"] = msg.docker.resources.pids_limit
+            if resources:
+                docker["resources"] = resources
+        sandbox["docker"] = docker
+    elif backend_field == "kubernetes":
+        kubernetes: dict[str, Any] = {}
+        if msg.kubernetes.HasField("image"):
+            kubernetes_image: dict[str, Any] = {
+                "reference": msg.kubernetes.image.reference,
+            }
+            pull_policy = _image_pull_policy_from_proto(
+                msg.kubernetes.image.pull_policy
+            )
+            if pull_policy:
+                kubernetes_image["pull_policy"] = pull_policy
+            kubernetes["image"] = kubernetes_image
+        if msg.kubernetes.HasField("resources"):
+            resources: dict[str, Any] = {}
+            if msg.kubernetes.resources.requests:
+                resources["requests"] = dict(msg.kubernetes.resources.requests)
+            if msg.kubernetes.resources.limits:
+                resources["limits"] = dict(msg.kubernetes.resources.limits)
+            if resources:
+                kubernetes["resources"] = resources
+        sandbox["kubernetes"] = kubernetes
+
+    if sandbox:
+        return sandbox
+
+    return {
+        "image": msg.image,
+        "resources": dict(msg.resources),
+        "init": list(msg.init),
+    }
+
+
 def sync_agent_spec_request_to_agent_spec(msg: pb2.SyncAgentSpecRequest) -> AgentSpec:
     """Convert a SyncAgentSpecRequest protobuf to an AgentSpec."""
     prompt: dict[str, Any] = {}
@@ -314,11 +415,7 @@ def sync_agent_spec_request_to_agent_spec(msg: pb2.SyncAgentSpecRequest) -> Agen
 
     sandbox: dict[str, Any] = {}
     if msg.HasField("sandbox"):
-        sandbox = {
-            "image": msg.sandbox.image,
-            "resources": dict(msg.sandbox.resources),
-            "init": list(msg.sandbox.init),
-        }
+        sandbox = _sandbox_from_proto(msg.sandbox)
 
     # Parse structured subagents
     subagents: list[SubagentMetadata] = []

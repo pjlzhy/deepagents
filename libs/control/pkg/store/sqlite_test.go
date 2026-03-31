@@ -30,6 +30,7 @@ func TestOpenSQLiteInitializesSchema(t *testing.T) {
 	assertTableSQLContains(t, ctx, db.DB(), "model_configs", `id INTEGER PRIMARY KEY AUTOINCREMENT`)
 	assertTableSQLContains(t, ctx, db.DB(), "skills", `id INTEGER PRIMARY KEY AUTOINCREMENT`)
 	assertTableSQLContains(t, ctx, db.DB(), "mcp_configs", `id INTEGER PRIMARY KEY AUTOINCREMENT`)
+	assertTableSQLContains(t, ctx, db.DB(), "sandbox_configs", `id INTEGER PRIMARY KEY AUTOINCREMENT`)
 	assertTableSQLContains(t, ctx, db.DB(), "agent_specs", `id INTEGER PRIMARY KEY AUTOINCREMENT`)
 	assertTableSQLContains(t, ctx, db.DB(), "runtime_targets", `id INTEGER PRIMARY KEY AUTOINCREMENT`)
 	assertTableSQLContains(t, ctx, db.DB(), "deployments", `id INTEGER PRIMARY KEY AUTOINCREMENT`)
@@ -39,8 +40,10 @@ func TestOpenSQLiteInitializesSchema(t *testing.T) {
 	assertIndexExists(t, ctx, db.DB(), "idx_model_configs_name")
 	assertIndexExists(t, ctx, db.DB(), "idx_skills_name")
 	assertIndexExists(t, ctx, db.DB(), "idx_mcp_configs_name")
+	assertIndexExists(t, ctx, db.DB(), "idx_sandbox_configs_name")
 	assertIndexExists(t, ctx, db.DB(), "idx_agent_specs_name")
 	assertIndexExists(t, ctx, db.DB(), "idx_agent_specs_model_ref")
+	assertIndexExists(t, ctx, db.DB(), "idx_agent_specs_sandbox_ref")
 	assertIndexExists(t, ctx, db.DB(), "idx_runtime_targets_name")
 	assertIndexExists(t, ctx, db.DB(), "idx_deployments_agent_name")
 	assertIndexExists(t, ctx, db.DB(), "idx_deployments_target_name")
@@ -69,7 +72,6 @@ CREATE TABLE agent_specs (
 	skill_refs_json TEXT NOT NULL,
 	mcp_refs_json TEXT NOT NULL,
 	subagents_json TEXT NOT NULL,
-	sandbox_json TEXT NOT NULL,
 	interrupt_on_json TEXT NOT NULL,
 	status TEXT NOT NULL,
 	created_at TEXT NOT NULL,
@@ -98,6 +100,7 @@ CREATE TABLE agent_specs (
 
 	found := false
 	foundID := false
+	foundSandboxRef := false
 	for rows.Next() {
 		var cid int
 		var name string
@@ -111,6 +114,9 @@ CREATE TABLE agent_specs (
 		if name == "model_ref" {
 			found = true
 		}
+		if name == "sandbox_ref" {
+			foundSandboxRef = true
+		}
 		if name == "id" {
 			foundID = true
 		}
@@ -123,6 +129,9 @@ CREATE TABLE agent_specs (
 	}
 	if !foundID {
 		t.Fatal("expected migrated agent_specs.id column")
+	}
+	if !foundSandboxRef {
+		t.Fatal("expected migrated agent_specs.sandbox_ref column")
 	}
 	assertIndexExists(t, ctx, db.DB(), "idx_agent_specs_name")
 }

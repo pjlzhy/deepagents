@@ -50,6 +50,16 @@ CREATE TABLE IF NOT EXISTS mcp_configs (
 	updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS sandbox_configs (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	name TEXT NOT NULL,
+	description TEXT NOT NULL,
+	spec_json TEXT NOT NULL,
+	status TEXT NOT NULL,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS agent_specs (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	name TEXT NOT NULL,
@@ -60,8 +70,8 @@ CREATE TABLE IF NOT EXISTS agent_specs (
 	prompt_json TEXT NOT NULL,
 	skill_refs_json TEXT NOT NULL,
 	mcp_refs_json TEXT NOT NULL,
+	sandbox_ref TEXT NOT NULL,
 	subagents_json TEXT NOT NULL,
-	sandbox_json TEXT NOT NULL,
 	interrupt_on_json TEXT NOT NULL,
 	status TEXT NOT NULL,
 	created_at TEXT NOT NULL,
@@ -105,8 +115,10 @@ const sqliteIndexesSchema = `
 CREATE UNIQUE INDEX IF NOT EXISTS idx_model_configs_name ON model_configs(name);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_skills_name ON skills(name);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_mcp_configs_name ON mcp_configs(name);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sandbox_configs_name ON sandbox_configs(name);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_specs_name ON agent_specs(name);
 CREATE INDEX IF NOT EXISTS idx_agent_specs_model_ref ON agent_specs(model_ref);
+CREATE INDEX IF NOT EXISTS idx_agent_specs_sandbox_ref ON agent_specs(sandbox_ref);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_runtime_targets_name ON runtime_targets(name);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_deployments_agent_name ON deployments(agent_name);
 CREATE INDEX IF NOT EXISTS idx_deployments_target_name ON deployments(target_name);
@@ -179,6 +191,9 @@ func (s *SQLite) init(ctx context.Context) error {
 		return fmt.Errorf("init sqlite schema: %w", err)
 	}
 	if err := ensureSQLiteColumn(ctx, s.db, "agent_specs", "model_ref", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return fmt.Errorf("migrate sqlite schema: %w", err)
+	}
+	if err := ensureSQLiteColumn(ctx, s.db, "agent_specs", "sandbox_ref", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return fmt.Errorf("migrate sqlite schema: %w", err)
 	}
 	if err := ensureSQLiteSurrogatePrimaryKeys(ctx, s.db); err != nil {
@@ -337,8 +352,8 @@ func ensureSQLiteSurrogatePrimaryKeys(ctx context.Context, db *sql.DB) error {
 				prompt_json TEXT NOT NULL,
 				skill_refs_json TEXT NOT NULL,
 				mcp_refs_json TEXT NOT NULL,
+				sandbox_ref TEXT NOT NULL,
 				subagents_json TEXT NOT NULL,
-				sandbox_json TEXT NOT NULL,
 				interrupt_on_json TEXT NOT NULL,
 				status TEXT NOT NULL,
 				created_at TEXT NOT NULL,
@@ -346,11 +361,11 @@ func ensureSQLiteSurrogatePrimaryKeys(ctx context.Context, db *sql.DB) error {
 			)`,
 			copySQL: `INSERT INTO %s (
 				name, version, description, tags_json, model_ref, prompt_json,
-				skill_refs_json, mcp_refs_json, subagents_json, sandbox_json,
+				skill_refs_json, mcp_refs_json, sandbox_ref, subagents_json,
 				interrupt_on_json, status, created_at, updated_at
 			) SELECT
 				name, version, description, tags_json, model_ref, prompt_json,
-				skill_refs_json, mcp_refs_json, subagents_json, sandbox_json,
+				skill_refs_json, mcp_refs_json, sandbox_ref, subagents_json,
 				interrupt_on_json, status, created_at, updated_at
 			FROM %s`,
 		},

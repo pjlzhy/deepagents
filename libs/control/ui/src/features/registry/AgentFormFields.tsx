@@ -71,22 +71,17 @@ export default function AgentFormFields(props: { disableName?: boolean }) {
           />
         </Form.Item>
       </div>
+      <Form.Item field='sandboxRef' label='Sandbox Ref'>
+        <RegistryReferenceSelect
+          resourceLabel='sandbox configs'
+          allowClear
+          placeholder='Select a sandbox config'
+          fetchPage={(params) => controlClient.sandboxes.list(params)}
+          extractItems={(page) => page.sandboxes}
+        />
+      </Form.Item>
       <Form.Item field='interruptOnText' label='Interrupt On'>
         <Input.TextArea autoSize={{ minRows: 3, maxRows: 8 }} placeholder={'approval_required\nhuman_review'} />
-      </Form.Item>
-      <div className='grid grid-cols-1 gap-16px md:grid-cols-2'>
-        <Form.Item field='sandboxImage' label='Sandbox Image'>
-          <Input placeholder='python:3.12-slim' />
-        </Form.Item>
-        <Form.Item field='sandboxInitText' label='Sandbox Init'>
-          <Input.TextArea autoSize={{ minRows: 3, maxRows: 8 }} placeholder={'pip install -r requirements.txt'} />
-        </Form.Item>
-      </div>
-      <Form.Item field='sandboxResourcesJson' label='Sandbox Resources JSON'>
-        <Input.TextArea
-          autoSize={{ minRows: 6, maxRows: 12 }}
-          placeholder={'{\n  "cpu": "1",\n  "memory": "2Gi"\n}'}
-        />
       </Form.Item>
       <Form.Item field='subagentsJson' label='Subagents JSON'>
         <Input.TextArea

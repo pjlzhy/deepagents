@@ -9,6 +9,7 @@ const (
 	ResourceKindModelConfig   ResourceKind = "model_config"
 	ResourceKindSkill         ResourceKind = "skill"
 	ResourceKindMCPConfig     ResourceKind = "mcp_config"
+	ResourceKindSandboxConfig ResourceKind = "sandbox_config"
 	ResourceKindAgentSpec     ResourceKind = "agent_spec"
 	ResourceKindDeployment    ResourceKind = "deployment"
 	ResourceKindRuntimeTarget ResourceKind = "runtime_target"
@@ -77,11 +78,14 @@ type SubagentSpec struct {
 	Model        ModelSpec
 }
 
-// SandboxSpec describes one authored sandbox configuration.
-type SandboxSpec struct {
-	Image     string
-	Resources map[string]string
-	Init      []string
+// SandboxConfig describes one reusable authored sandbox configuration.
+type SandboxConfig struct {
+	Name        string
+	Description string
+	Spec        SandboxSpec
+	Status      AuthoredStatus
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 // AuthoredAgentSpec is the authoritative control-plane agent definition.
@@ -94,8 +98,8 @@ type AuthoredAgentSpec struct {
 	Prompt      PromptSpec
 	SkillRefs   []string
 	MCPRefs     []string
+	SandboxRef  string
 	Subagents   []SubagentSpec
-	Sandbox     SandboxSpec
 	InterruptOn []string
 	Status      AuthoredStatus
 	CreatedAt   time.Time

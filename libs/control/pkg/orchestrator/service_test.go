@@ -47,10 +47,11 @@ func (f *fakePackager) Package(
 }
 
 type stubRegistry struct {
-	models map[string]domain.ModelConfig
-	skills map[string]domain.Skill
-	mcps   map[string]domain.MCPConfig
-	agents map[string]domain.AuthoredAgentSpec
+	models    map[string]domain.ModelConfig
+	skills    map[string]domain.Skill
+	mcps      map[string]domain.MCPConfig
+	sandboxes map[string]domain.SandboxConfig
+	agents    map[string]domain.AuthoredAgentSpec
 }
 
 func paginateNamedMap[T any](
@@ -211,6 +212,42 @@ func (s *stubRegistry) ListMCPConfigsPage(
 
 func (s *stubRegistry) DeleteMCPConfig(_ context.Context, name string) error {
 	delete(s.mcps, name)
+	return nil
+}
+
+func (s *stubRegistry) UpsertSandboxConfig(_ context.Context, config domain.SandboxConfig) error {
+	if s.sandboxes == nil {
+		s.sandboxes = make(map[string]domain.SandboxConfig)
+	}
+	s.sandboxes[config.Name] = config
+	return nil
+}
+
+func (s *stubRegistry) GetSandboxConfig(_ context.Context, name string) (domain.SandboxConfig, error) {
+	config, ok := s.sandboxes[name]
+	if !ok {
+		return domain.SandboxConfig{}, registrypkg.ErrNotFound
+	}
+	return config, nil
+}
+
+func (s *stubRegistry) ListSandboxConfigs(ctx context.Context) ([]domain.SandboxConfig, error) {
+	page, err := s.ListSandboxConfigsPage(ctx, domain.PageQuery{})
+	if err != nil {
+		return nil, err
+	}
+	return page.Items, nil
+}
+
+func (s *stubRegistry) ListSandboxConfigsPage(
+	_ context.Context,
+	query domain.PageQuery,
+) (domain.ResourcePage[domain.SandboxConfig], error) {
+	return paginateNamedMap(s.sandboxes, query)
+}
+
+func (s *stubRegistry) DeleteSandboxConfig(_ context.Context, name string) error {
+	delete(s.sandboxes, name)
 	return nil
 }
 

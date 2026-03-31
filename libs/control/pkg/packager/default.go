@@ -72,7 +72,10 @@ func (p *DefaultPackager) Package(
 		return domain.RuntimeAgentSpec{}, err
 	}
 
-	sandbox, err := packageSandbox(agent.Sandbox)
+	sandbox, err := packageSandbox(domain.SandboxSpec{})
+	if input.SandboxConfig != nil {
+		sandbox, err = packageSandbox(input.SandboxConfig.Spec)
+	}
 	if err != nil {
 		return domain.RuntimeAgentSpec{}, err
 	}
@@ -263,43 +266,11 @@ func packageSubagents(subagents []domain.SubagentSpec) ([]domain.SubagentSpec, e
 }
 
 func packageSandbox(spec domain.SandboxSpec) (domain.SandboxSpec, error) {
-	resources := maps.Clone(spec.Resources)
-	for key, value := range resources {
-		trimmedKey := strings.TrimSpace(key)
-		if trimmedKey == "" {
-			return domain.SandboxSpec{}, fmt.Errorf("sandbox resource key cannot be empty")
-		}
-		if strings.TrimSpace(value) == "" {
-			return domain.SandboxSpec{}, fmt.Errorf("sandbox resource %q cannot be empty", trimmedKey)
-		}
-		if trimmedKey != key {
-			delete(resources, key)
-			resources[trimmedKey] = value
-		}
-	}
-
-	if image := strings.TrimSpace(spec.Image); image == "" && spec.Image != "" {
-		return domain.SandboxSpec{}, fmt.Errorf("sandbox image cannot be empty")
-	}
-
-	initCommands := make([]string, 0, len(spec.Init))
-	for index, command := range spec.Init {
-		trimmed := strings.TrimSpace(command)
-		if trimmed == "" {
-			return domain.SandboxSpec{}, fmt.Errorf("sandbox init[%d] cannot be empty", index)
-		}
-		initCommands = append(initCommands, trimmed)
-	}
-
-	if err := validateSandboxBackend(spec.Image, resources); err != nil {
+	normalized, err := domain.NormalizeSandboxSpec(spec)
+	if err != nil {
 		return domain.SandboxSpec{}, err
 	}
-
-	return domain.SandboxSpec{
-		Image:     spec.Image,
-		Resources: resources,
-		Init:      initCommands,
-	}, nil
+	return domain.CloneSandboxSpec(normalized), nil
 }
 
 func packageInterrupts(interrupts []string) ([]string, error) {

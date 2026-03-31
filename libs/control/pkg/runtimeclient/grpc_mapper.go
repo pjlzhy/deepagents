@@ -117,13 +117,77 @@ func subagentsToProto(subagents []domain.SubagentSpec) ([]*runtimev1.SubagentSpe
 }
 
 func sandboxSpecToProto(spec domain.SandboxSpec) *runtimev1.SandboxSpec {
-	if strings.TrimSpace(spec.Image) == "" && len(spec.Resources) == 0 && len(spec.Init) == 0 {
+	if spec.Empty() {
 		return nil
 	}
-	return &runtimev1.SandboxSpec{
-		Image:     spec.Image,
-		Resources: cloneStringMap(spec.Resources),
-		Init:      cloneStrings(spec.Init),
+	sandbox := &runtimev1.SandboxSpec{
+		Execution: &runtimev1.SandboxExecutionPolicy{
+			CommandTimeoutSeconds: spec.Execution.CommandTimeoutSeconds,
+			SetupTimeoutSeconds:   spec.Execution.SetupTimeoutSeconds,
+			StartupTimeoutSeconds: spec.Execution.StartupTimeoutSeconds,
+			MaxOutputBytes:        spec.Execution.MaxOutputBytes,
+		},
+		Env:           sandboxEnvVarsToProto(spec.Env),
+		SetupCommands: cloneStrings(spec.SetupCommands),
+	}
+	switch {
+	case spec.Local != nil:
+		sandbox.Backend = &runtimev1.SandboxSpec_Local{
+			Local: &runtimev1.LocalSandboxSpec{},
+		}
+	case spec.Docker != nil:
+		sandbox.Backend = &runtimev1.SandboxSpec_Docker{
+			Docker: &runtimev1.DockerSandboxSpec{
+				Image: &runtimev1.ImageReference{
+					Reference:  spec.Docker.Image.Reference,
+					PullPolicy: imagePullPolicyToProto(spec.Docker.Image.PullPolicy),
+				},
+				Resources: &runtimev1.DockerResourceSpec{
+					Cpu:       spec.Docker.Resources.CPU,
+					Memory:    spec.Docker.Resources.Memory,
+					ShmSize:   spec.Docker.Resources.ShmSize,
+					PidsLimit: spec.Docker.Resources.PidsLimit,
+				},
+			},
+		}
+	case spec.Kubernetes != nil:
+		sandbox.Backend = &runtimev1.SandboxSpec_Kubernetes{
+			Kubernetes: &runtimev1.KubernetesSandboxSpec{
+				Image: &runtimev1.ImageReference{
+					Reference:  spec.Kubernetes.Image.Reference,
+					PullPolicy: imagePullPolicyToProto(spec.Kubernetes.Image.PullPolicy),
+				},
+				Resources: &runtimev1.KubernetesResourceRequirements{
+					Requests: cloneStringMap(spec.Kubernetes.Resources.Requests),
+					Limits:   cloneStringMap(spec.Kubernetes.Resources.Limits),
+				},
+			},
+		}
+	}
+	return sandbox
+}
+
+func sandboxEnvVarsToProto(env []domain.SandboxEnvVar) []*runtimev1.SandboxEnvVar {
+	items := make([]*runtimev1.SandboxEnvVar, 0, len(env))
+	for _, item := range env {
+		items = append(items, &runtimev1.SandboxEnvVar{
+			Name:  item.Name,
+			Value: item.Value,
+		})
+	}
+	return items
+}
+
+func imagePullPolicyToProto(policy domain.ImagePullPolicy) runtimev1.ImagePullPolicy {
+	switch strings.TrimSpace(string(policy)) {
+	case string(domain.ImagePullPolicyIfNotPresent):
+		return runtimev1.ImagePullPolicy_IMAGE_PULL_POLICY_IF_NOT_PRESENT
+	case string(domain.ImagePullPolicyAlways):
+		return runtimev1.ImagePullPolicy_IMAGE_PULL_POLICY_ALWAYS
+	case string(domain.ImagePullPolicyNever):
+		return runtimev1.ImagePullPolicy_IMAGE_PULL_POLICY_NEVER
+	default:
+		return runtimev1.ImagePullPolicy_IMAGE_PULL_POLICY_UNSPECIFIED
 	}
 }
 

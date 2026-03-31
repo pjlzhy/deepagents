@@ -117,6 +117,45 @@ export type MCPConfigListDTO = NumberPageMeta & {
   mcps: MCPConfigDTO[];
 };
 
+export type SandboxExecutionPolicyDTO = {
+  command_timeout_seconds?: number;
+  setup_timeout_seconds?: number;
+  startup_timeout_seconds?: number;
+  max_output_bytes?: number;
+};
+
+export type SandboxEnvVarDTO = {
+  name?: string;
+  value?: string;
+};
+
+export type ImageReferenceDTO = {
+  reference?: string;
+  pull_policy?: string;
+};
+
+export type DockerResourceSpecDTO = {
+  cpu?: string;
+  memory?: string;
+  shm_size?: string;
+  pids_limit?: number;
+};
+
+export type DockerSandboxSpecDTO = {
+  image: ImageReferenceDTO;
+  resources: DockerResourceSpecDTO;
+};
+
+export type KubernetesResourceRequirementsDTO = {
+  requests?: Record<string, string>;
+  limits?: Record<string, string>;
+};
+
+export type KubernetesSandboxSpecDTO = {
+  image: ImageReferenceDTO;
+  resources: KubernetesResourceRequirementsDTO;
+};
+
 export type PromptSpecDTO = {
   system?: string;
 };
@@ -140,6 +179,31 @@ export type SandboxSpecDTO = {
   image?: string;
   resources?: Record<string, string>;
   init?: string[];
+  execution?: SandboxExecutionPolicyDTO;
+  env?: SandboxEnvVarDTO[];
+  setup_commands?: string[];
+  local?: Record<string, never>;
+  docker?: DockerSandboxSpecDTO;
+  kubernetes?: KubernetesSandboxSpecDTO;
+};
+
+export type SandboxConfigDTO = {
+  name?: string;
+  description?: string;
+  spec: SandboxSpecDTO;
+  status?: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type SandboxConfigUpsertRequestDTO = {
+  description?: string;
+  spec: SandboxSpecDTO;
+  status?: string;
+};
+
+export type SandboxConfigListDTO = NumberPageMeta & {
+  sandboxes: SandboxConfigDTO[];
 };
 
 export type AgentSpecDTO = {
@@ -151,8 +215,8 @@ export type AgentSpecDTO = {
   prompt: PromptSpecDTO;
   skill_refs?: string[];
   mcp_refs?: string[];
+  sandbox_ref?: string;
   subagents?: SubagentSpecDTO[];
-  sandbox: SandboxSpecDTO;
   interrupt_on?: string[];
   status?: string;
   created_at?: string;
@@ -167,8 +231,8 @@ export type AgentSpecUpsertRequestDTO = {
   prompt: PromptSpecDTO;
   skill_refs?: string[];
   mcp_refs?: string[];
+  sandbox_ref?: string;
   subagents?: SubagentSpecDTO[];
-  sandbox: SandboxSpecDTO;
   interrupt_on?: string[];
   status?: string;
 };

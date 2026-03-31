@@ -11,6 +11,13 @@ from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 
 DESCRIPTOR: _descriptor.FileDescriptor
 
+class ImagePullPolicy(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    IMAGE_PULL_POLICY_UNSPECIFIED: _ClassVar[ImagePullPolicy]
+    IMAGE_PULL_POLICY_IF_NOT_PRESENT: _ClassVar[ImagePullPolicy]
+    IMAGE_PULL_POLICY_ALWAYS: _ClassVar[ImagePullPolicy]
+    IMAGE_PULL_POLICY_NEVER: _ClassVar[ImagePullPolicy]
+
 class AgentRuntimeStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     AGENT_RUNTIME_STATUS_UNSPECIFIED: _ClassVar[AgentRuntimeStatus]
@@ -32,6 +39,10 @@ class SessionMessageRole(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     SESSION_MESSAGE_ROLE_HUMAN: _ClassVar[SessionMessageRole]
     SESSION_MESSAGE_ROLE_AI: _ClassVar[SessionMessageRole]
     SESSION_MESSAGE_ROLE_TOOL: _ClassVar[SessionMessageRole]
+IMAGE_PULL_POLICY_UNSPECIFIED: ImagePullPolicy
+IMAGE_PULL_POLICY_IF_NOT_PRESENT: ImagePullPolicy
+IMAGE_PULL_POLICY_ALWAYS: ImagePullPolicy
+IMAGE_PULL_POLICY_NEVER: ImagePullPolicy
 AGENT_RUNTIME_STATUS_UNSPECIFIED: AgentRuntimeStatus
 AGENT_RUNTIME_STATUS_UNKNOWN: AgentRuntimeStatus
 AGENT_RUNTIME_STATUS_INSTALLED: AgentRuntimeStatus
@@ -358,7 +369,7 @@ class ToolsSpec(_message.Message):
     def __init__(self) -> None: ...
 
 class SandboxSpec(_message.Message):
-    __slots__ = ("image", "resources", "init")
+    __slots__ = ("image", "resources", "init", "execution", "env", "setup_commands", "local", "docker", "kubernetes")
     class ResourcesEntry(_message.Message):
         __slots__ = ("key", "value")
         KEY_FIELD_NUMBER: _ClassVar[int]
@@ -369,10 +380,104 @@ class SandboxSpec(_message.Message):
     IMAGE_FIELD_NUMBER: _ClassVar[int]
     RESOURCES_FIELD_NUMBER: _ClassVar[int]
     INIT_FIELD_NUMBER: _ClassVar[int]
+    EXECUTION_FIELD_NUMBER: _ClassVar[int]
+    ENV_FIELD_NUMBER: _ClassVar[int]
+    SETUP_COMMANDS_FIELD_NUMBER: _ClassVar[int]
+    LOCAL_FIELD_NUMBER: _ClassVar[int]
+    DOCKER_FIELD_NUMBER: _ClassVar[int]
+    KUBERNETES_FIELD_NUMBER: _ClassVar[int]
     image: str
     resources: _containers.ScalarMap[str, str]
     init: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, image: _Optional[str] = ..., resources: _Optional[_Mapping[str, str]] = ..., init: _Optional[_Iterable[str]] = ...) -> None: ...
+    execution: SandboxExecutionPolicy
+    env: _containers.RepeatedCompositeFieldContainer[SandboxEnvVar]
+    setup_commands: _containers.RepeatedScalarFieldContainer[str]
+    local: LocalSandboxSpec
+    docker: DockerSandboxSpec
+    kubernetes: KubernetesSandboxSpec
+    def __init__(self, image: _Optional[str] = ..., resources: _Optional[_Mapping[str, str]] = ..., init: _Optional[_Iterable[str]] = ..., execution: _Optional[_Union[SandboxExecutionPolicy, _Mapping]] = ..., env: _Optional[_Iterable[_Union[SandboxEnvVar, _Mapping]]] = ..., setup_commands: _Optional[_Iterable[str]] = ..., local: _Optional[_Union[LocalSandboxSpec, _Mapping]] = ..., docker: _Optional[_Union[DockerSandboxSpec, _Mapping]] = ..., kubernetes: _Optional[_Union[KubernetesSandboxSpec, _Mapping]] = ...) -> None: ...
+
+class SandboxExecutionPolicy(_message.Message):
+    __slots__ = ("command_timeout_seconds", "setup_timeout_seconds", "startup_timeout_seconds", "max_output_bytes")
+    COMMAND_TIMEOUT_SECONDS_FIELD_NUMBER: _ClassVar[int]
+    SETUP_TIMEOUT_SECONDS_FIELD_NUMBER: _ClassVar[int]
+    STARTUP_TIMEOUT_SECONDS_FIELD_NUMBER: _ClassVar[int]
+    MAX_OUTPUT_BYTES_FIELD_NUMBER: _ClassVar[int]
+    command_timeout_seconds: int
+    setup_timeout_seconds: int
+    startup_timeout_seconds: int
+    max_output_bytes: int
+    def __init__(self, command_timeout_seconds: _Optional[int] = ..., setup_timeout_seconds: _Optional[int] = ..., startup_timeout_seconds: _Optional[int] = ..., max_output_bytes: _Optional[int] = ...) -> None: ...
+
+class SandboxEnvVar(_message.Message):
+    __slots__ = ("name", "value")
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    VALUE_FIELD_NUMBER: _ClassVar[int]
+    name: str
+    value: str
+    def __init__(self, name: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
+
+class LocalSandboxSpec(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class ImageReference(_message.Message):
+    __slots__ = ("reference", "pull_policy")
+    REFERENCE_FIELD_NUMBER: _ClassVar[int]
+    PULL_POLICY_FIELD_NUMBER: _ClassVar[int]
+    reference: str
+    pull_policy: ImagePullPolicy
+    def __init__(self, reference: _Optional[str] = ..., pull_policy: _Optional[_Union[ImagePullPolicy, str]] = ...) -> None: ...
+
+class DockerSandboxSpec(_message.Message):
+    __slots__ = ("image", "resources")
+    IMAGE_FIELD_NUMBER: _ClassVar[int]
+    RESOURCES_FIELD_NUMBER: _ClassVar[int]
+    image: ImageReference
+    resources: DockerResourceSpec
+    def __init__(self, image: _Optional[_Union[ImageReference, _Mapping]] = ..., resources: _Optional[_Union[DockerResourceSpec, _Mapping]] = ...) -> None: ...
+
+class DockerResourceSpec(_message.Message):
+    __slots__ = ("cpu", "memory", "shm_size", "pids_limit")
+    CPU_FIELD_NUMBER: _ClassVar[int]
+    MEMORY_FIELD_NUMBER: _ClassVar[int]
+    SHM_SIZE_FIELD_NUMBER: _ClassVar[int]
+    PIDS_LIMIT_FIELD_NUMBER: _ClassVar[int]
+    cpu: str
+    memory: str
+    shm_size: str
+    pids_limit: int
+    def __init__(self, cpu: _Optional[str] = ..., memory: _Optional[str] = ..., shm_size: _Optional[str] = ..., pids_limit: _Optional[int] = ...) -> None: ...
+
+class KubernetesSandboxSpec(_message.Message):
+    __slots__ = ("image", "resources")
+    IMAGE_FIELD_NUMBER: _ClassVar[int]
+    RESOURCES_FIELD_NUMBER: _ClassVar[int]
+    image: ImageReference
+    resources: KubernetesResourceRequirements
+    def __init__(self, image: _Optional[_Union[ImageReference, _Mapping]] = ..., resources: _Optional[_Union[KubernetesResourceRequirements, _Mapping]] = ...) -> None: ...
+
+class KubernetesResourceRequirements(_message.Message):
+    __slots__ = ("requests", "limits")
+    class RequestsEntry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: str
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
+    class LimitsEntry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: str
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
+    REQUESTS_FIELD_NUMBER: _ClassVar[int]
+    LIMITS_FIELD_NUMBER: _ClassVar[int]
+    requests: _containers.ScalarMap[str, str]
+    limits: _containers.ScalarMap[str, str]
+    def __init__(self, requests: _Optional[_Mapping[str, str]] = ..., limits: _Optional[_Mapping[str, str]] = ...) -> None: ...
 
 class SkillFile(_message.Message):
     __slots__ = ("path", "content")

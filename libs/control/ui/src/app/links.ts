@@ -3,6 +3,7 @@ export const links = {
   models: () => '/registry/models',
   skills: () => '/registry/skills',
   mcps: () => '/registry/mcps',
+  sandboxes: () => '/registry/sandboxes',
   agents: () => '/registry/agents',
   newAgent: () => '/registry/agents/new',
   agentDetail: (agentName: string) => `/registry/agents/${encodeURIComponent(agentName)}`,
