@@ -260,6 +260,10 @@ service ResourceSync {
   // Prerequisite: the target AgentSpec must already be synced.
   rpc Assemble(AssembleRequest) returns (AssembleResponse);
 
+  // Upload one or more files into an agent/thread workspace.
+  rpc UploadWorkspaceFiles(UploadWorkspaceFilesRequest)
+      returns (UploadWorkspaceFilesResponse);
+
   // Remove a synced runtime resource or cached spec from the data plane.
   rpc RemoveResource(RemoveResourceRequest) returns (SyncResponse);
 
@@ -505,6 +509,34 @@ message AssembleResponse {
   bool   ok      = 1;
   string message = 2;
   string status  = 3;  // "compiled" on success
+}
+
+// -----------------------------------------------------------------------------
+// Workspace file upload
+// -----------------------------------------------------------------------------
+
+message UploadWorkspaceFile {
+  // Relative path inside the visible workspace root.
+  string path = 1;
+  bytes content = 2;
+}
+
+message UploadWorkspaceFilesRequest {
+  string agent_name = 1;
+  string thread_id = 2;
+  repeated UploadWorkspaceFile files = 3;
+}
+
+message UploadWorkspaceFileResult {
+  // Visible workspace path (e.g. "/workspace/file.txt").
+  string path = 1;
+  // Empty on success, standardized file-operation error on failure.
+  string error = 2;
+}
+
+message UploadWorkspaceFilesResponse {
+  string thread_id = 1;
+  repeated UploadWorkspaceFileResult files = 2;
 }
 
 // -----------------------------------------------------------------------------

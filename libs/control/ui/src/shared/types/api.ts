@@ -288,6 +288,16 @@ export type RunStreamRequestDTO = {
   metadata?: Record<string, string>;
 };
 
+export type WorkspaceUploadFileResultDTO = {
+  path?: string;
+  error?: string;
+};
+
+export type WorkspaceUploadResponseDTO = {
+  thread_id?: string;
+  files: WorkspaceUploadFileResultDTO[];
+};
+
 export type RunStreamHandshake = {
   runSessionId: string;
 };

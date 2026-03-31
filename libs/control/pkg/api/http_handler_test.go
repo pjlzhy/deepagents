@@ -311,6 +311,92 @@ func TestHTTPHandlerForwardsHITLDecisions(t *testing.T) {
 	close(runStream.events)
 }
 
+func TestHTTPHandlerUploadsWorkspaceFiles(t *testing.T) {
+	service := &fakeAgentService{
+		uploadResp: domain.WorkspaceUploadResponse{
+			ThreadID: "thread-1",
+			Files: []domain.WorkspaceUploadResult{
+				{Path: "/workspace/report.txt"},
+			},
+		},
+	}
+	handler, err := NewHTTPHandler(service, nil)
+	if err != nil {
+		t.Fatalf("NewHTTPHandler: %v", err)
+	}
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	if err := writer.WriteField("thread_id", "thread-1"); err != nil {
+		t.Fatalf("WriteField: %v", err)
+	}
+	fileWriter, err := writer.CreateFormFile("files", "report.txt")
+	if err != nil {
+		t.Fatalf("CreateFormFile: %v", err)
+	}
+	if _, err := fileWriter.Write([]byte("hello")); err != nil {
+		t.Fatalf("write form file: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("writer.Close: %v", err)
+	}
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/agents/assistant/workspace/files",
+		body,
+	)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	response := recorder.Result()
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusCreated {
+		payload, _ := io.ReadAll(response.Body)
+		t.Fatalf("unexpected status: %d body=%s", response.StatusCode, string(payload))
+	}
+	if service.uploadReq.AgentName != "assistant" || service.uploadReq.ThreadID != "thread-1" {
+		t.Fatalf("unexpected upload request: %#v", service.uploadReq)
+	}
+	if len(service.uploadReq.Files) != 1 || service.uploadReq.Files[0].Path != "report.txt" {
+		t.Fatalf("unexpected upload files: %#v", service.uploadReq.Files)
+	}
+}
+
+func TestHTTPHandlerRejectsWorkspaceUploadWithoutFiles(t *testing.T) {
+	service := &fakeAgentService{}
+	handler, err := NewHTTPHandler(service, nil)
+	if err != nil {
+		t.Fatalf("NewHTTPHandler: %v", err)
+	}
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	if err := writer.Close(); err != nil {
+		t.Fatalf("writer.Close: %v", err)
+	}
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/agents/assistant/workspace/files",
+		body,
+	)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	response := recorder.Result()
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusBadRequest {
+		payload, _ := io.ReadAll(response.Body)
+		t.Fatalf("unexpected status: %d body=%s", response.StatusCode, string(payload))
+	}
+}
+
 func TestHTTPHandlerReturnsNotFoundForUnknownRunSession(t *testing.T) {
 	handler, err := NewHTTPHandler(&fakeAgentService{}, nil)
 	if err != nil {

@@ -21,6 +21,7 @@ from contextlib import suppress
 from datetime import UTC, datetime
 from typing import Any
 
+from deepagents.backends.protocol import FileUploadResponse
 from deepagents_runtime import events
 from deepagents_runtime.agent import HITLHandler, RuntimeAgent
 from deepagents_runtime.events import RuntimeEvent
@@ -225,6 +226,31 @@ class AgentManager:
             logger.info("Agent '%s' uninstalled", name)
             return True
         return False
+
+    async def upload_workspace_files(
+            self,
+            *,
+            name: str,
+            thread_id: str,
+            files: list[tuple[str, bytes]],
+    ) -> tuple[str, list[FileUploadResponse]]:
+        """Upload files into one thread-scoped workspace."""
+        await self.setup()
+        agent = await self._get_or_create_agent(name)
+
+        if agent.is_busy():
+            msg = f"cannot upload workspace files for agent '{name}' while busy"
+            raise RuntimeError(msg)
+        if not agent.has_runtime():
+            msg = f"Agent '{name}' has not been assembled"
+            raise RuntimeError(msg)
+
+        resolved_thread_id = thread_id.strip() or generate_thread_id()
+        responses = agent.upload_workspace_files(
+            thread_id=resolved_thread_id,
+            files=files,
+        )
+        return resolved_thread_id, responses
 
     async def invoke(
             self,

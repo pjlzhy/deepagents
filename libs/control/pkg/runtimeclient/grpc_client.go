@@ -116,6 +116,25 @@ func (c *GRPCClient) Assemble(
 	}, nil
 }
 
+// UploadWorkspaceFiles stages files into one runtime thread workspace.
+func (c *GRPCClient) UploadWorkspaceFiles(
+	ctx context.Context,
+	req domain.WorkspaceUploadRequest,
+) (domain.WorkspaceUploadResponse, error) {
+	response, err := c.resourceSync.UploadWorkspaceFiles(
+		ctx,
+		workspaceUploadRequestToProto(req),
+	)
+	if err != nil {
+		return domain.WorkspaceUploadResponse{}, normalizeRPCError(
+			"upload workspace files",
+			err,
+		)
+	}
+
+	return workspaceUploadResponseFromProto(response), nil
+}
+
 // RemoveAgent removes an installed runtime-side agent resource.
 func (c *GRPCClient) RemoveAgent(
 	ctx context.Context,

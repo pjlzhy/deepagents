@@ -31,6 +31,9 @@ type testRuntimeServer struct {
 	assembleResponse *runtimev1.AssembleResponse
 	assembleRequest  *runtimev1.AssembleRequest
 
+	uploadResponse *runtimev1.UploadWorkspaceFilesResponse
+	uploadRequest  *runtimev1.UploadWorkspaceFilesRequest
+
 	removeResponse *runtimev1.SyncResponse
 	removeRequest  *runtimev1.RemoveResourceRequest
 
@@ -66,6 +69,17 @@ func (s *testRuntimeServer) Assemble(
 		return &runtimev1.AssembleResponse{Ok: true, Status: "compiled"}, nil
 	}
 	return s.assembleResponse, nil
+}
+
+func (s *testRuntimeServer) UploadWorkspaceFiles(
+	_ context.Context,
+	request *runtimev1.UploadWorkspaceFilesRequest,
+) (*runtimev1.UploadWorkspaceFilesResponse, error) {
+	s.uploadRequest = request
+	if s.uploadResponse == nil {
+		return &runtimev1.UploadWorkspaceFilesResponse{}, nil
+	}
+	return s.uploadResponse, nil
 }
 
 func (s *testRuntimeServer) RemoveResource(
@@ -246,6 +260,12 @@ func (s *testRuntimeServer) Run(
 func TestGRPCClientSyncAgentSpecHealthAndRemove(t *testing.T) {
 	server := &testRuntimeServer{
 		syncAgentSpecResponse: &runtimev1.SyncResponse{Ok: true, Message: "synced"},
+		uploadResponse: &runtimev1.UploadWorkspaceFilesResponse{
+			ThreadId: "thread-upload",
+			Files: []*runtimev1.UploadWorkspaceFileResult{
+				{Path: "/workspace/report.txt"},
+			},
+		},
 		healthResponse: &runtimev1.HealthResponse{
 			Status:              "ok",
 			AssembledAgentCount: 2,
@@ -355,6 +375,32 @@ func TestGRPCClientSyncAgentSpecHealthAndRemove(t *testing.T) {
 	}
 	if len(request.GetSandbox().GetSetupCommands()) != 1 {
 		t.Fatalf("unexpected sandbox setup commands: %#v", request.GetSandbox())
+	}
+
+	uploadResponse, err := client.UploadWorkspaceFiles(
+		context.Background(),
+		domain.WorkspaceUploadRequest{
+			AgentName: "assistant",
+			ThreadID:  "thread-upload",
+			Files: []domain.WorkspaceUploadFile{
+				{
+					Path:    "report.txt",
+					Content: []byte("hello"),
+				},
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("UploadWorkspaceFiles returned error: %v", err)
+	}
+	if uploadResponse.ThreadID != "thread-upload" || len(uploadResponse.Files) != 1 {
+		t.Fatalf("unexpected upload response: %#v", uploadResponse)
+	}
+	if server.uploadRequest == nil || server.uploadRequest.GetAgentName() != "assistant" {
+		t.Fatalf("unexpected upload request: %#v", server.uploadRequest)
+	}
+	if server.uploadRequest.GetFiles()[0].GetPath() != "report.txt" {
+		t.Fatalf("unexpected upload file request: %#v", server.uploadRequest.GetFiles()[0])
 	}
 
 	health, err := client.Health(context.Background())

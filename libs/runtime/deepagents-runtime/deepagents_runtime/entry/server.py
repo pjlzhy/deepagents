@@ -453,6 +453,51 @@ class ResourceSyncServicer(runtime_pb2_grpc.ResourceSyncServicer):
                 ok=False, message=str(e), status="error"
             )
 
+    async def UploadWorkspaceFiles(
+        self,
+        request: pb2.UploadWorkspaceFilesRequest,
+        context: grpc.aio.ServicerContext,
+    ) -> pb2.UploadWorkspaceFilesResponse:
+        """Upload files into one thread-scoped workspace."""
+        agent_name = request.agent_name.strip()
+        if not agent_name:
+            await _abort_invalid_argument(context, "agent_name is required")
+            return pb2.UploadWorkspaceFilesResponse()
+        if not request.files:
+            await _abort_invalid_argument(context, "at least one file is required")
+            return pb2.UploadWorkspaceFilesResponse()
+
+        files = [
+            (item.path, bytes(item.content))
+            for item in request.files
+        ]
+        try:
+            thread_id, responses = await self._manager.upload_workspace_files(
+                name=agent_name,
+                thread_id=request.thread_id,
+                files=files,
+            )
+        except KeyError as exc:
+            await context.abort(grpc.StatusCode.NOT_FOUND, str(exc))
+            return pb2.UploadWorkspaceFilesResponse()
+        except ValueError as exc:
+            await _abort_invalid_argument(context, str(exc))
+            return pb2.UploadWorkspaceFilesResponse()
+        except RuntimeError as exc:
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
+            return pb2.UploadWorkspaceFilesResponse()
+
+        return pb2.UploadWorkspaceFilesResponse(
+            thread_id=thread_id,
+            files=[
+                pb2.UploadWorkspaceFileResult(
+                    path=item.path,
+                    error=item.error or "",
+                )
+                for item in responses
+            ],
+        )
+
     async def RemoveResource(
         self,
         request: pb2.RemoveResourceRequest,

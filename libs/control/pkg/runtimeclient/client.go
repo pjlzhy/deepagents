@@ -107,6 +107,7 @@ type RunStream interface {
 type ResourceSyncClient interface {
 	SyncAgentSpec(ctx context.Context, spec domain.RuntimeAgentSpec) (SyncResponse, error)
 	Assemble(ctx context.Context, agentName string) (AssembleResponse, error)
+	UploadWorkspaceFiles(ctx context.Context, req domain.WorkspaceUploadRequest) (domain.WorkspaceUploadResponse, error)
 	RemoveAgent(ctx context.Context, agentName string) (SyncResponse, error)
 	Health(ctx context.Context) (HealthResponse, error)
 }

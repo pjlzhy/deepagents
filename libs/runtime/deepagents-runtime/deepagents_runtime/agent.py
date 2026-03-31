@@ -22,7 +22,11 @@ from langgraph.types import Command
 
 from deepagents.graph import create_deep_agent
 from deepagents.backends import LocalShellBackend
-from deepagents.backends.protocol import SandboxBackendProtocol, execute_accepts_timeout
+from deepagents.backends.protocol import (
+    FileUploadResponse,
+    SandboxBackendProtocol,
+    execute_accepts_timeout,
+)
 from deepagents.middleware.subagents import SubAgent
 from deepagents.middleware.memory import MemoryMiddleware
 from deepagents.middleware.summarization import (
@@ -36,6 +40,7 @@ from deepagents_runtime.events import RuntimeEvent
 from deepagents_runtime.mcp_tool import load_mcp_tools_from_configs
 from deepagents_runtime.models import create_model, ModelResult
 from deepagents_runtime.registry import Registry
+from deepagents_runtime.runtime_backend import ThreadScopedRuntimeBackend
 from deepagents_runtime.sandbox.docker import DockerSandboxBackend
 from deepagents_runtime.sandbox.k8s import K8sSandboxBackend
 from deepagents_runtime.skills import RuntimeSkillsMiddleware
@@ -68,6 +73,9 @@ class AgentFilesystemView:
     """Runtime-visible filesystem contract for one assembled agent."""
 
     host_root_dir: Path
+    host_workspace_root_dir: Path
+    host_history_root_dir: Path
+    backend_root_path: str
     visible_root_path: str
     visible_workspace_path: str
     visible_skills_path: str
@@ -294,21 +302,21 @@ def get_system_prompt(
         )
     model_identity_section += f"Your name is {agent_name}.\n\n"
 
-    runtime_root = filesystem_view.visible_root_path
     workspace_path = filesystem_view.visible_workspace_path
     memory_path = filesystem_view.visible_memory_path
     history_path = filesystem_view.visible_history_path_prefix
     working_dir_section = (
         f"### Runtime File System\n\n"
-        f"Filesystem tools operate within the agent-local root: `{runtime_root}`\n\n"
+        f"Filesystem tools expose explicit virtual roots for workspace, memory, skills, and history.\n\n"
         f"### File System and Paths\n\n"
         f"**IMPORTANT - Path Handling:**\n"
         f"- All file paths must be absolute paths (e.g., `{workspace_path}/file.txt`)\n"
         f"- Your task workspace lives at: `{workspace_path}`\n"
         f"- Agent memory lives at: `{memory_path}`\n"
         f"- Conversation history offloads live under: `{history_path}`\n"
-        f"- Shell commands start in the runtime root, so use child paths like `workspace/...` or `skills/...` when invoking scripts from the shell\n"
-        f"- When using file tools, always use backend-visible absolute paths\n\n"
+        f"- Shell commands start in the current thread workspace, so relative shell paths refer to uploaded and generated workspace files\n"
+        f"- For portable shell commands, prefer relative paths like `ls`, `cat file.txt`, or `python script.py`\n"
+        f"- When using file tools, always use explicit virtual paths such as `{workspace_path}/file.txt` or `{memory_path}`\n\n"
     )
 
     if prompt:
@@ -393,7 +401,10 @@ def _format_execute_description(
 ) -> str:
     args = tool_call["args"]
     command = args.get("command", "N/A")
-    return f"Execute Command: {command}\nWorking Directory: {Path.cwd()}"
+    return (
+        f"Execute Command: {command}\n"
+        f"Working Directory: current thread workspace"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -459,6 +470,7 @@ class RuntimeAgent:
         self._graph: CompiledStateGraph = None
         self._mcp_runtime: MCPRuntime | None = None
         self._sandbox_runtime: SandboxRuntime | None = None
+        self._tool_backend: ThreadScopedRuntimeBackend | None = None
 
         self.registry: Registry = reg
 
@@ -498,6 +510,17 @@ class RuntimeAgent:
         memory_file.parent.mkdir(parents=True, exist_ok=True)
         memory_file.touch(exist_ok=True)
 
+    def _ensure_thread_filesystem(self, thread_id: str) -> None:
+        """Create the per-thread workspace and history directories."""
+        self.registry.thread_workspace_dir(self.spec.name, thread_id).mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+        self.registry.thread_history_dir(self.spec.name, thread_id).mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
     def _build_filesystem_view(
             self,
             *,
@@ -507,26 +530,31 @@ class RuntimeAgent:
         self._ensure_runtime_filesystem()
 
         host_root_dir = self.registry.runtime_dir(self.spec.name).resolve()
+        host_workspace_root_dir = self.registry.workspace_dir(self.spec.name).resolve()
+        host_history_root_dir = self.registry.history_dir(self.spec.name).resolve()
         normalized_spec = parse_sandbox_spec(spec)
         backend = normalized_spec.backend if normalized_spec is not None else None
 
-        visible_root_path = (
+        backend_root_path = (
             "/agent" if isinstance(backend, (DockerSandboxSpec, KubernetesSandboxSpec))
             else "/"
         )
 
         return AgentFilesystemView(
             host_root_dir=host_root_dir,
-            visible_root_path=visible_root_path,
-            visible_workspace_path=_join_visible_path(visible_root_path, "workspace"),
-            visible_skills_path=_join_visible_path(visible_root_path, "skills"),
+            host_workspace_root_dir=host_workspace_root_dir,
+            host_history_root_dir=host_history_root_dir,
+            backend_root_path=backend_root_path,
+            visible_root_path="/",
+            visible_workspace_path="/workspace",
+            visible_skills_path="/skills",
             visible_memory_path=_join_visible_path(
-                visible_root_path,
+                "/",
                 "memory",
                 "AGENTS.md",
             ),
             visible_history_path_prefix=_join_visible_path(
-                visible_root_path,
+                "/",
                 "conversation_history",
             ),
         )
@@ -536,11 +564,30 @@ class RuntimeAgent:
             *,
             filesystem_view: AgentFilesystemView,
     ) -> LocalShellBackend:
-        """Create the local backend for the agent-visible runtime root."""
+        """Create the local sandbox backend for the agent runtime root."""
         return LocalShellBackend(
             root_dir=str(filesystem_view.host_root_dir),
             inherit_env=True,
             virtual_mode=True,
+        )
+
+    def _build_tool_backend(
+            self,
+            *,
+            filesystem_view: AgentFilesystemView,
+            sandbox_backend: SandboxBackendProtocol | None,
+    ) -> ThreadScopedRuntimeBackend:
+        """Create the thread-scoped backend exposed to agent tools."""
+        if sandbox_backend is None or isinstance(sandbox_backend, LocalShellBackend):
+            return ThreadScopedRuntimeBackend.for_local(
+                workspace_root_dir=filesystem_view.host_workspace_root_dir,
+                history_root_dir=filesystem_view.host_history_root_dir,
+                memory_file=self.registry.memory_dir(self.spec.name),
+                skills_root_dir=self.registry.skills_dir(self.spec.name),
+            )
+        return ThreadScopedRuntimeBackend.for_container(
+            sandbox_backend=sandbox_backend,
+            container_root=filesystem_view.backend_root_path,
         )
 
     async def _build_sandbox_backend(
@@ -561,7 +608,7 @@ class RuntimeAgent:
             backend = await DockerSandboxBackend.from_spec(
                 normalized_spec,
                 host_mount_dir=str(filesystem_view.host_root_dir),
-                container_root=filesystem_view.visible_root_path,
+                container_root=filesystem_view.backend_root_path,
             )
             startup_timeout = normalized_spec.execution.startup_timeout_seconds
             if startup_timeout > 0:
@@ -649,6 +696,46 @@ class RuntimeAgent:
                     await result
             except Exception:
                 logger.warning("Error cleaning up sandbox", exc_info=True)
+
+    @staticmethod
+    def _normalize_workspace_upload_path(path: str) -> str:
+        """Normalize one uploaded filename into a visible workspace path."""
+        normalized = path.strip().replace("\\", "/")
+        if not normalized:
+            raise ValueError("workspace upload path must not be empty")
+        candidate = PurePosixPath(normalized)
+        if candidate.is_absolute():
+            raise ValueError("workspace upload path must be relative")
+        if any(part in {"", ".", ".."} for part in candidate.parts):
+            raise ValueError("workspace upload path must not contain traversal")
+        return _join_visible_path("/workspace", *candidate.parts)
+
+    def bind_thread_workspace(self, thread_id: str) -> None:
+        """Bind the current tool backend to one thread workspace."""
+        if self._tool_backend is None:
+            msg = f"Agent '{self.spec.name}' has not been assembled"
+            raise RuntimeError(msg)
+        self._ensure_thread_filesystem(thread_id)
+        self._tool_backend.bind_thread(thread_id)
+
+    def upload_workspace_files(
+            self,
+            *,
+            thread_id: str,
+            files: list[tuple[str, bytes]],
+    ) -> list[FileUploadResponse]:
+        """Upload files into one thread-scoped workspace."""
+        if self._tool_backend is None:
+            msg = f"Agent '{self.spec.name}' has not been assembled"
+            raise RuntimeError(msg)
+        if not files:
+            return []
+        self.bind_thread_workspace(thread_id)
+        normalized_files = [
+            (self._normalize_workspace_upload_path(path), content)
+            for path, content in files
+        ]
+        return self._tool_backend.upload_files(normalized_files)
 
     def build_model_extra_kwargs(self) -> dict[str, Any]:
         """Resolve model constructor kwargs from an agent spec."""
@@ -769,13 +856,16 @@ class RuntimeAgent:
             )
             created_sandbox_runtime = sandbox_runtime
 
-        # 3. Build the backend selector and middleware stack.
-        fallback_backend = (
+        # 3. Build the thread-scoped backend selector and middleware stack.
+        sandbox_backend = (
             sandbox_runtime.backend
             if sandbox_runtime is not None
-            else self._build_local_backend(filesystem_view=filesystem_view)
+            else None
         )
-        tool_backend = fallback_backend
+        tool_backend = self._build_tool_backend(
+            filesystem_view=filesystem_view,
+            sandbox_backend=sandbox_backend,
+        )
 
         agent_middleware: list[Any] = []
 
@@ -863,6 +953,7 @@ class RuntimeAgent:
         self._graph = graph
         self._mcp_runtime = mcp_runtime
         self._sandbox_runtime = sandbox_runtime
+        self._tool_backend = tool_backend
         if replace_sandbox_runtime and existing_sandbox_runtime is not None:
             await self._cleanup_sandbox_backend(existing_sandbox_runtime.backend)
 
@@ -905,6 +996,9 @@ class RuntimeAgent:
             thread_id = str(configurable.get("thread_id", ""))
             if configurable.get("run_id"):
                 run_id = str(configurable["run_id"])
+
+        if thread_id:
+            self.bind_thread_workspace(thread_id)
 
         yield events.run_start(
             run_id=run_id,
@@ -1020,6 +1114,7 @@ class RuntimeAgent:
 
     async def _release_impl(self) -> None:
         self._graph = None
+        self._tool_backend = None
 
         if self._mcp_runtime is not None:
             await self._mcp_runtime.session_manager.cleanup()

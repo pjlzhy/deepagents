@@ -12,6 +12,7 @@ import (
 type AgentService interface {
 	EnsureRunnable(ctx context.Context, agentName string) error
 	RunAgent(ctx context.Context, req domain.RunRequest) (runtimeclient.RunStream, error)
+	UploadWorkspaceFiles(ctx context.Context, req domain.WorkspaceUploadRequest) (domain.WorkspaceUploadResponse, error)
 	Health(ctx context.Context) (runtimeclient.HealthResponse, error)
 	ListSessions(ctx context.Context, agentName string, pageSize int32, pageToken string) ([]domain.SessionSummary, string, error)
 	GetSession(ctx context.Context, locator domain.SessionLocator) (domain.SessionSummary, error)
@@ -70,6 +71,14 @@ func (s *Server) RunAgent(
 	req domain.RunRequest,
 ) (runtimeclient.RunStream, error) {
 	return s.service.RunAgent(ctx, req)
+}
+
+// UploadWorkspaceFiles forwards one workspace upload request to the backing service.
+func (s *Server) UploadWorkspaceFiles(
+	ctx context.Context,
+	req domain.WorkspaceUploadRequest,
+) (domain.WorkspaceUploadResponse, error) {
+	return s.service.UploadWorkspaceFiles(ctx, req)
 }
 
 // Health forwards the runtime health query to the backing service.

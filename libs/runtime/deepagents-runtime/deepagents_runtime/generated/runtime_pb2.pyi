@@ -536,6 +536,40 @@ class AssembleResponse(_message.Message):
     status: str
     def __init__(self, ok: bool = ..., message: _Optional[str] = ..., status: _Optional[str] = ...) -> None: ...
 
+class UploadWorkspaceFile(_message.Message):
+    __slots__ = ("path", "content")
+    PATH_FIELD_NUMBER: _ClassVar[int]
+    CONTENT_FIELD_NUMBER: _ClassVar[int]
+    path: str
+    content: bytes
+    def __init__(self, path: _Optional[str] = ..., content: _Optional[bytes] = ...) -> None: ...
+
+class UploadWorkspaceFilesRequest(_message.Message):
+    __slots__ = ("agent_name", "thread_id", "files")
+    AGENT_NAME_FIELD_NUMBER: _ClassVar[int]
+    THREAD_ID_FIELD_NUMBER: _ClassVar[int]
+    FILES_FIELD_NUMBER: _ClassVar[int]
+    agent_name: str
+    thread_id: str
+    files: _containers.RepeatedCompositeFieldContainer[UploadWorkspaceFile]
+    def __init__(self, agent_name: _Optional[str] = ..., thread_id: _Optional[str] = ..., files: _Optional[_Iterable[_Union[UploadWorkspaceFile, _Mapping]]] = ...) -> None: ...
+
+class UploadWorkspaceFileResult(_message.Message):
+    __slots__ = ("path", "error")
+    PATH_FIELD_NUMBER: _ClassVar[int]
+    ERROR_FIELD_NUMBER: _ClassVar[int]
+    path: str
+    error: str
+    def __init__(self, path: _Optional[str] = ..., error: _Optional[str] = ...) -> None: ...
+
+class UploadWorkspaceFilesResponse(_message.Message):
+    __slots__ = ("thread_id", "files")
+    THREAD_ID_FIELD_NUMBER: _ClassVar[int]
+    FILES_FIELD_NUMBER: _ClassVar[int]
+    thread_id: str
+    files: _containers.RepeatedCompositeFieldContainer[UploadWorkspaceFileResult]
+    def __init__(self, thread_id: _Optional[str] = ..., files: _Optional[_Iterable[_Union[UploadWorkspaceFileResult, _Mapping]]] = ...) -> None: ...
+
 class RemoveResourceRequest(_message.Message):
     __slots__ = ("resource_type", "name")
     RESOURCE_TYPE_FIELD_NUMBER: _ClassVar[int]

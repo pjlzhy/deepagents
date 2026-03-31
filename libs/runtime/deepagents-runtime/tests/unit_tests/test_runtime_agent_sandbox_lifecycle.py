@@ -18,6 +18,7 @@ from deepagents.backends import LocalShellBackend
 from deepagents.middleware.filesystem import FilesystemMiddleware
 from deepagents.middleware.summarization import SummarizationMiddleware
 from deepagents_runtime.agent import RuntimeAgent
+from deepagents_runtime.runtime_backend import ThreadScopedRuntimeBackend
 from deepagents_runtime.spec import AgentSpec, RuntimeEventType, SandboxRuntime
 
 
@@ -37,6 +38,11 @@ class FakeRegistry:
         path.mkdir(parents=True, exist_ok=True)
         return path
 
+    def thread_workspace_dir(self, name: str, thread_id: str) -> Path:
+        path = self.workspace_dir(name) / thread_id
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
     def memory_dir(self, name: str) -> Path:
         path = self.runtime_dir(name) / "memory" / "AGENTS.md"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -45,6 +51,11 @@ class FakeRegistry:
 
     def history_dir(self, name: str) -> Path:
         path = self.runtime_dir(name) / "conversation_history"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def thread_history_dir(self, name: str, thread_id: str) -> Path:
+        path = self.history_dir(name) / thread_id
         path.mkdir(parents=True, exist_ok=True)
         return path
 
@@ -339,12 +350,17 @@ def test_assemble_without_sandbox_uses_one_filesystem_view_for_runtime_component
         tool_backend = captured["tool_backend"]
         filesystem_view = captured["filesystem_view"]
 
-        assert isinstance(tool_backend, LocalShellBackend)
-        assert tool_backend.cwd == filesystem_view.host_root_dir
-        assert tool_backend.virtual_mode is True
+        assert isinstance(tool_backend, ThreadScopedRuntimeBackend)
         assert filesystem_view.host_root_dir == (
             base_dir / "demo-agent" / "runtime"
         ).resolve()
+        assert filesystem_view.host_workspace_root_dir == (
+            base_dir / "demo-agent" / "runtime" / "workspace"
+        ).resolve()
+        assert filesystem_view.host_history_root_dir == (
+            base_dir / "demo-agent" / "runtime" / "conversation_history"
+        ).resolve()
+        assert filesystem_view.backend_root_path == "/"
         assert filesystem_view.visible_root_path == "/"
         assert filesystem_view.visible_workspace_path == "/workspace"
         assert filesystem_view.visible_skills_path == "/skills"
@@ -367,17 +383,28 @@ def test_assemble_without_sandbox_uses_one_filesystem_view_for_runtime_component
             "history_path_prefix": "/conversation_history",
             "truncate_args_settings": {"trigger": ("messages", 10)},
         }
+
+        tool_backend.bind_thread("thread-1")
+        shell_result = tool_backend.execute("cd")
+        assert shell_result.exit_code == 0
+        assert shell_result.output.strip() == str(
+            base_dir / "demo-agent" / "runtime" / "workspace" / "thread-1"
+        )
     finally:
         shutil.rmtree(base_dir, ignore_errors=True)
 
 
-def test_local_runtime_filesystem_ls_root_lists_agent_runtime_tree() -> None:
-    """Local file tools should treat `/` as the agent runtime root."""
+def test_local_runtime_filesystem_ls_root_lists_visible_runtime_prefixes() -> None:
+    """Local file tools should expose the explicit virtual root prefixes."""
 
     base_dir = _make_base_dir()
     agent = _build_agent(base_dir)
     filesystem_view = agent._build_filesystem_view(spec=None)
-    backend = agent._build_local_backend(filesystem_view=filesystem_view)
+    backend = agent._build_tool_backend(
+        filesystem_view=filesystem_view,
+        sandbox_backend=None,
+    )
+    backend.bind_thread("thread-1")
     middleware = FilesystemMiddleware(backend=backend)
     ls_tool = next(tool for tool in middleware.tools if tool.name == "ls")
 
@@ -407,7 +434,10 @@ def test_local_runtime_filesystem_reads_memory_via_virtual_root() -> None:
     base_dir = _make_base_dir()
     agent = _build_agent(base_dir)
     filesystem_view = agent._build_filesystem_view(spec=None)
-    backend = agent._build_local_backend(filesystem_view=filesystem_view)
+    backend = agent._build_tool_backend(
+        filesystem_view=filesystem_view,
+        sandbox_backend=None,
+    )
     middleware = FilesystemMiddleware(backend=backend)
     read_tool = next(tool for tool in middleware.tools if tool.name == "read_file")
 
@@ -429,30 +459,69 @@ def test_local_runtime_filesystem_reads_memory_via_virtual_root() -> None:
         shutil.rmtree(base_dir, ignore_errors=True)
 
 
-def test_local_runtime_shell_pwd_starts_in_agent_runtime_root() -> None:
-    """Local shell execution should start in the agent runtime root."""
+def test_local_runtime_shell_pwd_starts_in_thread_workspace() -> None:
+    """Local shell execution should start in the current thread workspace."""
 
     base_dir = _make_base_dir()
     agent = _build_agent(base_dir)
     filesystem_view = agent._build_filesystem_view(spec=None)
-    backend = agent._build_local_backend(filesystem_view=filesystem_view)
+    backend = agent._build_tool_backend(
+        filesystem_view=filesystem_view,
+        sandbox_backend=None,
+    )
+    backend.bind_thread("thread-1")
 
     try:
-        result = backend.execute("pwd")
+        result = backend.execute("cd")
 
         assert result.exit_code == 0
-        assert result.output.strip() == str(filesystem_view.host_root_dir)
+        assert result.output.strip() == str(
+            filesystem_view.host_workspace_root_dir / "thread-1"
+        )
     finally:
         shutil.rmtree(base_dir, ignore_errors=True)
 
 
-def test_local_runtime_summarization_history_offloads_under_agent_root() -> None:
-    """Summarization offloads should stay within the agent runtime root."""
+def test_upload_workspace_files_writes_into_thread_workspace() -> None:
+    """Uploaded workspace files should land under the bound thread workspace."""
 
     base_dir = _make_base_dir()
     agent = _build_agent(base_dir)
     filesystem_view = agent._build_filesystem_view(spec=None)
-    backend = agent._build_local_backend(filesystem_view=filesystem_view)
+    agent._tool_backend = agent._build_tool_backend(
+        filesystem_view=filesystem_view,
+        sandbox_backend=None,
+    )
+
+    try:
+        responses = agent.upload_workspace_files(
+            thread_id="thread-1",
+            files=[("report.txt", b"hello workspace")],
+        )
+
+        assert len(responses) == 1
+        assert responses[0].error is None
+        assert responses[0].path == "/workspace/report.txt"
+        uploaded = (
+            agent.registry.thread_workspace_dir(agent.spec.name, "thread-1")
+            / "report.txt"
+        )
+        assert uploaded.read_text(encoding="utf-8") == "hello workspace"
+    finally:
+        shutil.rmtree(base_dir, ignore_errors=True)
+
+
+def test_local_runtime_summarization_history_offloads_under_thread_root() -> None:
+    """Summarization offloads should stay within the current thread history root."""
+
+    base_dir = _make_base_dir()
+    agent = _build_agent(base_dir)
+    filesystem_view = agent._build_filesystem_view(spec=None)
+    backend = agent._build_tool_backend(
+        filesystem_view=filesystem_view,
+        sandbox_backend=None,
+    )
+    backend.bind_thread("thread-1")
     model = MagicMock()
     model.profile = {"max_input_tokens": 200_000}
     model._get_ls_params.return_value = {"ls_provider": "test"}
@@ -480,7 +549,10 @@ def test_local_runtime_summarization_history_offloads_under_agent_root() -> None
             )
 
         assert path == "/conversation_history/test-thread.md"
-        history_file = agent.registry.history_dir(agent.spec.name) / "test-thread.md"
+        history_file = (
+            agent.registry.thread_history_dir(agent.spec.name, "thread-1")
+            / "test-thread.md"
+        )
         assert history_file.exists()
         assert "hello from history" in history_file.read_text(encoding="utf-8")
     finally:
@@ -498,6 +570,7 @@ def test_astream_preserves_runtime_context() -> None:
         spec={"resources": {"backend": "local"}},
         backend=object(),
     )
+    agent._tool_backend = MagicMock()
 
     try:
         async def scenario() -> list[Any]:
@@ -585,6 +658,7 @@ def test_astream_handles_hitl_with_local_interrupt_buffer() -> None:
     base_dir = _make_base_dir()
     agent = _build_agent(base_dir)
     agent._graph = FakeInterruptGraph()
+    agent._tool_backend = MagicMock()
 
     try:
         async def scenario() -> list[Any]:

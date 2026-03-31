@@ -138,6 +138,40 @@ func (s *Service) RunAgent(
 	return stream, nil
 }
 
+// UploadWorkspaceFiles stages files into one agent/thread workspace before execution.
+func (s *Service) UploadWorkspaceFiles(
+	ctx context.Context,
+	req domain.WorkspaceUploadRequest,
+) (domain.WorkspaceUploadResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return domain.WorkspaceUploadResponse{}, err
+	}
+
+	agentName := strings.TrimSpace(req.AgentName)
+	if agentName == "" {
+		return domain.WorkspaceUploadResponse{}, ErrEmptyAgentName
+	}
+	req.AgentName = agentName
+
+	if err := s.ensureRunnable(ctx, agentName); err != nil {
+		return domain.WorkspaceUploadResponse{}, fmt.Errorf(
+			"ensure runnable agent %q: %w",
+			agentName,
+			err,
+		)
+	}
+
+	response, err := s.resourceSync.UploadWorkspaceFiles(ctx, req)
+	if err != nil {
+		return domain.WorkspaceUploadResponse{}, fmt.Errorf(
+			"upload workspace files for agent %q: %w",
+			agentName,
+			err,
+		)
+	}
+	return response, nil
+}
+
 // Health 预留 data plane health 的 northbound 聚合入口。
 func (s *Service) Health(ctx context.Context) (runtimeclient.HealthResponse, error) {
 	resp, err := s.resourceSync.Health(ctx)

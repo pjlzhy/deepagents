@@ -33,6 +33,13 @@ func (*stubBootstrapRuntimeClient) Assemble(
 	return runtimeclient.AssembleResponse{OK: true, Status: "compiled"}, nil
 }
 
+func (*stubBootstrapRuntimeClient) UploadWorkspaceFiles(
+	context.Context,
+	domain.WorkspaceUploadRequest,
+) (domain.WorkspaceUploadResponse, error) {
+	return domain.WorkspaceUploadResponse{}, nil
+}
+
 func (*stubBootstrapRuntimeClient) RemoveAgent(
 	context.Context,
 	string,

@@ -305,10 +305,13 @@ type fakeResourceSyncClient struct {
 	syncErr        error
 	assembleResp   runtimeclient.AssembleResponse
 	assembleErr    error
+	uploadResp     domain.WorkspaceUploadResponse
+	uploadErr      error
 	healthResp     runtimeclient.HealthResponse
 	healthErr      error
 	syncedSpec     domain.RuntimeAgentSpec
 	assembledAgent string
+	uploadReq      domain.WorkspaceUploadRequest
 	callLog        *[]string
 }
 
@@ -332,6 +335,14 @@ func (f *fakeResourceSyncClient) Assemble(
 	}
 	f.assembledAgent = agentName
 	return f.assembleResp, f.assembleErr
+}
+
+func (f *fakeResourceSyncClient) UploadWorkspaceFiles(
+	_ context.Context,
+	req domain.WorkspaceUploadRequest,
+) (domain.WorkspaceUploadResponse, error) {
+	f.uploadReq = req
+	return f.uploadResp, f.uploadErr
 }
 
 func (f *fakeResourceSyncClient) RemoveAgent(
@@ -727,6 +738,70 @@ func TestRunAgentEnsuresRunnableBeforeOpeningStream(t *testing.T) {
 	}
 
 	wantOrder := []string{"resolve", "package", "sync", "assemble", "open_run"}
+	if len(callLog) != len(wantOrder) {
+		t.Fatalf("unexpected call count: %#v", callLog)
+	}
+	for index, want := range wantOrder {
+		if callLog[index] != want {
+			t.Fatalf("unexpected call order: %#v", callLog)
+		}
+	}
+}
+
+func TestUploadWorkspaceFilesEnsuresRunnableBeforeDelegating(t *testing.T) {
+	callLog := []string{}
+	resolver := &fakeResolver{
+		result:  testResolvedAgentInput("demo-agent"),
+		callLog: &callLog,
+	}
+	packager := &fakePackager{
+		result:  testRuntimeAgentSpec("demo-agent"),
+		callLog: &callLog,
+	}
+	resourceSync := &fakeResourceSyncClient{
+		syncResp:     runtimeclient.SyncResponse{OK: true},
+		assembleResp: runtimeclient.AssembleResponse{OK: true, Status: "compiled"},
+		uploadResp: domain.WorkspaceUploadResponse{
+			ThreadID: "thread-1",
+			Files: []domain.WorkspaceUploadResult{
+				{Path: "/workspace/report.txt"},
+			},
+		},
+		callLog: &callLog,
+	}
+
+	service, err := NewService(Dependencies{
+		Resolver:     resolver,
+		Packager:     packager,
+		ResourceSync: resourceSync,
+		Executor:     fakeExecutorClient{},
+		Sessions:     fakeSessionQueryClient{},
+	})
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	resp, err := service.UploadWorkspaceFiles(
+		context.Background(),
+		domain.WorkspaceUploadRequest{
+			AgentName: " demo-agent ",
+			ThreadID:  "thread-1",
+			Files: []domain.WorkspaceUploadFile{
+				{Path: "report.txt", Content: []byte("hello")},
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("UploadWorkspaceFiles: %v", err)
+	}
+	if resp.ThreadID != "thread-1" || len(resp.Files) != 1 {
+		t.Fatalf("unexpected upload response: %#v", resp)
+	}
+	if resourceSync.uploadReq.AgentName != "demo-agent" || resourceSync.uploadReq.ThreadID != "thread-1" {
+		t.Fatalf("unexpected upload request: %#v", resourceSync.uploadReq)
+	}
+
+	wantOrder := []string{"resolve", "package", "sync", "assemble"}
 	if len(callLog) != len(wantOrder) {
 		t.Fatalf("unexpected call count: %#v", callLog)
 	}

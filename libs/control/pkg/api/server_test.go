@@ -16,6 +16,9 @@ type fakeAgentService struct {
 	runStream  runtimeclient.RunStream
 	runErr     error
 	runRequest domain.RunRequest
+	uploadResp domain.WorkspaceUploadResponse
+	uploadErr  error
+	uploadReq  domain.WorkspaceUploadRequest
 
 	healthResp runtimeclient.HealthResponse
 	healthErr  error
@@ -121,6 +124,14 @@ func (f *fakeAgentService) EnsureRunnable(_ context.Context, agentName string) e
 func (f *fakeAgentService) RunAgent(_ context.Context, req domain.RunRequest) (runtimeclient.RunStream, error) {
 	f.runRequest = req
 	return f.runStream, f.runErr
+}
+
+func (f *fakeAgentService) UploadWorkspaceFiles(
+	_ context.Context,
+	req domain.WorkspaceUploadRequest,
+) (domain.WorkspaceUploadResponse, error) {
+	f.uploadReq = req
+	return f.uploadResp, f.uploadErr
 }
 
 func (f *fakeAgentService) Health(context.Context) (runtimeclient.HealthResponse, error) {
@@ -337,7 +348,13 @@ func TestNewServerRejectsNilService(t *testing.T) {
 
 func TestServerDelegatesLifecycleAndHealth(t *testing.T) {
 	service := &fakeAgentService{
-		runStream:  stubRunStream{},
+		runStream: stubRunStream{},
+		uploadResp: domain.WorkspaceUploadResponse{
+			ThreadID: "thread-1",
+			Files: []domain.WorkspaceUploadResult{
+				{Path: "/workspace/report.txt"},
+			},
+		},
 		healthResp: runtimeclient.HealthResponse{Ready: true, Status: "ok"},
 	}
 	server, err := NewServer(service)
@@ -364,6 +381,26 @@ func TestServerDelegatesLifecycleAndHealth(t *testing.T) {
 	}
 	if service.runRequest.AgentName != "assistant" {
 		t.Fatalf("unexpected run inputs: %#v", service)
+	}
+
+	uploadResp, err := server.UploadWorkspaceFiles(
+		context.Background(),
+		domain.WorkspaceUploadRequest{
+			AgentName: "assistant",
+			ThreadID:  "thread-1",
+			Files: []domain.WorkspaceUploadFile{
+				{Path: "report.txt", Content: []byte("hello")},
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("UploadWorkspaceFiles: %v", err)
+	}
+	if uploadResp.ThreadID != "thread-1" || len(uploadResp.Files) != 1 {
+		t.Fatalf("unexpected upload response: %#v", uploadResp)
+	}
+	if service.uploadReq.AgentName != "assistant" || service.uploadReq.ThreadID != "thread-1" {
+		t.Fatalf("unexpected upload request: %#v", service.uploadReq)
 	}
 
 	health, err := server.Health(context.Background())

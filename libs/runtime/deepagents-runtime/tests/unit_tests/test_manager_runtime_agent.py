@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
@@ -61,6 +62,11 @@ class FakeRegistry:
         path.mkdir(parents=True, exist_ok=True)
         return path
 
+    def thread_workspace_dir(self, name: str, thread_id: str) -> Path:
+        path = self.workspace_dir(name) / thread_id
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
     def memory_dir(self, name: str) -> Path:
         path = self.runtime_dir(name) / "memory" / "AGENTS.md"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -69,6 +75,11 @@ class FakeRegistry:
 
     def history_dir(self, name: str) -> Path:
         path = self.runtime_dir(name) / "conversation_history"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def thread_history_dir(self, name: str, thread_id: str) -> Path:
+        path = self.history_dir(name) / thread_id
         path.mkdir(parents=True, exist_ok=True)
         return path
 
@@ -225,6 +236,47 @@ def test_invoke_passes_message_thread_id_and_run_id() -> None:
         updated_at = datetime.fromisoformat(captured["config"]["metadata"]["updated_at"])
         assert updated_at.tzinfo == UTC
         assert captured["last_invoked"] is not None
+    finally:
+        shutil.rmtree(base_dir, ignore_errors=True)
+
+
+def test_upload_workspace_files_generates_thread_and_delegates_to_runtime_agent() -> None:
+    """upload_workspace_files should generate a thread ID and call the runtime agent."""
+
+    base_dir = _make_base_dir()
+    registry = FakeRegistry(base_dir)
+    manager = AgentManager(registry=registry)
+    captured: dict[str, Any] = {}
+
+    try:
+        with patch("deepagents_runtime.manager.manager.get_checkpointer", _fake_checkpointer):
+            async def scenario() -> tuple[str, list[Any]]:
+                await manager.define_agent(_build_spec())
+                agent = await manager.agent_pool.get("demo-agent")  # type: ignore[union-attr]
+                agent._graph = object()
+
+                def fake_upload_workspace_files(
+                        *,
+                        thread_id: str,
+                        files: list[tuple[str, bytes]],
+                ) -> list[Any]:
+                    captured["thread_id"] = thread_id
+                    captured["files"] = files
+                    return [SimpleNamespace(path="/workspace/report.txt", error=None)]
+
+                with patch.object(agent, "upload_workspace_files", fake_upload_workspace_files):
+                    return await manager.upload_workspace_files(
+                        name="demo-agent",
+                        thread_id="",
+                        files=[("report.txt", b"hello")],
+                    )
+
+            thread_id, responses = asyncio.run(scenario())
+
+        assert len(thread_id) == 8
+        assert captured["thread_id"] == thread_id
+        assert captured["files"] == [("report.txt", b"hello")]
+        assert responses[0].path == "/workspace/report.txt"
     finally:
         shutil.rmtree(base_dir, ignore_errors=True)
 

@@ -14,7 +14,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -97,6 +99,7 @@ func (h *HTTPHandler) registerRoutes() {
 	h.serveMux.HandleFunc("GET /api/v1/agents/{name}", h.handleGetAgentSpec)
 	h.serveMux.HandleFunc("DELETE /api/v1/agents/{name}", h.handleDeleteAgentSpec)
 	h.serveMux.HandleFunc("POST /api/v1/agents/{agent}/ensure_runnable", h.handleEnsureRunnable)
+	h.serveMux.HandleFunc("POST /api/v1/agents/{agent}/workspace/files", h.handleUploadWorkspaceFiles)
 	h.serveMux.HandleFunc("POST /api/v1/agents/{agent}/runs/stream", h.handleRunStream)
 	h.serveMux.HandleFunc("GET /api/v1/sessions", h.handleListSessions)
 	h.serveMux.HandleFunc("GET /api/v1/sessions/latest", h.handleGetLatestSession)
@@ -203,6 +206,23 @@ func (h *HTTPHandler) handleEnsureRunnable(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
+}
+
+func (h *HTTPHandler) handleUploadWorkspaceFiles(w http.ResponseWriter, r *http.Request) {
+	agentName := strings.TrimSpace(r.PathValue("agent"))
+	request, err := decodeWorkspaceUploadRequest(r)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+	request.AgentName = agentName
+
+	response, err := h.service.UploadWorkspaceFiles(r.Context(), request)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, newHTTPWorkspaceUploadResponse(response))
 }
 
 func (h *HTTPHandler) handleListSessions(w http.ResponseWriter, r *http.Request) {
@@ -896,6 +916,16 @@ type runStreamRequest struct {
 	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
+type workspaceUploadFileResponse struct {
+	Path  string `json:"path,omitempty"`
+	Error string `json:"error,omitempty"`
+}
+
+type workspaceUploadResponse struct {
+	ThreadID string                        `json:"thread_id,omitempty"`
+	Files    []workspaceUploadFileResponse `json:"files"`
+}
+
 type cancelRequest struct {
 	Reason string `json:"reason,omitempty"`
 }
@@ -1531,6 +1561,58 @@ func decodeSkillPackageUploadRequest(r *http.Request) (decodedSkillPackageUpload
 	}, nil
 }
 
+func decodeWorkspaceUploadRequest(r *http.Request) (domain.WorkspaceUploadRequest, error) {
+	if err := r.ParseMultipartForm(64 << 20); err != nil {
+		return domain.WorkspaceUploadRequest{}, fmt.Errorf("parse multipart form: %w", err)
+	}
+
+	uploadedFiles := make([]domain.WorkspaceUploadFile, 0)
+	if r.MultipartForm != nil {
+		for _, field := range []string{"files", "file"} {
+			for _, header := range r.MultipartForm.File[field] {
+				item, err := newWorkspaceUploadFile(header)
+				if err != nil {
+					return domain.WorkspaceUploadRequest{}, err
+				}
+				uploadedFiles = append(uploadedFiles, item)
+			}
+		}
+	}
+	if len(uploadedFiles) == 0 {
+		return domain.WorkspaceUploadRequest{}, errors.New("multipart field \"files\" must contain at least one file")
+	}
+
+	return domain.WorkspaceUploadRequest{
+		ThreadID: strings.TrimSpace(r.FormValue("thread_id")),
+		Files:    uploadedFiles,
+	}, nil
+}
+
+func newWorkspaceUploadFile(header *multipart.FileHeader) (domain.WorkspaceUploadFile, error) {
+	if header == nil {
+		return domain.WorkspaceUploadFile{}, errors.New("workspace upload file header must not be nil")
+	}
+	file, err := header.Open()
+	if err != nil {
+		return domain.WorkspaceUploadFile{}, fmt.Errorf("open workspace upload: %w", err)
+	}
+	defer file.Close()
+
+	content, err := io.ReadAll(file)
+	if err != nil {
+		return domain.WorkspaceUploadFile{}, fmt.Errorf("read workspace upload: %w", err)
+	}
+
+	name := strings.TrimSpace(filepath.Base(header.Filename))
+	if name == "" || name == "." || name == ".." {
+		return domain.WorkspaceUploadFile{}, errors.New("uploaded file must have a valid filename")
+	}
+	return domain.WorkspaceUploadFile{
+		Path:    name,
+		Content: content,
+	}, nil
+}
+
 func decodeMCPConfigRequest(r *http.Request) (domain.MCPConfig, error) {
 	name, err := decodeResourceName(r, "name")
 	if err != nil {
@@ -1801,6 +1883,20 @@ func newHTTPHealthResponse(resp runtimeclient.HealthResponse) healthResponse {
 		RunningAgentCount:   resp.RunningAgentCount,
 		UptimeSeconds:       resp.UptimeSeconds,
 		Ready:               resp.Ready,
+	}
+}
+
+func newHTTPWorkspaceUploadResponse(resp domain.WorkspaceUploadResponse) workspaceUploadResponse {
+	files := make([]workspaceUploadFileResponse, 0, len(resp.Files))
+	for _, item := range resp.Files {
+		files = append(files, workspaceUploadFileResponse{
+			Path:  item.Path,
+			Error: item.Error,
+		})
+	}
+	return workspaceUploadResponse{
+		ThreadID: resp.ThreadID,
+		Files:    files,
 	}
 }
 

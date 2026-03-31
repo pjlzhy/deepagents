@@ -60,6 +60,18 @@ def _agent_runtime_dir(base_dir: Path, name: str) -> Path:
     return _agent_dir(base_dir, name) / "runtime"
 
 
+def _normalize_thread_id(thread_id: str) -> str:
+    """Normalize one runtime thread identifier for filesystem use."""
+    normalized = thread_id.strip()
+    if not normalized:
+        raise ValueError("thread_id must not be empty")
+    if "/" in normalized or "\\" in normalized:
+        raise ValueError("thread_id must not contain path separators")
+    if normalized in {".", ".."}:
+        raise ValueError("thread_id must not be a traversal segment")
+    return normalized
+
+
 def _resolve_skill_file_path(skill_dir: Path, relative_path: str) -> Path:
     """Resolve and validate a relative skill file path."""
     if not relative_path.strip():
@@ -205,6 +217,14 @@ class Registry:
     def workspace_dir(self, name: str) -> Path:
         """Return the agent's runtime-visible workspace directory."""
         return self.runtime_dir(name) / "workspace"
+
+    def thread_workspace_dir(self, name: str, thread_id: str) -> Path:
+        """Return the current thread's workspace directory."""
+        return self.workspace_dir(name) / _normalize_thread_id(thread_id)
+
+    def thread_history_dir(self, name: str, thread_id: str) -> Path:
+        """Return the current thread's conversation-history directory."""
+        return self.history_dir(name) / _normalize_thread_id(thread_id)
 
     # ── Agent Specs ──
 

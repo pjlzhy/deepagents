@@ -52,6 +52,31 @@ type RunRequest struct {
 	Metadata  map[string]string
 }
 
+// WorkspaceUploadFile describes one file staged into a thread workspace.
+type WorkspaceUploadFile struct {
+	Path    string
+	Content []byte
+}
+
+// WorkspaceUploadRequest is shared across northbound and southbound upload flows.
+type WorkspaceUploadRequest struct {
+	AgentName string
+	ThreadID  string
+	Files     []WorkspaceUploadFile
+}
+
+// WorkspaceUploadResult captures one uploaded file outcome.
+type WorkspaceUploadResult struct {
+	Path  string
+	Error string
+}
+
+// WorkspaceUploadResponse reports the resolved thread and per-file results.
+type WorkspaceUploadResponse struct {
+	ThreadID string
+	Files    []WorkspaceUploadResult
+}
+
 // SessionHistoryMode describes one session-history view mode.
 type SessionHistoryMode string
 

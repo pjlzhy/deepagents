@@ -143,12 +143,13 @@ var AgentExecutor_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	ResourceSync_SyncSkill_FullMethodName      = "/deepagents.runtime.v1.ResourceSync/SyncSkill"
-	ResourceSync_SyncMcp_FullMethodName        = "/deepagents.runtime.v1.ResourceSync/SyncMcp"
-	ResourceSync_SyncAgentSpec_FullMethodName  = "/deepagents.runtime.v1.ResourceSync/SyncAgentSpec"
-	ResourceSync_Assemble_FullMethodName       = "/deepagents.runtime.v1.ResourceSync/Assemble"
-	ResourceSync_RemoveResource_FullMethodName = "/deepagents.runtime.v1.ResourceSync/RemoveResource"
-	ResourceSync_Health_FullMethodName         = "/deepagents.runtime.v1.ResourceSync/Health"
+	ResourceSync_SyncSkill_FullMethodName            = "/deepagents.runtime.v1.ResourceSync/SyncSkill"
+	ResourceSync_SyncMcp_FullMethodName              = "/deepagents.runtime.v1.ResourceSync/SyncMcp"
+	ResourceSync_SyncAgentSpec_FullMethodName        = "/deepagents.runtime.v1.ResourceSync/SyncAgentSpec"
+	ResourceSync_Assemble_FullMethodName             = "/deepagents.runtime.v1.ResourceSync/Assemble"
+	ResourceSync_UploadWorkspaceFiles_FullMethodName = "/deepagents.runtime.v1.ResourceSync/UploadWorkspaceFiles"
+	ResourceSync_RemoveResource_FullMethodName       = "/deepagents.runtime.v1.ResourceSync/RemoveResource"
+	ResourceSync_Health_FullMethodName               = "/deepagents.runtime.v1.ResourceSync/Health"
 )
 
 // ResourceSyncClient is the client API for ResourceSync service.
@@ -164,6 +165,8 @@ type ResourceSyncClient interface {
 	// Trigger agent assembly on the data plane.
 	// Prerequisite: the target AgentSpec must already be synced.
 	Assemble(ctx context.Context, in *AssembleRequest, opts ...grpc.CallOption) (*AssembleResponse, error)
+	// Upload one or more files into an agent/thread workspace.
+	UploadWorkspaceFiles(ctx context.Context, in *UploadWorkspaceFilesRequest, opts ...grpc.CallOption) (*UploadWorkspaceFilesResponse, error)
 	// Remove a synced runtime resource or cached spec from the data plane.
 	RemoveResource(ctx context.Context, in *RemoveResourceRequest, opts ...grpc.CallOption) (*SyncResponse, error)
 	// Health check / readiness probe.
@@ -218,6 +221,16 @@ func (c *resourceSyncClient) Assemble(ctx context.Context, in *AssembleRequest, 
 	return out, nil
 }
 
+func (c *resourceSyncClient) UploadWorkspaceFiles(ctx context.Context, in *UploadWorkspaceFilesRequest, opts ...grpc.CallOption) (*UploadWorkspaceFilesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UploadWorkspaceFilesResponse)
+	err := c.cc.Invoke(ctx, ResourceSync_UploadWorkspaceFiles_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *resourceSyncClient) RemoveResource(ctx context.Context, in *RemoveResourceRequest, opts ...grpc.CallOption) (*SyncResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SyncResponse)
@@ -251,6 +264,8 @@ type ResourceSyncServer interface {
 	// Trigger agent assembly on the data plane.
 	// Prerequisite: the target AgentSpec must already be synced.
 	Assemble(context.Context, *AssembleRequest) (*AssembleResponse, error)
+	// Upload one or more files into an agent/thread workspace.
+	UploadWorkspaceFiles(context.Context, *UploadWorkspaceFilesRequest) (*UploadWorkspaceFilesResponse, error)
 	// Remove a synced runtime resource or cached spec from the data plane.
 	RemoveResource(context.Context, *RemoveResourceRequest) (*SyncResponse, error)
 	// Health check / readiness probe.
@@ -276,6 +291,9 @@ func (UnimplementedResourceSyncServer) SyncAgentSpec(context.Context, *SyncAgent
 }
 func (UnimplementedResourceSyncServer) Assemble(context.Context, *AssembleRequest) (*AssembleResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Assemble not implemented")
+}
+func (UnimplementedResourceSyncServer) UploadWorkspaceFiles(context.Context, *UploadWorkspaceFilesRequest) (*UploadWorkspaceFilesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UploadWorkspaceFiles not implemented")
 }
 func (UnimplementedResourceSyncServer) RemoveResource(context.Context, *RemoveResourceRequest) (*SyncResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RemoveResource not implemented")
@@ -376,6 +394,24 @@ func _ResourceSync_Assemble_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ResourceSync_UploadWorkspaceFiles_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UploadWorkspaceFilesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ResourceSyncServer).UploadWorkspaceFiles(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ResourceSync_UploadWorkspaceFiles_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ResourceSyncServer).UploadWorkspaceFiles(ctx, req.(*UploadWorkspaceFilesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ResourceSync_RemoveResource_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(RemoveResourceRequest)
 	if err := dec(in); err != nil {
@@ -434,6 +470,10 @@ var ResourceSync_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Assemble",
 			Handler:    _ResourceSync_Assemble_Handler,
+		},
+		{
+			MethodName: "UploadWorkspaceFiles",
+			Handler:    _ResourceSync_UploadWorkspaceFiles_Handler,
 		},
 		{
 			MethodName: "RemoveResource",

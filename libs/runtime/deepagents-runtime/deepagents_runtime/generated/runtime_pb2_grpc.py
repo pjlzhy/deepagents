@@ -168,6 +168,11 @@ class ResourceSyncStub(object):
                 request_serializer=runtime__pb2.AssembleRequest.SerializeToString,
                 response_deserializer=runtime__pb2.AssembleResponse.FromString,
                 _registered_method=True)
+        self.UploadWorkspaceFiles = channel.unary_unary(
+                '/deepagents.runtime.v1.ResourceSync/UploadWorkspaceFiles',
+                request_serializer=runtime__pb2.UploadWorkspaceFilesRequest.SerializeToString,
+                response_deserializer=runtime__pb2.UploadWorkspaceFilesResponse.FromString,
+                _registered_method=True)
         self.RemoveResource = channel.unary_unary(
                 '/deepagents.runtime.v1.ResourceSync/RemoveResource',
                 request_serializer=runtime__pb2.RemoveResourceRequest.SerializeToString,
@@ -221,6 +226,13 @@ class ResourceSyncServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def UploadWorkspaceFiles(self, request, context):
+        """Upload one or more files into an agent/thread workspace.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def RemoveResource(self, request, context):
         """Remove a synced runtime resource or cached spec from the data plane.
         """
@@ -257,6 +269,11 @@ def add_ResourceSyncServicer_to_server(servicer, server):
                     servicer.Assemble,
                     request_deserializer=runtime__pb2.AssembleRequest.FromString,
                     response_serializer=runtime__pb2.AssembleResponse.SerializeToString,
+            ),
+            'UploadWorkspaceFiles': grpc.unary_unary_rpc_method_handler(
+                    servicer.UploadWorkspaceFiles,
+                    request_deserializer=runtime__pb2.UploadWorkspaceFilesRequest.FromString,
+                    response_serializer=runtime__pb2.UploadWorkspaceFilesResponse.SerializeToString,
             ),
             'RemoveResource': grpc.unary_unary_rpc_method_handler(
                     servicer.RemoveResource,
@@ -386,6 +403,33 @@ class ResourceSync(object):
             '/deepagents.runtime.v1.ResourceSync/Assemble',
             runtime__pb2.AssembleRequest.SerializeToString,
             runtime__pb2.AssembleResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def UploadWorkspaceFiles(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/deepagents.runtime.v1.ResourceSync/UploadWorkspaceFiles',
+            runtime__pb2.UploadWorkspaceFilesRequest.SerializeToString,
+            runtime__pb2.UploadWorkspaceFilesResponse.FromString,
             options,
             channel_credentials,
             insecure,

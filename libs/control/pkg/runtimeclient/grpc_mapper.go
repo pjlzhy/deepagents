@@ -226,6 +226,44 @@ func runRequestToProto(req domain.RunRequest) *runtimev1.RunRequest {
 	}
 }
 
+func workspaceUploadRequestToProto(
+	req domain.WorkspaceUploadRequest,
+) *runtimev1.UploadWorkspaceFilesRequest {
+	files := make([]*runtimev1.UploadWorkspaceFile, 0, len(req.Files))
+	for _, item := range req.Files {
+		files = append(files, &runtimev1.UploadWorkspaceFile{
+			Path:    item.Path,
+			Content: item.Content,
+		})
+	}
+
+	return &runtimev1.UploadWorkspaceFilesRequest{
+		AgentName: req.AgentName,
+		ThreadId:  req.ThreadID,
+		Files:     files,
+	}
+}
+
+func workspaceUploadResponseFromProto(
+	resp *runtimev1.UploadWorkspaceFilesResponse,
+) domain.WorkspaceUploadResponse {
+	if resp == nil {
+		return domain.WorkspaceUploadResponse{}
+	}
+
+	files := make([]domain.WorkspaceUploadResult, 0, len(resp.GetFiles()))
+	for _, item := range resp.GetFiles() {
+		files = append(files, domain.WorkspaceUploadResult{
+			Path:  item.GetPath(),
+			Error: item.GetError(),
+		})
+	}
+	return domain.WorkspaceUploadResponse{
+		ThreadID: resp.GetThreadId(),
+		Files:    files,
+	}
+}
+
 func sessionSummaryFromProto(
 	summary *runtimev1.SessionSummary,
 	checkpointCount int32,

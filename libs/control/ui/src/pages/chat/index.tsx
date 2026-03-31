@@ -14,7 +14,7 @@ import {
   Typography,
 } from '@arco-design/web-react';
 import useSWR from 'swr';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { links } from '@/app/links';
 import {
@@ -421,10 +421,13 @@ export default function ChatWorkspacePage() {
   const selectedThreadId = params.threadId;
   const streamAbortRef = useRef<AbortController | null>(null);
   const timelineViewportRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [runSessionId, setRunSessionId] = useState<string | undefined>(undefined);
   const [composerValue, setComposerValue] = useState('');
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [uploadingFiles, setUploadingFiles] = useState(false);
+  const [uploadedWorkspaceFiles, setUploadedWorkspaceFiles] = useState<string[]>([]);
   const [runtimeState, setRuntimeState] = useState(() => createRuntimeStateFromHistory([]));
 
   const agentsQuery = useSWR('chat-agents', () => controlClient.agents.list({ pageSize: 100, pageNumber: 1 }));
@@ -494,7 +497,7 @@ export default function ChatWorkspacePage() {
   );
   const statusView = formatStatus(runtimeState.runStatus);
   const hasPendingInterrupts = runtimeState.pendingInterrupts.length > 0;
-  const composerDisabled = !selectedAgentName || isRunActive(runtimeState.runStatus);
+  const composerDisabled = !selectedAgentName || isRunActive(runtimeState.runStatus) || uploadingFiles;
 
   async function startRun(): Promise<void> {
     if (!selectedAgentName) {
@@ -602,6 +605,75 @@ export default function ChatWorkspacePage() {
     }
   }
 
+  function openWorkspaceUploadPicker(): void {
+    if (!selectedAgentName) {
+      Message.warning('Please select an agent first.');
+      return;
+    }
+    if (isRunActive(runtimeState.runStatus)) {
+      Message.warning('Wait for the current run to finish before uploading new files.');
+      return;
+    }
+    fileInputRef.current?.click();
+  }
+
+  async function handleWorkspaceFilesSelected(event: ChangeEvent<HTMLInputElement>): Promise<void> {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = '';
+    if (files.length === 0) {
+      return;
+    }
+    if (!selectedAgentName) {
+      Message.warning('Please select an agent first.');
+      return;
+    }
+    if (isRunActive(runtimeState.runStatus)) {
+      Message.warning('Wait for the current run to finish before uploading new files.');
+      return;
+    }
+
+    setUploadingFiles(true);
+    try {
+      const response = await controlClient.agents.uploadWorkspaceFiles(
+        selectedAgentName,
+        files,
+        selectedThreadId,
+      );
+
+      const successful = (response.files ?? []).filter((item) => !item.error && item.path);
+      const failed = (response.files ?? []).filter((item) => item.error);
+      if (successful.length > 0) {
+        setUploadedWorkspaceFiles((previous) => {
+          const next = new Set(previous);
+          for (const item of successful) {
+            if (item.path) {
+              next.add(item.path);
+            }
+          }
+          return Array.from(next);
+        });
+      }
+
+      if (response.thread_id && selectedAgentName && response.thread_id !== selectedThreadId) {
+        void navigate(links.chatThread(selectedAgentName, response.thread_id), { replace: !selectedThreadId });
+      }
+      void sessionsQuery.mutate();
+      void messagesQuery.mutate();
+
+      if (successful.length > 0 && failed.length === 0) {
+        Message.success(`uploaded ${successful.length} file${successful.length === 1 ? '' : 's'} to workspace`);
+      } else if (successful.length > 0) {
+        Message.warning(`uploaded ${successful.length} file(s), ${failed.length} failed`);
+      } else {
+        Message.error(failed.map((item) => `${item.path ?? 'unknown'}: ${item.error ?? 'upload_failed'}`).join('; '));
+      }
+    } catch (error) {
+      Message.error(error instanceof Error ? error.message : 'workspace upload failed');
+    } finally {
+      setUploadingFiles(false);
+    }
+  }
+
   function handleAgentChange(value: string | number | Record<string, unknown> | undefined): void {
     if (isRunActive(runtimeState.runStatus)) {
       Message.warning('The current run is still active. Switching agents is disabled.');
@@ -651,6 +723,8 @@ export default function ChatWorkspacePage() {
     setRunSessionId(undefined);
     setComposerValue('');
     setInspectorOpen(false);
+    setUploadingFiles(false);
+    setUploadedWorkspaceFiles([]);
     setRuntimeState(createRuntimeStateFromHistory([]));
   }
 
@@ -763,6 +837,25 @@ export default function ChatWorkspacePage() {
         </div>
 
         <div className='mt-12px shrink-0 border-t border-[var(--control-border)] bg-[var(--control-panel)] pt-12px'>
+          <input
+            ref={fileInputRef}
+            type='file'
+            multiple
+            className='hidden'
+            onChange={(event) => {
+              void handleWorkspaceFilesSelected(event);
+            }}
+          />
+          {uploadedWorkspaceFiles.length > 0 ? (
+            <div className='mb-12px flex flex-wrap items-center gap-8px'>
+              <Typography.Text className='text-[var(--control-subtle)]'>workspace files</Typography.Text>
+              {uploadedWorkspaceFiles.map((path) => (
+                <Tag key={path} color='arcoblue'>
+                  {path}
+                </Tag>
+              ))}
+            </div>
+          ) : null}
           <TextArea
             autoSize={{ minRows: 4, maxRows: 10 }}
             placeholder='Type a message. Press Enter to send and Shift+Enter for a new line.'
@@ -778,13 +871,23 @@ export default function ChatWorkspacePage() {
           />
           <div className='mt-12px flex flex-wrap items-center justify-between gap-12px'>
             <Typography.Text className='text-[var(--control-subtle)]'>
-              {runtimeState.runStatus === 'waiting_hitl'
+              {uploadingFiles
+                ? 'Uploading files to the current workspace...'
+                : runtimeState.runStatus === 'waiting_hitl'
                 ? 'Sending is paused until the pending HITL request is resolved.'
                 : isRunActive(runtimeState.runStatus)
                   ? 'The current run is still active. Wait, cancel, or resolve HITL before sending again.'
                   : 'Press Enter to send. Use Shift+Enter for a new line.'}
             </Typography.Text>
             <Space wrap>
+              <Button
+                type='outline'
+                loading={uploadingFiles}
+                disabled={!selectedAgentName || isRunActive(runtimeState.runStatus)}
+                onClick={openWorkspaceUploadPicker}
+              >
+                Upload
+              </Button>
               <Button
                 icon={<Pause theme='outline' size='16' fill='currentColor' />}
                 disabled={!runSessionId || !isRunActive(runtimeState.runStatus)}
