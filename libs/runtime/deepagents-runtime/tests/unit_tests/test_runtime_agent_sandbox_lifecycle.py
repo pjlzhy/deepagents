@@ -15,10 +15,10 @@ from langchain_core.messages import HumanMessage
 from langchain_core.messages import AIMessageChunk
 
 from deepagents.backends import LocalShellBackend
-from deepagents.middleware.filesystem import FilesystemMiddleware
 from deepagents.middleware.summarization import SummarizationMiddleware
 from deepagents_runtime.agent import RuntimeAgent
-from deepagents_runtime.runtime_backend import ThreadScopedRuntimeBackend
+from deepagents_runtime.runtime_backend import ThreadRuntimeBackend
+from deepagents_runtime.runtime_filesystem import RuntimeFilesystemMiddleware
 from deepagents_runtime.spec import AgentSpec, RuntimeEventType, SandboxRuntime
 
 
@@ -33,36 +33,79 @@ class FakeRegistry:
         path.mkdir(parents=True, exist_ok=True)
         return path
 
-    def workspace_dir(self, name: str) -> Path:
-        path = self.runtime_dir(name) / "workspace"
+    def shared_dir(self, name: str) -> Path:
+        path = self.runtime_dir(name) / "shared"
         path.mkdir(parents=True, exist_ok=True)
         return path
 
-    def thread_workspace_dir(self, name: str, thread_id: str) -> Path:
-        path = self.workspace_dir(name) / thread_id
+    def shared_skills_dir(self, name: str) -> Path:
+        path = self.shared_dir(name) / "skills"
         path.mkdir(parents=True, exist_ok=True)
         return path
 
-    def memory_dir(self, name: str) -> Path:
-        path = self.runtime_dir(name) / "memory" / "AGENTS.md"
+    def shared_memory_file(self, name: str) -> Path:
+        path = self.shared_dir(name) / "memory" / "AGENTS.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.touch(exist_ok=True)
         return path
 
-    def history_dir(self, name: str) -> Path:
-        path = self.runtime_dir(name) / "conversation_history"
+    def threads_dir(self, name: str) -> Path:
+        path = self.runtime_dir(name) / "threads"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def thread_root_dir(self, name: str, thread_id: str) -> Path:
+        path = self.threads_dir(name) / thread_id
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def thread_runtime_dir(self, name: str, thread_id: str) -> Path:
+        path = self.thread_root_dir(name, thread_id) / ".runtime"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def thread_memory_file(self, name: str, thread_id: str) -> Path:
+        path = self.thread_runtime_dir(name, thread_id) / "memory" / "AGENTS.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def thread_skills_dir(self, name: str, thread_id: str) -> Path:
+        path = self.thread_runtime_dir(name, thread_id) / "skills"
         path.mkdir(parents=True, exist_ok=True)
         return path
 
     def thread_history_dir(self, name: str, thread_id: str) -> Path:
-        path = self.history_dir(name) / thread_id
+        path = self.thread_runtime_dir(name, thread_id) / "conversation_history"
         path.mkdir(parents=True, exist_ok=True)
         return path
 
+    def materialize_thread_root(self, name: str, thread_id: str) -> Path:
+        root = self.thread_root_dir(name, thread_id)
+        memory_file = self.thread_memory_file(name, thread_id)
+        skills_dir = self.thread_skills_dir(name, thread_id)
+        self.thread_history_dir(name, thread_id)
+
+        shared_memory = self.shared_memory_file(name)
+        if not memory_file.exists():
+            if shared_memory.exists():
+                memory_file.write_text(shared_memory.read_text(encoding="utf-8"), encoding="utf-8")
+            else:
+                memory_file.touch()
+
+        shared_skills = self.shared_skills_dir(name)
+        if shared_skills.exists() and not any(skills_dir.iterdir()):
+            shutil.copytree(shared_skills, skills_dir, dirs_exist_ok=True)
+        return root
+
+    def delete_thread_dir(self, name: str, thread_id: str) -> None:
+        shutil.rmtree(self.thread_root_dir(name, thread_id), ignore_errors=True)
+
+    # Backward-compatible aliases used by some existing assertions.
     def skills_dir(self, name: str) -> Path:
-        path = self.runtime_dir(name) / "skills"
-        path.mkdir(parents=True, exist_ok=True)
-        return path
+        return self.shared_skills_dir(name)
+
+    def memory_dir(self, name: str) -> Path:
+        return self.shared_memory_file(name)
 
 
 class FakeSandboxBackend:
@@ -245,7 +288,7 @@ def test_assemble_creates_sandbox_runtime_once() -> None:
                                     side_effect=lambda middleware: middleware,
                                 ):
                                     with patch(
-                                        "deepagents_runtime.agent.create_deep_agent",
+                                        "deepagents_runtime.agent.create_runtime_deep_agent",
                                         return_value=fake_graph,
                                     ):
                                         with patch(
@@ -295,7 +338,7 @@ def test_assemble_without_sandbox_uses_one_filesystem_view_for_runtime_component
         captured["filesystem_view"] = kwargs["filesystem_view"]
         return "system prompt"
 
-    def fake_create_deep_agent(**kwargs: Any) -> FakeGraph:
+    def fake_create_runtime_deep_agent(**kwargs: Any) -> FakeGraph:
         captured["tool_backend"] = kwargs["backend"]
         return fake_graph
 
@@ -338,8 +381,8 @@ def test_assemble_without_sandbox_uses_one_filesystem_view_for_runtime_component
                                     side_effect=lambda middleware: middleware,
                                 ):
                                     with patch(
-                                        "deepagents_runtime.agent.create_deep_agent",
-                                        side_effect=fake_create_deep_agent,
+                                        "deepagents_runtime.agent.create_runtime_deep_agent",
+                                        side_effect=fake_create_runtime_deep_agent,
                                     ):
                                         with patch(
                                             "deepagents_runtime.agent.get_system_prompt",
@@ -350,22 +393,33 @@ def test_assemble_without_sandbox_uses_one_filesystem_view_for_runtime_component
         tool_backend = captured["tool_backend"]
         filesystem_view = captured["filesystem_view"]
 
-        assert isinstance(tool_backend, ThreadScopedRuntimeBackend)
-        assert filesystem_view.host_root_dir == (
+        tool_runtime = ToolRuntime(
+            state={"messages": []},
+            context=None,
+            tool_call_id="tool-call-1",
+            store=None,
+            stream_writer=lambda _: None,
+            config={"configurable": {"thread_id": "thread-1"}},
+        )
+        thread_backend = tool_backend(tool_runtime)
+
+        assert isinstance(thread_backend, ThreadRuntimeBackend)
+        assert filesystem_view.host_runtime_dir == (
             base_dir / "demo-agent" / "runtime"
         ).resolve()
-        assert filesystem_view.host_workspace_root_dir == (
-            base_dir / "demo-agent" / "runtime" / "workspace"
+        assert filesystem_view.host_threads_dir == (
+            base_dir / "demo-agent" / "runtime" / "threads"
         ).resolve()
-        assert filesystem_view.host_history_root_dir == (
-            base_dir / "demo-agent" / "runtime" / "conversation_history"
+        assert filesystem_view.host_shared_memory_file == (
+            base_dir / "demo-agent" / "runtime" / "shared" / "memory" / "AGENTS.md"
         ).resolve()
-        assert filesystem_view.backend_root_path == "/"
-        assert filesystem_view.visible_root_path == "/"
-        assert filesystem_view.visible_workspace_path == "/workspace"
-        assert filesystem_view.visible_skills_path == "/skills"
-        assert filesystem_view.visible_memory_path == "/memory/AGENTS.md"
-        assert filesystem_view.visible_history_path_prefix == "/conversation_history"
+        assert filesystem_view.host_shared_skills_dir == (
+            base_dir / "demo-agent" / "runtime" / "shared" / "skills"
+        ).resolve()
+        assert filesystem_view.visible_workspace_path == "."
+        assert filesystem_view.visible_skills_path == ".runtime/skills"
+        assert filesystem_view.visible_memory_path == ".runtime/memory/AGENTS.md"
+        assert filesystem_view.visible_history_path_prefix == ".runtime/conversation_history"
         assert captured["memory_kwargs"] == {
             "backend": tool_backend,
             "sources": [filesystem_view.visible_memory_path],
@@ -380,76 +434,71 @@ def test_assemble_without_sandbox_uses_one_filesystem_view_for_runtime_component
             "trigger": ("messages", 10),
             "keep": ("messages", 2),
             "trim_tokens_to_summarize": None,
-            "history_path_prefix": "/conversation_history",
+            "history_path_prefix": ".runtime/conversation_history",
             "truncate_args_settings": {"trigger": ("messages", 10)},
         }
-
-        tool_backend.bind_thread("thread-1")
-        shell_result = tool_backend.execute("cd")
-        assert shell_result.exit_code == 0
-        assert shell_result.output.strip() == str(
-            base_dir / "demo-agent" / "runtime" / "workspace" / "thread-1"
-        )
     finally:
         shutil.rmtree(base_dir, ignore_errors=True)
 
 
-def test_local_runtime_filesystem_ls_root_lists_visible_runtime_prefixes() -> None:
-    """Local file tools should expose the explicit virtual root prefixes."""
+def test_local_runtime_filesystem_ls_hides_runtime_dir_by_default() -> None:
+    """Runtime filesystem middleware should expose workspace-relative paths."""
 
     base_dir = _make_base_dir()
     agent = _build_agent(base_dir)
     filesystem_view = agent._build_filesystem_view(spec=None)
-    backend = agent._build_tool_backend(
-        filesystem_view=filesystem_view,
-        sandbox_backend=None,
+    shell_backend = agent._build_local_backend(filesystem_view=filesystem_view)
+    thread_backend = ThreadRuntimeBackend.for_local(
+        shell_backend=shell_backend,
+        thread_root_dir=agent.registry.materialize_thread_root(agent.spec.name, "thread-1"),
     )
-    backend.bind_thread("thread-1")
-    middleware = FilesystemMiddleware(backend=backend)
+    middleware = RuntimeFilesystemMiddleware(backend=thread_backend)
     ls_tool = next(tool for tool in middleware.tools if tool.name == "ls")
 
     try:
-        skills_dir = agent.registry.skills_dir(agent.spec.name) / "demo-skill"
+        skills_dir = agent.registry.shared_skills_dir(agent.spec.name) / "demo-skill"
         skills_dir.mkdir(parents=True, exist_ok=True)
         (skills_dir / "SKILL.md").write_text("# Demo Skill\n", encoding="utf-8")
+        (agent.registry.thread_root_dir(agent.spec.name, "thread-1") / "A.txt").write_text(
+            "hello\n",
+            encoding="utf-8",
+        )
 
         result = ls_tool.invoke(
             {
-                "path": "/",
+                "path": ".",
                 "runtime": _make_tool_runtime(),
             }
         )
 
-        assert "/conversation_history/" in result
-        assert "/memory/" in result
-        assert "/skills/" in result
-        assert "/workspace/" in result
+        assert "A.txt" in result
+        assert ".runtime/" not in result
     finally:
         shutil.rmtree(base_dir, ignore_errors=True)
 
 
-def test_local_runtime_filesystem_reads_memory_via_virtual_root() -> None:
-    """Local file tools should read memory files through the agent virtual root."""
+def test_local_runtime_filesystem_reads_thread_memory_snapshot() -> None:
+    """Runtime filesystem middleware should read thread-local memory snapshots."""
 
     base_dir = _make_base_dir()
     agent = _build_agent(base_dir)
     filesystem_view = agent._build_filesystem_view(spec=None)
-    backend = agent._build_tool_backend(
-        filesystem_view=filesystem_view,
-        sandbox_backend=None,
+    agent.registry.shared_memory_file(agent.spec.name).write_text(
+        "remember this preference\n",
+        encoding="utf-8",
     )
-    middleware = FilesystemMiddleware(backend=backend)
+    shell_backend = agent._build_local_backend(filesystem_view=filesystem_view)
+    thread_backend = ThreadRuntimeBackend.for_local(
+        shell_backend=shell_backend,
+        thread_root_dir=agent.registry.materialize_thread_root(agent.spec.name, "thread-1"),
+    )
+    middleware = RuntimeFilesystemMiddleware(backend=thread_backend)
     read_tool = next(tool for tool in middleware.tools if tool.name == "read_file")
 
     try:
-        agent.registry.memory_dir(agent.spec.name).write_text(
-            "remember this preference\n",
-            encoding="utf-8",
-        )
-
         result = read_tool.invoke(
             {
-                "file_path": "/memory/AGENTS.md",
+                "file_path": ".runtime/memory/AGENTS.md",
                 "runtime": _make_tool_runtime(),
             }
         )
@@ -459,69 +508,40 @@ def test_local_runtime_filesystem_reads_memory_via_virtual_root() -> None:
         shutil.rmtree(base_dir, ignore_errors=True)
 
 
-def test_local_runtime_shell_pwd_starts_in_thread_workspace() -> None:
-    """Local shell execution should start in the current thread workspace."""
+def test_local_runtime_shell_pwd_starts_in_thread_root() -> None:
+    """Thread backend execution should start in the current thread root."""
 
     base_dir = _make_base_dir()
     agent = _build_agent(base_dir)
     filesystem_view = agent._build_filesystem_view(spec=None)
-    backend = agent._build_tool_backend(
-        filesystem_view=filesystem_view,
-        sandbox_backend=None,
+    shell_backend = agent._build_local_backend(filesystem_view=filesystem_view)
+    thread_root = agent.registry.materialize_thread_root(agent.spec.name, "thread-1")
+    backend = ThreadRuntimeBackend.for_local(
+        shell_backend=shell_backend,
+        thread_root_dir=thread_root,
     )
-    backend.bind_thread("thread-1")
 
     try:
-        result = backend.execute("cd")
+        result = backend.execute("pwd")
 
         assert result.exit_code == 0
-        assert result.output.strip() == str(
-            filesystem_view.host_workspace_root_dir / "thread-1"
-        )
-    finally:
-        shutil.rmtree(base_dir, ignore_errors=True)
-
-
-def test_upload_workspace_files_writes_into_thread_workspace() -> None:
-    """Uploaded workspace files should land under the bound thread workspace."""
-
-    base_dir = _make_base_dir()
-    agent = _build_agent(base_dir)
-    filesystem_view = agent._build_filesystem_view(spec=None)
-    agent._tool_backend = agent._build_tool_backend(
-        filesystem_view=filesystem_view,
-        sandbox_backend=None,
-    )
-
-    try:
-        responses = agent.upload_workspace_files(
-            thread_id="thread-1",
-            files=[("report.txt", b"hello workspace")],
-        )
-
-        assert len(responses) == 1
-        assert responses[0].error is None
-        assert responses[0].path == "/workspace/report.txt"
-        uploaded = (
-            agent.registry.thread_workspace_dir(agent.spec.name, "thread-1")
-            / "report.txt"
-        )
-        assert uploaded.read_text(encoding="utf-8") == "hello workspace"
+        assert result.output.strip() == str(thread_root)
     finally:
         shutil.rmtree(base_dir, ignore_errors=True)
 
 
 def test_local_runtime_summarization_history_offloads_under_thread_root() -> None:
-    """Summarization offloads should stay within the current thread history root."""
+    """Summarization offloads should stay within the current thread runtime dir."""
 
     base_dir = _make_base_dir()
     agent = _build_agent(base_dir)
     filesystem_view = agent._build_filesystem_view(spec=None)
-    backend = agent._build_tool_backend(
-        filesystem_view=filesystem_view,
-        sandbox_backend=None,
+    shell_backend = agent._build_local_backend(filesystem_view=filesystem_view)
+    thread_root = agent.registry.materialize_thread_root(agent.spec.name, "thread-1")
+    backend = ThreadRuntimeBackend.for_local(
+        shell_backend=shell_backend,
+        thread_root_dir=thread_root,
     )
-    backend.bind_thread("thread-1")
     model = MagicMock()
     model.profile = {"max_input_tokens": 200_000}
     model._get_ls_params.return_value = {"ls_provider": "test"}
@@ -541,18 +561,15 @@ def test_local_runtime_summarization_history_offloads_under_thread_root() -> Non
         with patch.object(
             middleware,
             "_get_history_path",
-            return_value="/conversation_history/test-thread.md",
+            return_value=".runtime/conversation_history/test-thread.md",
         ):
             path = middleware._offload_to_backend(
                 backend,
                 [HumanMessage(content="hello from history")],
             )
 
-        assert path == "/conversation_history/test-thread.md"
-        history_file = (
-            agent.registry.thread_history_dir(agent.spec.name, "thread-1")
-            / "test-thread.md"
-        )
+        assert path == ".runtime/conversation_history/test-thread.md"
+        history_file = agent.registry.thread_history_dir(agent.spec.name, "thread-1") / "test-thread.md"
         assert history_file.exists()
         assert "hello from history" in history_file.read_text(encoding="utf-8")
     finally:
@@ -570,7 +587,6 @@ def test_astream_preserves_runtime_context() -> None:
         spec={"resources": {"backend": "local"}},
         backend=object(),
     )
-    agent._tool_backend = MagicMock()
 
     try:
         async def scenario() -> list[Any]:
@@ -638,7 +654,7 @@ def test_assemble_without_sandbox_spec_skips_sandbox_runtime() -> None:
                                     side_effect=lambda middleware: middleware,
                                 ):
                                     with patch(
-                                        "deepagents_runtime.agent.create_deep_agent",
+                                        "deepagents_runtime.agent.create_runtime_deep_agent",
                                         return_value=fake_graph,
                                     ):
                                         with patch(
@@ -658,7 +674,6 @@ def test_astream_handles_hitl_with_local_interrupt_buffer() -> None:
     base_dir = _make_base_dir()
     agent = _build_agent(base_dir)
     agent._graph = FakeInterruptGraph()
-    agent._tool_backend = MagicMock()
 
     try:
         async def scenario() -> list[Any]:

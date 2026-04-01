@@ -227,7 +227,7 @@ class ResourceSyncServicer(object):
         raise NotImplementedError('Method not implemented!')
 
     def UploadWorkspaceFiles(self, request, context):
-        """Upload one or more files into an agent/thread workspace.
+        """Upload files into one thread workspace.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')

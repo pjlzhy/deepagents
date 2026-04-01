@@ -160,6 +160,19 @@ export const controlClient = {
         body,
       );
     },
+    uploadWorkspaceFiles(agentName: string, files: File[], threadId?: string) {
+      const form = new FormData();
+      for (const file of files) {
+        form.append('files', file);
+      }
+      if (threadId) {
+        form.append('thread_id', threadId);
+      }
+      return httpClient.postForm<WorkspaceUploadResponseDTO>(
+        `/api/v1/agents/${encodeURIComponent(agentName)}/workspace/files`,
+        form,
+      );
+    },
     delete(agentName: string) {
       return httpClient.delete<void>(`/api/v1/agents/${encodeURIComponent(agentName)}`);
     },

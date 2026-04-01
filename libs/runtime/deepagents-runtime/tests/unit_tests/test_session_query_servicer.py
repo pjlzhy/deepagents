@@ -101,9 +101,20 @@ class _FakeManager:
 
     def __init__(self, agents: list[AgentMeta]) -> None:
         self._agents = agents
+        self.registry = _FakeRegistry()
 
     async def list_agents(self) -> list[AgentMeta]:
         return self._agents
+
+
+class _FakeRegistry:
+    """Minimal registry stub for thread cleanup hooks."""
+
+    def __init__(self) -> None:
+        self.deleted_threads: list[tuple[str, str]] = []
+
+    def delete_thread_dir(self, agent_name: str, thread_id: str) -> None:
+        self.deleted_threads.append((agent_name, thread_id))
 
 
 def test_list_sessions_and_get_messages_return_proto_payloads() -> None:

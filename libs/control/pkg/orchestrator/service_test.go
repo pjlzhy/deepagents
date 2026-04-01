@@ -764,7 +764,7 @@ func TestUploadWorkspaceFilesEnsuresRunnableBeforeDelegating(t *testing.T) {
 		uploadResp: domain.WorkspaceUploadResponse{
 			ThreadID: "thread-1",
 			Files: []domain.WorkspaceUploadResult{
-				{Path: "/workspace/report.txt"},
+				{Path: "report.txt"},
 			},
 		},
 		callLog: &callLog,

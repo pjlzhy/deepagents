@@ -316,7 +316,7 @@ func TestHTTPHandlerUploadsWorkspaceFiles(t *testing.T) {
 		uploadResp: domain.WorkspaceUploadResponse{
 			ThreadID: "thread-1",
 			Files: []domain.WorkspaceUploadResult{
-				{Path: "/workspace/report.txt"},
+				{Path: "report.txt"},
 			},
 		},
 	}

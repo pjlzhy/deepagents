@@ -1565,6 +1565,11 @@ func decodeWorkspaceUploadRequest(r *http.Request) (domain.WorkspaceUploadReques
 	if err := r.ParseMultipartForm(64 << 20); err != nil {
 		return domain.WorkspaceUploadRequest{}, fmt.Errorf("parse multipart form: %w", err)
 	}
+	if r.MultipartForm != nil {
+		defer func() {
+			_ = r.MultipartForm.RemoveAll()
+		}()
+	}
 
 	uploadedFiles := make([]domain.WorkspaceUploadFile, 0)
 	if r.MultipartForm != nil {

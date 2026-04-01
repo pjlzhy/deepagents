@@ -2,22 +2,31 @@
 
 Stores agent definitions as YAML files under a base directory
 (default ``~/.deepagents/agents/{name}/agent.yaml``). The registry keeps
-storage metadata separate from the runtime-visible filesystem that agents use
-during execution.
+registry metadata, shared runtime snapshots, and per-thread workspaces
+separate.
 
 Storage layout::
 
     base_dir/
     └── agents/
         └── {agent_name}/
-            ├── agent.yaml        ← full AgentSpec (registry/private)
-            └── runtime/          ← filesystem exposed to the agent runtime
-                ├── skills/
-                │   └── {skill}/
-                │       └── SKILL.md
-                ├── memory/
-                │   └── AGENTS.md
-                └── workspace/
+            ├── agent.yaml
+            └── runtime/
+                ├── shared/
+                │   ├── memory/
+                │   │   └── AGENTS.md
+                │   └── skills/
+                │       └── {skill}/
+                │           └── SKILL.md
+                └── threads/
+                    └── {thread_id}/
+                        ├── uploaded.txt
+                        └── .runtime/
+                            ├── memory/
+                            │   └── AGENTS.md
+                            ├── skills/
+                            │   └── {skill}/...
+                            └── conversation_history/
 """
 
 from __future__ import annotations
@@ -60,8 +69,15 @@ def _agent_runtime_dir(base_dir: Path, name: str) -> Path:
     return _agent_dir(base_dir, name) / "runtime"
 
 
+def _agent_shared_dir(base_dir: Path, name: str) -> Path:
+    return _agent_runtime_dir(base_dir, name) / "shared"
+
+
+def _agent_threads_dir(base_dir: Path, name: str) -> Path:
+    return _agent_runtime_dir(base_dir, name) / "threads"
+
+
 def _normalize_thread_id(thread_id: str) -> str:
-    """Normalize one runtime thread identifier for filesystem use."""
     normalized = thread_id.strip()
     if not normalized:
         raise ValueError("thread_id must not be empty")
@@ -179,9 +195,7 @@ class Registry:
     """File-system registry for agent specs.
 
     Manages the runtime-visible directory layout for each agent, including
-    skills, memory, and workspace directories under `runtime/`. When an
-    agent spec is added, the registry writes skill directory snapshots to
-    disk and creates the standard runtime subdirectory structure.
+    shared snapshots and per-thread workspaces under `runtime/`.
     """
 
     def __init__(self, base_dir: Path | None = None) -> None:
@@ -199,41 +213,100 @@ class Registry:
         return _agent_dir(self._base_dir, name)
 
     def runtime_dir(self, name: str) -> Path:
-        """Return the agent's runtime-visible root directory."""
+        """Return the agent's runtime storage root directory."""
         return _agent_runtime_dir(self._base_dir, name)
 
-    def skills_dir(self, name: str) -> Path:
-        """Return the agent's runtime-visible skills directory."""
-        return self.runtime_dir(name) / "skills"
+    def shared_dir(self, name: str) -> Path:
+        """Return the shared runtime snapshot root for one agent."""
+        return _agent_shared_dir(self._base_dir, name)
 
-    def memory_dir(self, name: str) -> Path:
-        """Return the agent's runtime-visible memory file path."""
-        return self.runtime_dir(name) / "memory" / "AGENTS.md"
+    def shared_skills_dir(self, name: str) -> Path:
+        """Return the shared skills snapshot directory for one agent."""
+        return self.shared_dir(name) / "skills"
 
-    def history_dir(self, name: str) -> Path:
-        """Return the agent's runtime-visible conversation history directory."""
-        return self.runtime_dir(name) / "conversation_history"
+    def shared_memory_file(self, name: str) -> Path:
+        """Return the shared memory snapshot file for one agent."""
+        return self.shared_dir(name) / "memory" / "AGENTS.md"
 
-    def workspace_dir(self, name: str) -> Path:
-        """Return the agent's runtime-visible workspace directory."""
-        return self.runtime_dir(name) / "workspace"
+    def threads_dir(self, name: str) -> Path:
+        """Return the per-thread workspace root for one agent."""
+        return _agent_threads_dir(self._base_dir, name)
 
-    def thread_workspace_dir(self, name: str, thread_id: str) -> Path:
-        """Return the current thread's workspace directory."""
-        return self.workspace_dir(name) / _normalize_thread_id(thread_id)
+    def thread_root_dir(self, name: str, thread_id: str) -> Path:
+        """Return the current thread's workspace root directory."""
+        return self.threads_dir(name) / _normalize_thread_id(thread_id)
+
+    def thread_runtime_dir(self, name: str, thread_id: str) -> Path:
+        """Return the hidden runtime directory inside one thread root."""
+        return self.thread_root_dir(name, thread_id) / ".runtime"
+
+    def thread_memory_file(self, name: str, thread_id: str) -> Path:
+        """Return the current thread's memory snapshot file."""
+        return self.thread_runtime_dir(name, thread_id) / "memory" / "AGENTS.md"
+
+    def thread_skills_dir(self, name: str, thread_id: str) -> Path:
+        """Return the current thread's skills snapshot directory."""
+        return self.thread_runtime_dir(name, thread_id) / "skills"
 
     def thread_history_dir(self, name: str, thread_id: str) -> Path:
         """Return the current thread's conversation-history directory."""
-        return self.history_dir(name) / _normalize_thread_id(thread_id)
+        return self.thread_runtime_dir(name, thread_id) / "conversation_history"
+
+    def delete_thread_dir(self, name: str, thread_id: str) -> None:
+        """Delete one thread root directory if it exists."""
+        shutil.rmtree(self.thread_root_dir(name, thread_id), ignore_errors=True)
+
+    def materialize_thread_root(self, name: str, thread_id: str) -> Path:
+        """Create one thread root and snapshot shared runtime resources into it."""
+        root = self.thread_root_dir(name, thread_id)
+        runtime_dir = self.thread_runtime_dir(name, thread_id)
+        memory_file = self.thread_memory_file(name, thread_id)
+        skills_dir = self.thread_skills_dir(name, thread_id)
+        history_dir = self.thread_history_dir(name, thread_id)
+
+        root.mkdir(parents=True, exist_ok=True)
+        runtime_dir.mkdir(parents=True, exist_ok=True)
+        memory_file.parent.mkdir(parents=True, exist_ok=True)
+        skills_dir.mkdir(parents=True, exist_ok=True)
+        history_dir.mkdir(parents=True, exist_ok=True)
+
+        shared_memory = self.shared_memory_file(name)
+        if not memory_file.exists():
+            if shared_memory.exists():
+                memory_file.write_text(
+                    shared_memory.read_text(encoding="utf-8"),
+                    encoding="utf-8",
+                )
+            else:
+                memory_file.touch()
+
+        shared_skills = self.shared_skills_dir(name)
+        if shared_skills.exists() and not any(skills_dir.iterdir()):
+            shutil.copytree(shared_skills, skills_dir, dirs_exist_ok=True)
+
+        return root
+
+    # Backward-compatible helpers used by existing runtime code/tests.
+    def skills_dir(self, name: str) -> Path:
+        return self.shared_skills_dir(name)
+
+    def memory_dir(self, name: str) -> Path:
+        return self.shared_memory_file(name)
+
+    def history_dir(self, name: str) -> Path:
+        return self.runtime_dir(name) / "conversation_history"
+
+    def workspace_dir(self, name: str) -> Path:
+        return self.runtime_dir(name) / "workspace"
 
     # ── Agent Specs ──
 
     async def add_agent_spec(self, spec: AgentSpec) -> None:
         """Write an agent spec to disk and populate resource directories.
 
-        Creates the standard runtime subdirectory structure under
-        `runtime/` and writes each skill directory snapshot under
-        ``runtime/skills/{name}/``.
+        Creates the shared runtime snapshot structure under `runtime/shared`
+        and writes each skill directory snapshot under
+        ``runtime/shared/skills/{name}/``.
         """
         validate_agent_spec(spec)
         agent_dir = _agent_dir(self._base_dir, spec.name)
@@ -242,12 +315,13 @@ class Registry:
         # Create standard subdirectories
         runtime_dir = self.runtime_dir(spec.name)
         runtime_dir.mkdir(parents=True, exist_ok=True)
-        skills_base = runtime_dir / "skills"
+        shared_dir = self.shared_dir(spec.name)
+        shared_dir.mkdir(parents=True, exist_ok=True)
+        skills_base = self.shared_skills_dir(spec.name)
         shutil.rmtree(skills_base, ignore_errors=True)
         skills_base.mkdir(exist_ok=True)
-        (runtime_dir / "memory").mkdir(exist_ok=True)
-        (runtime_dir / "conversation_history").mkdir(exist_ok=True)
-        (runtime_dir / "workspace").mkdir(exist_ok=True)
+        self.shared_memory_file(spec.name).parent.mkdir(parents=True, exist_ok=True)
+        self.threads_dir(spec.name).mkdir(parents=True, exist_ok=True)
 
         # Write skill directory snapshots
         for skill in spec.skills:
@@ -279,7 +353,7 @@ class Registry:
                 )
 
         # 确保AGENTS.md 存在
-        agent_md = runtime_dir / "memory" / "AGENTS.md"
+        agent_md = self.shared_memory_file(spec.name)
         if not agent_md.exists():
             # Create empty file for user customizations
             # Base instructions are loaded fresh from get_system_prompt()

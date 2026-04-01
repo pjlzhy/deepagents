@@ -234,7 +234,7 @@ class AgentManager:
             thread_id: str,
             files: list[tuple[str, bytes]],
     ) -> tuple[str, list[FileUploadResponse]]:
-        """Upload files into one thread-scoped workspace."""
+        """Upload files into one thread workspace."""
         await self.setup()
         agent = await self._get_or_create_agent(name)
 
@@ -246,7 +246,7 @@ class AgentManager:
             raise RuntimeError(msg)
 
         resolved_thread_id = thread_id.strip() or generate_thread_id()
-        responses = agent.upload_workspace_files(
+        responses = await agent.upload_workspace_files(
             thread_id=resolved_thread_id,
             files=files,
         )

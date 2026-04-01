@@ -57,36 +57,66 @@ class FakeRegistry:
         path.mkdir(parents=True, exist_ok=True)
         return path
 
-    def workspace_dir(self, name: str) -> Path:
-        path = self.runtime_dir(name) / "workspace"
+    def shared_dir(self, name: str) -> Path:
+        path = self.runtime_dir(name) / "shared"
         path.mkdir(parents=True, exist_ok=True)
         return path
 
-    def thread_workspace_dir(self, name: str, thread_id: str) -> Path:
-        path = self.workspace_dir(name) / thread_id
-        path.mkdir(parents=True, exist_ok=True)
-        return path
-
-    def memory_dir(self, name: str) -> Path:
-        path = self.runtime_dir(name) / "memory" / "AGENTS.md"
+    def shared_memory_file(self, name: str) -> Path:
+        path = self.shared_dir(name) / "memory" / "AGENTS.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.touch(exist_ok=True)
         return path
 
-    def history_dir(self, name: str) -> Path:
-        path = self.runtime_dir(name) / "conversation_history"
+    def shared_skills_dir(self, name: str) -> Path:
+        path = self.shared_dir(name) / "skills"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def threads_dir(self, name: str) -> Path:
+        path = self.runtime_dir(name) / "threads"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def thread_root_dir(self, name: str, thread_id: str) -> Path:
+        path = self.threads_dir(name) / thread_id
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def thread_runtime_dir(self, name: str, thread_id: str) -> Path:
+        path = self.thread_root_dir(name, thread_id) / ".runtime"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def thread_memory_file(self, name: str, thread_id: str) -> Path:
+        path = self.thread_runtime_dir(name, thread_id) / "memory" / "AGENTS.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def thread_skills_dir(self, name: str, thread_id: str) -> Path:
+        path = self.thread_runtime_dir(name, thread_id) / "skills"
         path.mkdir(parents=True, exist_ok=True)
         return path
 
     def thread_history_dir(self, name: str, thread_id: str) -> Path:
-        path = self.history_dir(name) / thread_id
+        path = self.thread_runtime_dir(name, thread_id) / "conversation_history"
         path.mkdir(parents=True, exist_ok=True)
         return path
 
-    def skills_dir(self, name: str) -> Path:
-        path = self.runtime_dir(name) / "skills"
-        path.mkdir(parents=True, exist_ok=True)
-        return path
+    def materialize_thread_root(self, name: str, thread_id: str) -> Path:
+        root = self.thread_root_dir(name, thread_id)
+        memory_file = self.thread_memory_file(name, thread_id)
+        skills_dir = self.thread_skills_dir(name, thread_id)
+        self.thread_history_dir(name, thread_id)
+        if not memory_file.exists():
+            memory_file.write_text(self.shared_memory_file(name).read_text(encoding="utf-8"), encoding="utf-8")
+        shared_skills = self.shared_skills_dir(name)
+        if shared_skills.exists() and not any(skills_dir.iterdir()):
+            shutil.copytree(shared_skills, skills_dir, dirs_exist_ok=True)
+        return root
+
+    def delete_thread_dir(self, name: str, thread_id: str) -> None:
+        shutil.rmtree(self.thread_root_dir(name, thread_id), ignore_errors=True)
 
 
 def _make_base_dir() -> Path:
@@ -255,14 +285,14 @@ def test_upload_workspace_files_generates_thread_and_delegates_to_runtime_agent(
                 agent = await manager.agent_pool.get("demo-agent")  # type: ignore[union-attr]
                 agent._graph = object()
 
-                def fake_upload_workspace_files(
+                async def fake_upload_workspace_files(
                         *,
                         thread_id: str,
                         files: list[tuple[str, bytes]],
                 ) -> list[Any]:
                     captured["thread_id"] = thread_id
                     captured["files"] = files
-                    return [SimpleNamespace(path="/workspace/report.txt", error=None)]
+                    return [SimpleNamespace(path="report.txt", error=None)]
 
                 with patch.object(agent, "upload_workspace_files", fake_upload_workspace_files):
                     return await manager.upload_workspace_files(
@@ -276,7 +306,7 @@ def test_upload_workspace_files_generates_thread_and_delegates_to_runtime_agent(
         assert len(thread_id) == 8
         assert captured["thread_id"] == thread_id
         assert captured["files"] == [("report.txt", b"hello")]
-        assert responses[0].path == "/workspace/report.txt"
+        assert responses[0].path == "report.txt"
     finally:
         shutil.rmtree(base_dir, ignore_errors=True)
 

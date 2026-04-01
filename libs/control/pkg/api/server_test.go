@@ -20,6 +20,10 @@ type fakeAgentService struct {
 	uploadErr  error
 	uploadReq  domain.WorkspaceUploadRequest
 
+	uploadResp domain.WorkspaceUploadResponse
+	uploadErr  error
+	uploadReq  domain.WorkspaceUploadRequest
+
 	healthResp runtimeclient.HealthResponse
 	healthErr  error
 

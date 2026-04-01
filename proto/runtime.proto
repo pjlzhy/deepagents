@@ -260,7 +260,7 @@ service ResourceSync {
   // Prerequisite: the target AgentSpec must already be synced.
   rpc Assemble(AssembleRequest) returns (AssembleResponse);
 
-  // Upload one or more files into an agent/thread workspace.
+  // Upload files into one thread workspace.
   rpc UploadWorkspaceFiles(UploadWorkspaceFilesRequest)
       returns (UploadWorkspaceFilesResponse);
 
@@ -516,7 +516,7 @@ message AssembleResponse {
 // -----------------------------------------------------------------------------
 
 message UploadWorkspaceFile {
-  // Relative path inside the visible workspace root.
+  // Relative path inside the thread workspace root.
   string path = 1;
   bytes content = 2;
 }
@@ -528,7 +528,7 @@ message UploadWorkspaceFilesRequest {
 }
 
 message UploadWorkspaceFileResult {
-  // Visible workspace path (e.g. "/workspace/file.txt").
+  // Relative path inside the thread workspace root.
   string path = 1;
   // Empty on success, standardized file-operation error on failure.
   string error = 2;
@@ -685,4 +685,3 @@ message SessionMessage {
   bool is_error = 6;
   google.protobuf.Struct raw = 7;
 }
-

@@ -404,14 +404,14 @@ def _patch_runtime_dependencies(
         if graph_factory is not None:
             stack.enter_context(
                 patch(
-                    "deepagents_runtime.agent.create_deep_agent",
+                    "deepagents_runtime.agent.create_runtime_deep_agent",
                     side_effect=graph_factory,
                 )
             )
         else:
             stack.enter_context(
                 patch(
-                    "deepagents_runtime.agent.create_deep_agent",
+                    "deepagents_runtime.agent.create_runtime_deep_agent",
                     return_value=graph,
                 )
             )
@@ -436,16 +436,16 @@ def test_define_assemble_and_invoke_use_real_registry_and_runtime_chain() -> Non
 
                 agent_dir = registry.agent_dir(spec.name)
                 assert (agent_dir / "agent.yaml").exists()
-                assert registry.memory_dir(spec.name).exists()
-                assert registry.memory_dir(spec.name).is_file()
-                assert registry.workspace_dir(spec.name).exists()
+                assert registry.shared_memory_file(spec.name).exists()
+                assert registry.shared_memory_file(spec.name).is_file()
+                assert registry.threads_dir(spec.name).exists()
                 assert (
-                    registry.skills_dir(spec.name)
+                    registry.shared_skills_dir(spec.name)
                     / "demo-skill"
                     / "SKILL.md"
                 ).exists()
                 assert (
-                    registry.skills_dir(spec.name)
+                    registry.shared_skills_dir(spec.name)
                     / "demo-skill"
                     / "scripts"
                     / "init_skill.py"

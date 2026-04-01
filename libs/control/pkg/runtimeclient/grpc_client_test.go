@@ -263,7 +263,7 @@ func TestGRPCClientSyncAgentSpecHealthAndRemove(t *testing.T) {
 		uploadResponse: &runtimev1.UploadWorkspaceFilesResponse{
 			ThreadId: "thread-upload",
 			Files: []*runtimev1.UploadWorkspaceFileResult{
-				{Path: "/workspace/report.txt"},
+				{Path: "report.txt"},
 			},
 		},
 		healthResponse: &runtimev1.HealthResponse{

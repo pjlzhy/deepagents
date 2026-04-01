@@ -588,23 +588,6 @@ export default function ChatWorkspacePage() {
     }
   }
 
-  async function submitInterruptDecision(interrupt: PendingInterruptVM, type: 'approve' | 'reject'): Promise<void> {
-    if (!runSessionId) {
-      Message.warning('No active run_session is available.');
-      return;
-    }
-    try {
-      await controlClient.runs.submitHitl(runSessionId, {
-        interrupt_id: interrupt.interruptId,
-        decisions: [{ type }],
-      });
-      setRuntimeState((previous) => markInterruptResolved(previous, interrupt.interruptId));
-      Message.success(`${type} submitted`);
-    } catch (error) {
-      Message.error(error instanceof Error ? error.message : 'submit hitl decision failed');
-    }
-  }
-
   function openWorkspaceUploadPicker(): void {
     if (!selectedAgentName) {
       Message.warning('Please select an agent first.');
@@ -655,8 +638,10 @@ export default function ChatWorkspacePage() {
       }
 
       if (response.thread_id && selectedAgentName && response.thread_id !== selectedThreadId) {
+        setRuntimeState(createRuntimeStateFromHistory([]));
         void navigate(links.chatThread(selectedAgentName, response.thread_id), { replace: !selectedThreadId });
       }
+
       void sessionsQuery.mutate();
       void messagesQuery.mutate();
 
@@ -671,6 +656,23 @@ export default function ChatWorkspacePage() {
       Message.error(error instanceof Error ? error.message : 'workspace upload failed');
     } finally {
       setUploadingFiles(false);
+    }
+  }
+
+  async function submitInterruptDecision(interrupt: PendingInterruptVM, type: 'approve' | 'reject'): Promise<void> {
+    if (!runSessionId) {
+      Message.warning('No active run_session is available.');
+      return;
+    }
+    try {
+      await controlClient.runs.submitHitl(runSessionId, {
+        interrupt_id: interrupt.interruptId,
+        decisions: [{ type }],
+      });
+      setRuntimeState((previous) => markInterruptResolved(previous, interrupt.interruptId));
+      Message.success(`${type} submitted`);
+    } catch (error) {
+      Message.error(error instanceof Error ? error.message : 'submit hitl decision failed');
     }
   }
 
@@ -872,7 +874,7 @@ export default function ChatWorkspacePage() {
           <div className='mt-12px flex flex-wrap items-center justify-between gap-12px'>
             <Typography.Text className='text-[var(--control-subtle)]'>
               {uploadingFiles
-                ? 'Uploading files to the current workspace...'
+                ? 'Uploading files to the current thread workspace...'
                 : runtimeState.runStatus === 'waiting_hitl'
                 ? 'Sending is paused until the pending HITL request is resolved.'
                 : isRunActive(runtimeState.runStatus)

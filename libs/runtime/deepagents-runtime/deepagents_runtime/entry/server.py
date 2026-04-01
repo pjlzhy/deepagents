@@ -458,7 +458,7 @@ class ResourceSyncServicer(runtime_pb2_grpc.ResourceSyncServicer):
         request: pb2.UploadWorkspaceFilesRequest,
         context: grpc.aio.ServicerContext,
     ) -> pb2.UploadWorkspaceFilesResponse:
-        """Upload files into one thread-scoped workspace."""
+        """Upload files into one thread workspace."""
         agent_name = request.agent_name.strip()
         if not agent_name:
             await _abort_invalid_argument(context, "agent_name is required")
@@ -467,10 +467,7 @@ class ResourceSyncServicer(runtime_pb2_grpc.ResourceSyncServicer):
             await _abort_invalid_argument(context, "at least one file is required")
             return pb2.UploadWorkspaceFilesResponse()
 
-        files = [
-            (item.path, bytes(item.content))
-            for item in request.files
-        ]
+        files = [(item.path, bytes(item.content)) for item in request.files]
         try:
             thread_id, responses = await self._manager.upload_workspace_files(
                 name=agent_name,
@@ -749,6 +746,8 @@ class SessionQueryServicer(runtime_pb2_grpc.SessionQueryServicer):
             agent_name=agent_name,
             db_path=self._db_path,
         )
+        if deleted:
+            self._manager.registry.delete_thread_dir(agent_name, thread_id)
         return pb2.DeleteSessionResponse(deleted=deleted)
 
 
