@@ -427,6 +427,39 @@ def sync_agent_spec_request_to_agent_spec(msg: pb2.SyncAgentSpecRequest) -> Agen
         }
         if sa.model:
             sa_meta["model"] = sa.model
+        # Parse subagent model_config (overrides model string if present)
+        if sa.HasField("model_config"):
+            mc = sa.model_config
+            sa_model_config: ModelConfigSpec = {}
+            if mc.provider:
+                sa_model_config["provider"] = mc.provider
+            if mc.model:
+                sa_model_config["model"] = mc.model
+            if mc.base_url:
+                sa_model_config["base_url"] = mc.base_url
+            if mc.api_key_env:
+                sa_model_config["api_key_env"] = mc.api_key_env
+            if mc.extra_params:
+                sa_model_config["extra_params"] = dict(mc.extra_params)
+            sa_meta["model_config"] = sa_model_config
+            # Build model string from config if not already set
+            if not sa.model and mc.provider and mc.model:
+                sa_meta["model"] = f"{mc.provider}:{mc.model}"
+        # Parse subagent skills
+        if sa.skills:
+            sa_skills: list[SkillContentItem] = []
+            for skill in sa.skills:
+                skill_item: SkillContentItem = {
+                    "name": skill.name,
+                    "content": skill.content,
+                }
+                if skill.files:
+                    skill_item["files"] = [
+                        {"path": file.path, "content": file.content}
+                        for file in skill.files
+                    ]
+                sa_skills.append(skill_item)
+            sa_meta["skills"] = sa_skills
         subagents.append(sa_meta)
 
     # Parse MCP server configs

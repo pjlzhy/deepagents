@@ -112,6 +112,8 @@ func subagentsToProto(subagents []domain.SubagentSpec) ([]*runtimev1.SubagentSpe
 			Description:  subagent.Description,
 			SystemPrompt: subagent.SystemPrompt,
 			Model:        model,
+			Skills:       skillsToProto(subagent.Skills),
+			ModelConfig:  modelConfigToProto(subagent.Model),
 		})
 	}
 	return items, nil

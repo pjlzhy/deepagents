@@ -36,12 +36,19 @@ type Deployment struct {
 
 // ResolvedAgentInput contains the authored resources needed by the packager.
 type ResolvedAgentInput struct {
-	Agent         AuthoredAgentSpec
-	ModelConfig   ModelConfig
-	Skills        []Skill
-	MCPConfigs    []MCPConfig
-	SandboxConfig *SandboxConfig
-	Target        RuntimeTarget
+	Agent            AuthoredAgentSpec
+	ModelConfig      ModelConfig
+	Skills           []Skill
+	MCPConfigs       []MCPConfig
+	SandboxConfig    *SandboxConfig
+	Target           RuntimeTarget
+	SubagentResolved map[string]ResolvedSubagentInput // keyed by subagent name
+}
+
+// ResolvedSubagentInput contains resolved resources for a single subagent.
+type ResolvedSubagentInput struct {
+	ModelConfig *ModelConfig // nil = inherit main agent model
+	Skills      []Skill
 }
 
 // RunRequest is shared across northbound and southbound run flows.

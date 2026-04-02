@@ -67,7 +67,7 @@ func (p *DefaultPackager) Package(
 		return domain.RuntimeAgentSpec{}, err
 	}
 
-	subagents, err := packageSubagents(agent.Subagents)
+	subagents, err := packageSubagents(agent.Subagents, input.SubagentResolved, model)
 	if err != nil {
 		return domain.RuntimeAgentSpec{}, err
 	}
@@ -226,7 +226,11 @@ func packageMCPConfigs(refs []string, resolved []domain.MCPConfig) ([]domain.MCP
 	return packaged, nil
 }
 
-func packageSubagents(subagents []domain.SubagentSpec) ([]domain.SubagentSpec, error) {
+func packageSubagents(
+	subagents []domain.SubagentSpec,
+	resolved map[string]domain.ResolvedSubagentInput,
+	defaultModel domain.ModelSpec,
+) ([]domain.SubagentSpec, error) {
 	cloned := make([]domain.SubagentSpec, 0, len(subagents))
 	seen := make(map[string]struct{}, len(subagents))
 	for _, subagent := range subagents {
@@ -251,15 +255,30 @@ func packageSubagents(subagents []domain.SubagentSpec) ([]domain.SubagentSpec, e
 		); err != nil {
 			return nil, err
 		}
-		if err := validateModelSpec(subagent.Model, fmt.Sprintf("subagent %q model", name), false); err != nil {
+
+		// Resolve model: use resolved ModelConfig if available, else inherit default.
+		model := cloneModelSpec(defaultModel)
+		if r, ok := resolved[name]; ok && r.ModelConfig != nil {
+			model = cloneModelSpec(r.ModelConfig.Spec)
+		} else if subagent.Model.Provider != "" || subagent.Model.Model != "" {
+			model = cloneModelSpec(subagent.Model)
+		}
+		if err := validateModelSpec(model, fmt.Sprintf("subagent %q model", name), false); err != nil {
 			return nil, err
+		}
+
+		// Resolve skills from resolved input.
+		var skills []domain.Skill
+		if r, ok := resolved[name]; ok {
+			skills = r.Skills
 		}
 
 		cloned = append(cloned, domain.SubagentSpec{
 			Name:         name,
 			Description:  subagent.Description,
 			SystemPrompt: subagent.SystemPrompt,
-			Model:        cloneModelSpec(subagent.Model),
+			Model:        model,
+			Skills:       skills,
 		})
 	}
 	return cloned, nil

@@ -66,11 +66,33 @@ func (r *RegistryResolver) ResolveAgent(
 		sandboxConfig = &resolvedSandbox
 	}
 
+	subagentResolved := make(map[string]domain.ResolvedSubagentInput, len(agent.Subagents))
+	for _, sa := range agent.Subagents {
+		var resolved domain.ResolvedSubagentInput
+		if sa.ModelRef != "" {
+			mc, err := r.registry.GetModelConfig(ctx, sa.ModelRef)
+			if err != nil {
+				return domain.ResolvedAgentInput{}, err
+			}
+			resolved.ModelConfig = &mc
+		}
+		resolved.Skills = make([]domain.Skill, 0, len(sa.SkillRefs))
+		for _, ref := range sa.SkillRefs {
+			skill, err := r.registry.GetSkill(ctx, ref)
+			if err != nil {
+				return domain.ResolvedAgentInput{}, err
+			}
+			resolved.Skills = append(resolved.Skills, skill)
+		}
+		subagentResolved[sa.Name] = resolved
+	}
+
 	return domain.ResolvedAgentInput{
-		Agent:         agent,
-		ModelConfig:   modelConfig,
-		Skills:        skills,
-		MCPConfigs:    mcpConfigs,
-		SandboxConfig: sandboxConfig,
+		Agent:            agent,
+		ModelConfig:      modelConfig,
+		Skills:           skills,
+		MCPConfigs:       mcpConfigs,
+		SandboxConfig:    sandboxConfig,
+		SubagentResolved: subagentResolved,
 	}, nil
 }

@@ -75,7 +75,10 @@ type SubagentSpec struct {
 	Name         string
 	Description  string
 	SystemPrompt string
-	Model        ModelSpec
+	Model        ModelSpec // resolved model (populated by packager)
+	ModelRef     string    // authored: reference to registered ModelConfig
+	SkillRefs    []string  // authored: references to registered Skills
+	Skills       []Skill   // resolved skills (populated by packager)
 }
 
 // SandboxConfig describes one reusable authored sandbox configuration.

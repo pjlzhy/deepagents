@@ -1177,10 +1177,11 @@ type modelSpecPayload struct {
 }
 
 type subagentSpecPayload struct {
-	Name         string           `json:"name,omitempty"`
-	Description  string           `json:"description,omitempty"`
-	SystemPrompt string           `json:"system_prompt,omitempty"`
-	Model        modelSpecPayload `json:"model"`
+	Name         string   `json:"name,omitempty"`
+	Description  string   `json:"description,omitempty"`
+	SystemPrompt string   `json:"system_prompt,omitempty"`
+	ModelRef     string   `json:"model_ref,omitempty"`
+	SkillRefs    []string `json:"skill_refs,omitempty"`
 }
 
 type sandboxExecutionPolicyPayload struct {
@@ -1688,7 +1689,8 @@ func decodeAgentSpecRequest(r *http.Request) (domain.AuthoredAgentSpec, error) {
 			Name:         strings.TrimSpace(subagent.Name),
 			Description:  subagent.Description,
 			SystemPrompt: subagent.SystemPrompt,
-			Model:        newDomainModelSpec(subagent.Model),
+			ModelRef:     strings.TrimSpace(subagent.ModelRef),
+			SkillRefs:    trimStrings(subagent.SkillRefs),
 		})
 	}
 
@@ -2159,7 +2161,8 @@ func newHTTPSubagentSpecs(specs []domain.SubagentSpec) []subagentSpecPayload {
 			Name:         spec.Name,
 			Description:  spec.Description,
 			SystemPrompt: spec.SystemPrompt,
-			Model:        newHTTPModelSpec(spec.Model),
+			ModelRef:     spec.ModelRef,
+			SkillRefs:    spec.SkillRefs,
 		})
 	}
 	return payloads

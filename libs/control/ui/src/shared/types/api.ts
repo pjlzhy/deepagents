@@ -172,7 +172,8 @@ export type SubagentSpecDTO = {
   name?: string;
   description?: string;
   system_prompt?: string;
-  model: ModelSpecDTO;
+  model_ref?: string;
+  skill_refs?: string[];
 };
 
 export type SandboxSpecDTO = {

@@ -230,6 +230,12 @@ class SubagentMetadata(TypedDict):
     model: NotRequired[str | None]
     """Optional model override in 'provider:model-name' format."""
 
+    model_config: NotRequired["ModelConfigSpec | None"]
+    """Optional extended model configuration (provider, model, base_url, etc.)."""
+
+    skills: NotRequired[list["SkillContentItem"]]
+    """Optional skill content items resolved from skill_refs."""
+
 
 class SkillFileItem(TypedDict):
     """One embedded file within a skill directory."""

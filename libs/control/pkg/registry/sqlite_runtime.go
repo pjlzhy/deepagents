@@ -278,8 +278,9 @@ func normalizeSubagents(subagents []domain.SubagentSpec) ([]domain.SubagentSpec,
 			return nil, err
 		}
 
-		model := normalizeModelSpec(subagent.Model)
-		if err := validateModelSpec(model, fmt.Sprintf("subagent %q model", name), false); err != nil {
+		modelRef := strings.TrimSpace(subagent.ModelRef)
+		skillRefs, err := normalizeUniqueEntries(subagent.SkillRefs, fmt.Sprintf("subagent %q skill_ref", name))
+		if err != nil {
 			return nil, err
 		}
 
@@ -287,7 +288,8 @@ func normalizeSubagents(subagents []domain.SubagentSpec) ([]domain.SubagentSpec,
 			Name:         name,
 			Description:  description,
 			SystemPrompt: systemPrompt,
-			Model:        model,
+			ModelRef:     modelRef,
+			SkillRefs:    skillRefs,
 		})
 	}
 	return normalized, nil

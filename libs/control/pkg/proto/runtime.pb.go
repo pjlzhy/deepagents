@@ -1906,7 +1906,9 @@ type SubagentSpec struct {
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	Description   string                 `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
 	SystemPrompt  string                 `protobuf:"bytes,3,opt,name=system_prompt,json=systemPrompt,proto3" json:"system_prompt,omitempty"`
-	Model         string                 `protobuf:"bytes,4,opt,name=model,proto3" json:"model,omitempty"` // optional, provider:model format
+	Model         string                 `protobuf:"bytes,4,opt,name=model,proto3" json:"model,omitempty"`                                // deprecated: use model_config instead
+	Skills        []*SkillContent        `protobuf:"bytes,7,rep,name=skills,proto3" json:"skills,omitempty"`                              // resolved skill content (same format as agent-level)
+	ModelConfig   *ModelConfig           `protobuf:"bytes,8,opt,name=model_config,json=modelConfig,proto3" json:"model_config,omitempty"` // resolved model configuration
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1967,6 +1969,20 @@ func (x *SubagentSpec) GetModel() string {
 		return x.Model
 	}
 	return ""
+}
+
+func (x *SubagentSpec) GetSkills() []*SkillContent {
+	if x != nil {
+		return x.Skills
+	}
+	return nil
+}
+
+func (x *SubagentSpec) GetModelConfig() *ModelConfig {
+	if x != nil {
+		return x.ModelConfig
+	}
+	return nil
 }
 
 // MCP server connection configuration.
@@ -4446,12 +4462,14 @@ const file_runtime_proto_rawDesc = "" +
 	"\finterrupt_on\x18\v \x03(\tR\vinterruptOn\x12G\n" +
 	"\vmcp_servers\x18\x0e \x03(\v2&.deepagents.runtime.v1.McpServerConfigR\n" +
 	"mcpServers\x12E\n" +
-	"\fmodel_config\x18\x10 \x01(\v2\".deepagents.runtime.v1.ModelConfigR\vmodelConfigJ\x04\b\f\x10\rJ\x04\b\r\x10\x0eR\bmeta_dirR\tworkspace\"\x99\x01\n" +
+	"\fmodel_config\x18\x10 \x01(\v2\".deepagents.runtime.v1.ModelConfigR\vmodelConfigJ\x04\b\f\x10\rJ\x04\b\r\x10\x0eR\bmeta_dirR\tworkspace\"\x9d\x02\n" +
 	"\fSubagentSpec\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\x12#\n" +
 	"\rsystem_prompt\x18\x03 \x01(\tR\fsystemPrompt\x12\x14\n" +
-	"\x05model\x18\x04 \x01(\tR\x05modelJ\x04\b\x05\x10\x06J\x04\b\x06\x10\aR\x06sourceR\x04path\"\x8e\x02\n" +
+	"\x05model\x18\x04 \x01(\tR\x05model\x12;\n" +
+	"\x06skills\x18\a \x03(\v2#.deepagents.runtime.v1.SkillContentR\x06skills\x12E\n" +
+	"\fmodel_config\x18\b \x01(\v2\".deepagents.runtime.v1.ModelConfigR\vmodelConfigJ\x04\b\x05\x10\x06J\x04\b\x06\x10\aR\x06sourceR\x04path\"\x8e\x02\n" +
 	"\x0fMcpServerConfig\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\acommand\x18\x02 \x01(\tR\acommand\x12\x12\n" +
@@ -4806,67 +4824,69 @@ var file_runtime_proto_depIdxs = []int32{
 	31, // 31: deepagents.runtime.v1.SyncAgentSpecRequest.sandbox:type_name -> deepagents.runtime.v1.SandboxSpec
 	28, // 32: deepagents.runtime.v1.SyncAgentSpecRequest.mcp_servers:type_name -> deepagents.runtime.v1.McpServerConfig
 	42, // 33: deepagents.runtime.v1.SyncAgentSpecRequest.model_config:type_name -> deepagents.runtime.v1.ModelConfig
-	68, // 34: deepagents.runtime.v1.McpServerConfig.env:type_name -> deepagents.runtime.v1.McpServerConfig.EnvEntry
-	69, // 35: deepagents.runtime.v1.SandboxSpec.resources:type_name -> deepagents.runtime.v1.SandboxSpec.ResourcesEntry
-	32, // 36: deepagents.runtime.v1.SandboxSpec.execution:type_name -> deepagents.runtime.v1.SandboxExecutionPolicy
-	33, // 37: deepagents.runtime.v1.SandboxSpec.env:type_name -> deepagents.runtime.v1.SandboxEnvVar
-	34, // 38: deepagents.runtime.v1.SandboxSpec.local:type_name -> deepagents.runtime.v1.LocalSandboxSpec
-	36, // 39: deepagents.runtime.v1.SandboxSpec.docker:type_name -> deepagents.runtime.v1.DockerSandboxSpec
-	38, // 40: deepagents.runtime.v1.SandboxSpec.kubernetes:type_name -> deepagents.runtime.v1.KubernetesSandboxSpec
-	0,  // 41: deepagents.runtime.v1.ImageReference.pull_policy:type_name -> deepagents.runtime.v1.ImagePullPolicy
-	35, // 42: deepagents.runtime.v1.DockerSandboxSpec.image:type_name -> deepagents.runtime.v1.ImageReference
-	37, // 43: deepagents.runtime.v1.DockerSandboxSpec.resources:type_name -> deepagents.runtime.v1.DockerResourceSpec
-	35, // 44: deepagents.runtime.v1.KubernetesSandboxSpec.image:type_name -> deepagents.runtime.v1.ImageReference
-	39, // 45: deepagents.runtime.v1.KubernetesSandboxSpec.resources:type_name -> deepagents.runtime.v1.KubernetesResourceRequirements
-	70, // 46: deepagents.runtime.v1.KubernetesResourceRequirements.requests:type_name -> deepagents.runtime.v1.KubernetesResourceRequirements.RequestsEntry
-	71, // 47: deepagents.runtime.v1.KubernetesResourceRequirements.limits:type_name -> deepagents.runtime.v1.KubernetesResourceRequirements.LimitsEntry
-	40, // 48: deepagents.runtime.v1.SkillContent.files:type_name -> deepagents.runtime.v1.SkillFile
-	72, // 49: deepagents.runtime.v1.ModelConfig.extra_params:type_name -> deepagents.runtime.v1.ModelConfig.ExtraParamsEntry
-	45, // 50: deepagents.runtime.v1.UploadWorkspaceFilesRequest.files:type_name -> deepagents.runtime.v1.UploadWorkspaceFile
-	47, // 51: deepagents.runtime.v1.UploadWorkspaceFilesResponse.files:type_name -> deepagents.runtime.v1.UploadWorkspaceFileResult
-	63, // 52: deepagents.runtime.v1.ListSessionsResponse.sessions:type_name -> deepagents.runtime.v1.SessionSummary
-	64, // 53: deepagents.runtime.v1.GetSessionResponse.session:type_name -> deepagents.runtime.v1.SessionDetail
-	63, // 54: deepagents.runtime.v1.GetLatestSessionResponse.session:type_name -> deepagents.runtime.v1.SessionSummary
-	2,  // 55: deepagents.runtime.v1.GetSessionMessagesRequest.requested_mode:type_name -> deepagents.runtime.v1.SessionHistoryMode
-	2,  // 56: deepagents.runtime.v1.GetSessionMessagesResponse.actual_mode:type_name -> deepagents.runtime.v1.SessionHistoryMode
-	65, // 57: deepagents.runtime.v1.GetSessionMessagesResponse.messages:type_name -> deepagents.runtime.v1.SessionMessage
-	74, // 58: deepagents.runtime.v1.SessionSummary.updated_at:type_name -> google.protobuf.Timestamp
-	2,  // 59: deepagents.runtime.v1.SessionSummary.history_mode:type_name -> deepagents.runtime.v1.SessionHistoryMode
-	1,  // 60: deepagents.runtime.v1.SessionSummary.agent_status:type_name -> deepagents.runtime.v1.AgentRuntimeStatus
-	63, // 61: deepagents.runtime.v1.SessionDetail.summary:type_name -> deepagents.runtime.v1.SessionSummary
-	3,  // 62: deepagents.runtime.v1.SessionMessage.role:type_name -> deepagents.runtime.v1.SessionMessageRole
-	73, // 63: deepagents.runtime.v1.SessionMessage.raw:type_name -> google.protobuf.Struct
-	4,  // 64: deepagents.runtime.v1.AgentExecutor.Run:input_type -> deepagents.runtime.v1.ClientMessage
-	24, // 65: deepagents.runtime.v1.ResourceSync.SyncSkill:input_type -> deepagents.runtime.v1.SyncSkillRequest
-	25, // 66: deepagents.runtime.v1.ResourceSync.SyncMcp:input_type -> deepagents.runtime.v1.SyncMcpRequest
-	26, // 67: deepagents.runtime.v1.ResourceSync.SyncAgentSpec:input_type -> deepagents.runtime.v1.SyncAgentSpecRequest
-	43, // 68: deepagents.runtime.v1.ResourceSync.Assemble:input_type -> deepagents.runtime.v1.AssembleRequest
-	46, // 69: deepagents.runtime.v1.ResourceSync.UploadWorkspaceFiles:input_type -> deepagents.runtime.v1.UploadWorkspaceFilesRequest
-	49, // 70: deepagents.runtime.v1.ResourceSync.RemoveResource:input_type -> deepagents.runtime.v1.RemoveResourceRequest
-	51, // 71: deepagents.runtime.v1.ResourceSync.Health:input_type -> deepagents.runtime.v1.HealthRequest
-	53, // 72: deepagents.runtime.v1.SessionQuery.ListSessions:input_type -> deepagents.runtime.v1.ListSessionsRequest
-	55, // 73: deepagents.runtime.v1.SessionQuery.GetSession:input_type -> deepagents.runtime.v1.GetSessionRequest
-	61, // 74: deepagents.runtime.v1.SessionQuery.GetSessionMessages:input_type -> deepagents.runtime.v1.GetSessionMessagesRequest
-	57, // 75: deepagents.runtime.v1.SessionQuery.GetLatestSession:input_type -> deepagents.runtime.v1.GetLatestSessionRequest
-	59, // 76: deepagents.runtime.v1.SessionQuery.DeleteSession:input_type -> deepagents.runtime.v1.DeleteSessionRequest
-	10, // 77: deepagents.runtime.v1.AgentExecutor.Run:output_type -> deepagents.runtime.v1.AgentEvent
-	50, // 78: deepagents.runtime.v1.ResourceSync.SyncSkill:output_type -> deepagents.runtime.v1.SyncResponse
-	50, // 79: deepagents.runtime.v1.ResourceSync.SyncMcp:output_type -> deepagents.runtime.v1.SyncResponse
-	50, // 80: deepagents.runtime.v1.ResourceSync.SyncAgentSpec:output_type -> deepagents.runtime.v1.SyncResponse
-	44, // 81: deepagents.runtime.v1.ResourceSync.Assemble:output_type -> deepagents.runtime.v1.AssembleResponse
-	48, // 82: deepagents.runtime.v1.ResourceSync.UploadWorkspaceFiles:output_type -> deepagents.runtime.v1.UploadWorkspaceFilesResponse
-	50, // 83: deepagents.runtime.v1.ResourceSync.RemoveResource:output_type -> deepagents.runtime.v1.SyncResponse
-	52, // 84: deepagents.runtime.v1.ResourceSync.Health:output_type -> deepagents.runtime.v1.HealthResponse
-	54, // 85: deepagents.runtime.v1.SessionQuery.ListSessions:output_type -> deepagents.runtime.v1.ListSessionsResponse
-	56, // 86: deepagents.runtime.v1.SessionQuery.GetSession:output_type -> deepagents.runtime.v1.GetSessionResponse
-	62, // 87: deepagents.runtime.v1.SessionQuery.GetSessionMessages:output_type -> deepagents.runtime.v1.GetSessionMessagesResponse
-	58, // 88: deepagents.runtime.v1.SessionQuery.GetLatestSession:output_type -> deepagents.runtime.v1.GetLatestSessionResponse
-	60, // 89: deepagents.runtime.v1.SessionQuery.DeleteSession:output_type -> deepagents.runtime.v1.DeleteSessionResponse
-	77, // [77:90] is the sub-list for method output_type
-	64, // [64:77] is the sub-list for method input_type
-	64, // [64:64] is the sub-list for extension type_name
-	64, // [64:64] is the sub-list for extension extendee
-	0,  // [0:64] is the sub-list for field type_name
+	41, // 34: deepagents.runtime.v1.SubagentSpec.skills:type_name -> deepagents.runtime.v1.SkillContent
+	42, // 35: deepagents.runtime.v1.SubagentSpec.model_config:type_name -> deepagents.runtime.v1.ModelConfig
+	68, // 36: deepagents.runtime.v1.McpServerConfig.env:type_name -> deepagents.runtime.v1.McpServerConfig.EnvEntry
+	69, // 37: deepagents.runtime.v1.SandboxSpec.resources:type_name -> deepagents.runtime.v1.SandboxSpec.ResourcesEntry
+	32, // 38: deepagents.runtime.v1.SandboxSpec.execution:type_name -> deepagents.runtime.v1.SandboxExecutionPolicy
+	33, // 39: deepagents.runtime.v1.SandboxSpec.env:type_name -> deepagents.runtime.v1.SandboxEnvVar
+	34, // 40: deepagents.runtime.v1.SandboxSpec.local:type_name -> deepagents.runtime.v1.LocalSandboxSpec
+	36, // 41: deepagents.runtime.v1.SandboxSpec.docker:type_name -> deepagents.runtime.v1.DockerSandboxSpec
+	38, // 42: deepagents.runtime.v1.SandboxSpec.kubernetes:type_name -> deepagents.runtime.v1.KubernetesSandboxSpec
+	0,  // 43: deepagents.runtime.v1.ImageReference.pull_policy:type_name -> deepagents.runtime.v1.ImagePullPolicy
+	35, // 44: deepagents.runtime.v1.DockerSandboxSpec.image:type_name -> deepagents.runtime.v1.ImageReference
+	37, // 45: deepagents.runtime.v1.DockerSandboxSpec.resources:type_name -> deepagents.runtime.v1.DockerResourceSpec
+	35, // 46: deepagents.runtime.v1.KubernetesSandboxSpec.image:type_name -> deepagents.runtime.v1.ImageReference
+	39, // 47: deepagents.runtime.v1.KubernetesSandboxSpec.resources:type_name -> deepagents.runtime.v1.KubernetesResourceRequirements
+	70, // 48: deepagents.runtime.v1.KubernetesResourceRequirements.requests:type_name -> deepagents.runtime.v1.KubernetesResourceRequirements.RequestsEntry
+	71, // 49: deepagents.runtime.v1.KubernetesResourceRequirements.limits:type_name -> deepagents.runtime.v1.KubernetesResourceRequirements.LimitsEntry
+	40, // 50: deepagents.runtime.v1.SkillContent.files:type_name -> deepagents.runtime.v1.SkillFile
+	72, // 51: deepagents.runtime.v1.ModelConfig.extra_params:type_name -> deepagents.runtime.v1.ModelConfig.ExtraParamsEntry
+	45, // 52: deepagents.runtime.v1.UploadWorkspaceFilesRequest.files:type_name -> deepagents.runtime.v1.UploadWorkspaceFile
+	47, // 53: deepagents.runtime.v1.UploadWorkspaceFilesResponse.files:type_name -> deepagents.runtime.v1.UploadWorkspaceFileResult
+	63, // 54: deepagents.runtime.v1.ListSessionsResponse.sessions:type_name -> deepagents.runtime.v1.SessionSummary
+	64, // 55: deepagents.runtime.v1.GetSessionResponse.session:type_name -> deepagents.runtime.v1.SessionDetail
+	63, // 56: deepagents.runtime.v1.GetLatestSessionResponse.session:type_name -> deepagents.runtime.v1.SessionSummary
+	2,  // 57: deepagents.runtime.v1.GetSessionMessagesRequest.requested_mode:type_name -> deepagents.runtime.v1.SessionHistoryMode
+	2,  // 58: deepagents.runtime.v1.GetSessionMessagesResponse.actual_mode:type_name -> deepagents.runtime.v1.SessionHistoryMode
+	65, // 59: deepagents.runtime.v1.GetSessionMessagesResponse.messages:type_name -> deepagents.runtime.v1.SessionMessage
+	74, // 60: deepagents.runtime.v1.SessionSummary.updated_at:type_name -> google.protobuf.Timestamp
+	2,  // 61: deepagents.runtime.v1.SessionSummary.history_mode:type_name -> deepagents.runtime.v1.SessionHistoryMode
+	1,  // 62: deepagents.runtime.v1.SessionSummary.agent_status:type_name -> deepagents.runtime.v1.AgentRuntimeStatus
+	63, // 63: deepagents.runtime.v1.SessionDetail.summary:type_name -> deepagents.runtime.v1.SessionSummary
+	3,  // 64: deepagents.runtime.v1.SessionMessage.role:type_name -> deepagents.runtime.v1.SessionMessageRole
+	73, // 65: deepagents.runtime.v1.SessionMessage.raw:type_name -> google.protobuf.Struct
+	4,  // 66: deepagents.runtime.v1.AgentExecutor.Run:input_type -> deepagents.runtime.v1.ClientMessage
+	24, // 67: deepagents.runtime.v1.ResourceSync.SyncSkill:input_type -> deepagents.runtime.v1.SyncSkillRequest
+	25, // 68: deepagents.runtime.v1.ResourceSync.SyncMcp:input_type -> deepagents.runtime.v1.SyncMcpRequest
+	26, // 69: deepagents.runtime.v1.ResourceSync.SyncAgentSpec:input_type -> deepagents.runtime.v1.SyncAgentSpecRequest
+	43, // 70: deepagents.runtime.v1.ResourceSync.Assemble:input_type -> deepagents.runtime.v1.AssembleRequest
+	46, // 71: deepagents.runtime.v1.ResourceSync.UploadWorkspaceFiles:input_type -> deepagents.runtime.v1.UploadWorkspaceFilesRequest
+	49, // 72: deepagents.runtime.v1.ResourceSync.RemoveResource:input_type -> deepagents.runtime.v1.RemoveResourceRequest
+	51, // 73: deepagents.runtime.v1.ResourceSync.Health:input_type -> deepagents.runtime.v1.HealthRequest
+	53, // 74: deepagents.runtime.v1.SessionQuery.ListSessions:input_type -> deepagents.runtime.v1.ListSessionsRequest
+	55, // 75: deepagents.runtime.v1.SessionQuery.GetSession:input_type -> deepagents.runtime.v1.GetSessionRequest
+	61, // 76: deepagents.runtime.v1.SessionQuery.GetSessionMessages:input_type -> deepagents.runtime.v1.GetSessionMessagesRequest
+	57, // 77: deepagents.runtime.v1.SessionQuery.GetLatestSession:input_type -> deepagents.runtime.v1.GetLatestSessionRequest
+	59, // 78: deepagents.runtime.v1.SessionQuery.DeleteSession:input_type -> deepagents.runtime.v1.DeleteSessionRequest
+	10, // 79: deepagents.runtime.v1.AgentExecutor.Run:output_type -> deepagents.runtime.v1.AgentEvent
+	50, // 80: deepagents.runtime.v1.ResourceSync.SyncSkill:output_type -> deepagents.runtime.v1.SyncResponse
+	50, // 81: deepagents.runtime.v1.ResourceSync.SyncMcp:output_type -> deepagents.runtime.v1.SyncResponse
+	50, // 82: deepagents.runtime.v1.ResourceSync.SyncAgentSpec:output_type -> deepagents.runtime.v1.SyncResponse
+	44, // 83: deepagents.runtime.v1.ResourceSync.Assemble:output_type -> deepagents.runtime.v1.AssembleResponse
+	48, // 84: deepagents.runtime.v1.ResourceSync.UploadWorkspaceFiles:output_type -> deepagents.runtime.v1.UploadWorkspaceFilesResponse
+	50, // 85: deepagents.runtime.v1.ResourceSync.RemoveResource:output_type -> deepagents.runtime.v1.SyncResponse
+	52, // 86: deepagents.runtime.v1.ResourceSync.Health:output_type -> deepagents.runtime.v1.HealthResponse
+	54, // 87: deepagents.runtime.v1.SessionQuery.ListSessions:output_type -> deepagents.runtime.v1.ListSessionsResponse
+	56, // 88: deepagents.runtime.v1.SessionQuery.GetSession:output_type -> deepagents.runtime.v1.GetSessionResponse
+	62, // 89: deepagents.runtime.v1.SessionQuery.GetSessionMessages:output_type -> deepagents.runtime.v1.GetSessionMessagesResponse
+	58, // 90: deepagents.runtime.v1.SessionQuery.GetLatestSession:output_type -> deepagents.runtime.v1.GetLatestSessionResponse
+	60, // 91: deepagents.runtime.v1.SessionQuery.DeleteSession:output_type -> deepagents.runtime.v1.DeleteSessionResponse
+	79, // [79:92] is the sub-list for method output_type
+	66, // [66:79] is the sub-list for method input_type
+	66, // [66:66] is the sub-list for extension type_name
+	66, // [66:66] is the sub-list for extension extendee
+	0,  // [0:66] is the sub-list for field type_name
 }
 
 func init() { file_runtime_proto_init() }

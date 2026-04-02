@@ -6,18 +6,12 @@ const skillFileSchema = z.object({
   path: z.string().optional(),
   content: z.string().optional(),
 });
-const subagentModelSchema = z.object({
-  provider: z.string().optional(),
-  model: z.string().optional(),
-  base_url: z.string().optional(),
-  api_key_env: z.string().optional(),
-  extra_params: z.record(z.string()).optional(),
-});
 const subagentSchema = z.object({
   name: z.string().optional(),
   description: z.string().optional(),
   system_prompt: z.string().optional(),
-  model: subagentModelSchema,
+  model_ref: z.string().optional(),
+  skill_refs: z.array(z.string()).optional(),
 });
 
 export const authoredStatusOptions = [

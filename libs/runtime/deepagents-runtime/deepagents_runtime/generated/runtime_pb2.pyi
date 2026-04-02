@@ -324,16 +324,20 @@ class SyncAgentSpecRequest(_message.Message):
     def __init__(self, name: _Optional[str] = ..., version: _Optional[str] = ..., description: _Optional[str] = ..., tags: _Optional[_Iterable[str]] = ..., model: _Optional[str] = ..., prompt: _Optional[_Union[PromptSpec, _Mapping]] = ..., skills: _Optional[_Iterable[_Union[SkillContent, _Mapping]]] = ..., tools: _Optional[_Union[ToolsSpec, _Mapping]] = ..., subagents: _Optional[_Iterable[_Union[SubagentSpec, _Mapping]]] = ..., sandbox: _Optional[_Union[SandboxSpec, _Mapping]] = ..., interrupt_on: _Optional[_Iterable[str]] = ..., mcp_servers: _Optional[_Iterable[_Union[McpServerConfig, _Mapping]]] = ..., model_config: _Optional[_Union[ModelConfig, _Mapping]] = ...) -> None: ...
 
 class SubagentSpec(_message.Message):
-    __slots__ = ("name", "description", "system_prompt", "model")
+    __slots__ = ("name", "description", "system_prompt", "model", "skills", "model_config")
     NAME_FIELD_NUMBER: _ClassVar[int]
     DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
     SYSTEM_PROMPT_FIELD_NUMBER: _ClassVar[int]
     MODEL_FIELD_NUMBER: _ClassVar[int]
+    SKILLS_FIELD_NUMBER: _ClassVar[int]
+    MODEL_CONFIG_FIELD_NUMBER: _ClassVar[int]
     name: str
     description: str
     system_prompt: str
     model: str
-    def __init__(self, name: _Optional[str] = ..., description: _Optional[str] = ..., system_prompt: _Optional[str] = ..., model: _Optional[str] = ...) -> None: ...
+    skills: _containers.RepeatedCompositeFieldContainer[SkillContent]
+    model_config: ModelConfig
+    def __init__(self, name: _Optional[str] = ..., description: _Optional[str] = ..., system_prompt: _Optional[str] = ..., model: _Optional[str] = ..., skills: _Optional[_Iterable[_Union[SkillContent, _Mapping]]] = ..., model_config: _Optional[_Union[ModelConfig, _Mapping]] = ...) -> None: ...
 
 class McpServerConfig(_message.Message):
     __slots__ = ("name", "command", "args", "env", "transport", "description")
