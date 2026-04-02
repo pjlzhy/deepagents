@@ -1141,6 +1141,7 @@ type modelConfigUpsertRequest struct {
 	Provider    string            `json:"provider,omitempty"`
 	Model       string            `json:"model,omitempty"`
 	BaseURL     string            `json:"base_url,omitempty"`
+	APIKey      string            `json:"api_key,omitempty"`
 	APIKeyEnv   string            `json:"api_key_env,omitempty"`
 	ExtraParams map[string]string `json:"extra_params,omitempty"`
 	Status      string            `json:"status,omitempty"`
@@ -1152,6 +1153,7 @@ type modelConfigResponse struct {
 	Provider    string            `json:"provider,omitempty"`
 	Model       string            `json:"model,omitempty"`
 	BaseURL     string            `json:"base_url,omitempty"`
+	APIKey      string            `json:"api_key,omitempty"`
 	APIKeyEnv   string            `json:"api_key_env,omitempty"`
 	ExtraParams map[string]string `json:"extra_params,omitempty"`
 	Status      string            `json:"status,omitempty"`
@@ -1172,6 +1174,7 @@ type modelSpecPayload struct {
 	Provider    string            `json:"provider,omitempty"`
 	Model       string            `json:"model,omitempty"`
 	BaseURL     string            `json:"base_url,omitempty"`
+	APIKey      string            `json:"api_key,omitempty"`
 	APIKeyEnv   string            `json:"api_key_env,omitempty"`
 	ExtraParams map[string]string `json:"extra_params,omitempty"`
 }
@@ -1489,6 +1492,7 @@ func decodeModelConfigRequest(r *http.Request) (domain.ModelConfig, error) {
 			Provider:    request.Provider,
 			Model:       request.Model,
 			BaseURL:     request.BaseURL,
+			APIKey:      request.APIKey,
 			APIKeyEnv:   request.APIKeyEnv,
 			ExtraParams: request.ExtraParams,
 		}),
@@ -2082,6 +2086,7 @@ func newHTTPModelConfigResponse(config domain.ModelConfig) modelConfigResponse {
 		Provider:    config.Spec.Provider,
 		Model:       config.Spec.Model,
 		BaseURL:     config.Spec.BaseURL,
+		APIKey:      maskSecret(config.Spec.APIKey),
 		APIKeyEnv:   config.Spec.APIKeyEnv,
 		ExtraParams: config.Spec.ExtraParams,
 		Status:      string(config.Status),
@@ -2149,6 +2154,7 @@ func newHTTPModelSpec(spec domain.ModelSpec) modelSpecPayload {
 		Provider:    spec.Provider,
 		Model:       spec.Model,
 		BaseURL:     spec.BaseURL,
+		APIKey:      maskSecret(spec.APIKey),
 		APIKeyEnv:   spec.APIKeyEnv,
 		ExtraParams: spec.ExtraParams,
 	}
@@ -2224,6 +2230,7 @@ func newDomainModelSpec(spec modelSpecPayload) domain.ModelSpec {
 		Provider:    strings.TrimSpace(spec.Provider),
 		Model:       strings.TrimSpace(spec.Model),
 		BaseURL:     strings.TrimSpace(spec.BaseURL),
+		APIKey:      strings.TrimSpace(spec.APIKey),
 		APIKeyEnv:   strings.TrimSpace(spec.APIKeyEnv),
 		ExtraParams: spec.ExtraParams,
 	}
@@ -2331,6 +2338,19 @@ func formatOptionalTime(value time.Time) string {
 		return ""
 	}
 	return value.UTC().Format(time.RFC3339Nano)
+}
+
+// maskSecret masks a secret value for safe display over the API.
+// Shows first 4 and last 4 characters; short values are fully masked.
+func maskSecret(value string) string {
+	if value == "" {
+		return ""
+	}
+	n := len(value)
+	if n <= 8 {
+		return strings.Repeat("*", n)
+	}
+	return value[:4] + strings.Repeat("*", n-8) + value[n-4:]
 }
 
 func newRunSessionID() (string, error) {

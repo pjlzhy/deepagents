@@ -1,5 +1,5 @@
 import { RobotOne } from '@icon-park/react';
-import { Message, Spin, Tag, Typography } from '@arco-design/web-react';
+import { Message, Spin, Typography } from '@arco-design/web-react';
 import useSWR from 'swr';
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -17,11 +17,14 @@ import {
 } from '@/features/chat/runtimeEventParser';
 import { controlClient } from '@/shared/api/controlClient';
 import type { HTTPAgentEventDTO } from '@/shared/types/api';
+import '@/styles/registry-cards.css';
 
 import ThreadSidebar from './ThreadSidebar';
 import { UserBubble, AssistantBubble, HitlRequestBubble } from './MessageBubble';
 import ToolCallCard from './ToolCallCard';
 import ChatComposer from './ChatComposer';
+
+const CYAN = '#00f0ff';
 
 function isRunActive(status: RunStatusVM): boolean {
   return ['starting', 'streaming', 'waiting_hitl', 'canceling'].includes(status);
@@ -31,16 +34,18 @@ function isRuntimeEvent(payload: unknown): payload is HTTPAgentEventDTO {
   return typeof payload === 'object' && payload !== null && 'type' in payload;
 }
 
-function formatStatus(status: RunStatusVM): { text: string; color: 'arcoblue' | 'green' | 'orange' | 'red' | 'gray' } {
+type StatusStyle = { text: string; color: string; dot: string };
+
+function formatStatus(status: RunStatusVM): StatusStyle {
   switch (status) {
-    case 'starting': return { text: 'starting', color: 'arcoblue' };
-    case 'streaming': return { text: 'streaming', color: 'green' };
-    case 'waiting_hitl': return { text: 'waiting', color: 'orange' };
-    case 'canceling': return { text: 'canceling', color: 'orange' };
-    case 'completed': return { text: 'completed', color: 'green' };
-    case 'canceled': return { text: 'canceled', color: 'gray' };
-    case 'failed': return { text: 'failed', color: 'red' };
-    default: return { text: 'idle', color: 'gray' };
+    case 'starting': return { text: 'starting', color: CYAN, dot: CYAN };
+    case 'streaming': return { text: 'streaming', color: '#39ff14', dot: '#39ff14' };
+    case 'waiting_hitl': return { text: 'waiting', color: '#ff9f1a', dot: '#ff9f1a' };
+    case 'canceling': return { text: 'canceling', color: '#ff9f1a', dot: '#ff9f1a' };
+    case 'completed': return { text: 'completed', color: '#39ff14', dot: '#39ff14' };
+    case 'canceled': return { text: 'canceled', color: 'var(--control-subtle)', dot: 'var(--control-subtle)' };
+    case 'failed': return { text: 'failed', color: '#ff3b5c', dot: '#ff3b5c' };
+    default: return { text: 'idle', color: 'var(--control-subtle)', dot: 'var(--control-subtle)' };
   }
 }
 
@@ -280,7 +285,7 @@ export default function ChatWorkspacePage() {
   // ─── Layout ───
 
   return (
-    <div className='flex h-full min-h-0 overflow-hidden'>
+    <div className='flex h-full min-h-0 overflow-hidden rd-4px'>
       {/* Thread sidebar */}
       <ThreadSidebar
         agentOptions={agentOptions}
@@ -298,12 +303,35 @@ export default function ChatWorkspacePage() {
       {/* Main chat area */}
       <div className='flex min-w-0 flex-1 flex-col bg-[var(--control-panel)]'>
         {/* Top bar */}
-        <div className='flex shrink-0 items-center justify-between border-b border-solid border-[var(--control-border)] px-20px py-10px'>
+        <div
+          className='flex shrink-0 items-center justify-between px-20px py-10px'
+          style={{
+            borderBottom: '1px solid var(--control-border)',
+            background: 'rgba(0,240,255,0.02)',
+          }}
+        >
           <div className='flex items-center gap-10px'>
+            <div
+              className='w-28px h-28px rd-8px flex-center shrink-0'
+              style={{ background: 'rgba(0,240,255,0.08)' }}
+            >
+              <RobotOne size={16} fill={[CYAN]} />
+            </div>
             <Typography.Text className='font-semibold text-[var(--control-text)]'>
               {selectedAgentName || 'No agent selected'}
             </Typography.Text>
-            <Tag size='small' color={statusView.color}>{statusView.text}</Tag>
+            {/* Status chip */}
+            <span
+              className='flex items-center gap-5px rd-full px-8px py-2px text-11px font-semibold border border-solid'
+              style={{
+                color: statusView.color,
+                borderColor: `${statusView.color}40`,
+                background: `${statusView.color}0a`,
+              }}
+            >
+              <span className='inline-block w-6px h-6px rd-full' style={{ background: statusView.dot }} />
+              {statusView.text}
+            </span>
             {selectedThreadId ? (
               <Typography.Text className='text-12px text-[var(--control-subtle)]'>
                 {selectedThreadId}
@@ -319,12 +347,17 @@ export default function ChatWorkspacePage() {
               <Spin />
             </div>
           ) : chatTimelineItems.length === 0 ? (
-            <div className='flex h-full flex-col items-center justify-center gap-12px px-24px'>
-              <RobotOne theme='outline' size='32' fill='var(--control-primary)' />
-              <Typography.Text className='text-16px text-[var(--control-text)]'>
+            <div className='flex h-full flex-col items-center justify-center gap-16px px-24px'>
+              <div
+                className='w-56px h-56px rd-14px flex-center'
+                style={{ background: 'rgba(0,240,255,0.08)', border: '1px solid rgba(0,240,255,0.18)' }}
+              >
+                <RobotOne theme='outline' size='28' fill={CYAN} />
+              </div>
+              <Typography.Text className='text-16px font-semibold text-[var(--control-text)]'>
                 {selectedAgentName ? 'Start a new conversation' : 'Select an agent to begin'}
               </Typography.Text>
-              <Typography.Text className='text-center text-[var(--control-subtle)]'>
+              <Typography.Text className='text-center text-13px text-[var(--control-subtle)]'>
                 {selectedAgentName
                   ? 'Type a message below to get started.'
                   : 'Choose an agent from the sidebar, then start chatting.'}

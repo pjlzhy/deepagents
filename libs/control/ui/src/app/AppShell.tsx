@@ -10,6 +10,7 @@ function resolveSelectedKey(pathname: string): string {
   if (pathname.startsWith('/registry/skills')) return links.skills();
   if (pathname.startsWith('/registry/mcps')) return links.mcps();
   if (pathname.startsWith('/registry/sandboxes')) return links.sandboxes();
+  if (pathname.startsWith('/registry/agents/build')) return links.agents();
   if (pathname.startsWith('/registry/agents')) return links.agents();
   if (pathname.startsWith('/chat')) return links.chatRoot();
   return links.overview();

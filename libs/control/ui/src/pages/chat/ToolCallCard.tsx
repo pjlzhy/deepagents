@@ -1,7 +1,8 @@
-import { Tag } from '@arco-design/web-react';
 import { useState } from 'react';
 import type { ConversationTimelineItemVM } from '@/features/chat/runtimeEventParser';
 import { AssistantAvatar } from './MessageBubble';
+
+const CYAN = '#00f0ff';
 
 type AssistantToolCallItem = Extract<ConversationTimelineItemVM, { kind: 'assistant_tool_call' }>;
 
@@ -43,8 +44,9 @@ export default function ToolCallCard(props: { item: AssistantToolCallItem }) {
   const toolLabel = item.toolName ?? 'unknown_tool';
   const resultTrimmed = item.output?.trim();
 
-  const statusColor = item.isError ? 'red' : item.status === 'completed' ? 'green' : 'arcoblue';
-  const statusLabel = item.isError ? 'error' : item.status ?? 'running';
+  const isError = item.isError;
+  const statusLabel = isError ? 'error' : item.status ?? 'running';
+  const statusColor = isError ? '#ff3b5c' : item.status === 'completed' ? '#39ff14' : CYAN;
 
   return (
     <div className='flex items-start justify-start gap-8px'>
@@ -57,23 +59,32 @@ export default function ToolCallCard(props: { item: AssistantToolCallItem }) {
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded((p) => !p); } }}
       >
         <div
-          className='rd-12px px-12px py-8px transition-colors'
+          className='rd-12px px-12px py-8px transition-all duration-200'
           style={{
-            background: item.isError ? 'rgba(255,59,92,0.04)' : 'rgba(16,22,48,0.80)',
-            border: item.isError ? '1px solid rgba(255,59,92,0.20)' : '1px solid rgba(0,240,255,0.08)',
+            background: isError ? 'rgba(255,59,92,0.04)' : 'rgba(16,22,48,0.80)',
+            border: isError ? '1px solid rgba(255,59,92,0.20)' : '1px solid rgba(0,240,255,0.10)',
+            boxShadow: expanded ? `0 0 10px ${isError ? 'rgba(255,59,92,0.08)' : 'rgba(0,240,255,0.06)'}` : 'none',
           }}
         >
           {/* Header */}
           <div className='flex items-center gap-6px'>
-            <span className='font-mono text-13px font-medium text-[var(--control-primary)]'>{toolLabel}</span>
+            <span className='font-mono text-13px font-semibold' style={{ color: CYAN }}>{toolLabel}</span>
             {inlineArgs ? (
               <span className='min-w-0 flex-1 truncate font-mono text-12px text-[var(--control-subtle)]'>
                 {inlineArgs}
               </span>
             ) : null}
-            <Tag size='small' color={statusColor} className='ml-auto shrink-0'>
+            {/* Status chip */}
+            <span
+              className='ml-auto shrink-0 rd-full px-8px py-1px text-10px font-bold uppercase tracking-wider border border-solid'
+              style={{
+                color: statusColor,
+                borderColor: `${statusColor}35`,
+                background: `${statusColor}0a`,
+              }}
+            >
               {statusLabel}
-            </Tag>
+            </span>
           </div>
 
           {/* Summary */}
@@ -85,19 +96,35 @@ export default function ToolCallCard(props: { item: AssistantToolCallItem }) {
 
           {/* Expanded */}
           {expanded ? (
-            <div className='mt-8px border-t border-solid border-[rgba(0,240,255,0.06)] pt-8px'>
+            <div className='mt-8px pt-8px' style={{ borderTop: '1px solid rgba(0,240,255,0.08)' }}>
               {item.arguments !== undefined ? (
                 <div className='mb-6px'>
-                  <span className='mb-3px block text-11px uppercase text-[var(--control-subtle)]'>arguments</span>
-                  <pre className='!m-0 overflow-auto whitespace-pre-wrap break-words rd-6px bg-[rgba(0,240,255,0.03)] p-8px font-mono text-12px text-[var(--control-text)]'>
+                  <span
+                    className='mb-3px block text-10px uppercase tracking-wider font-bold'
+                    style={{ color: CYAN }}
+                  >
+                    arguments
+                  </span>
+                  <pre
+                    className='!m-0 overflow-auto whitespace-pre-wrap break-words rd-8px p-8px font-mono text-12px text-[var(--control-text)]'
+                    style={{ background: 'rgba(0,240,255,0.03)', border: '1px solid rgba(0,240,255,0.06)' }}
+                  >
                     {formatJson(item.arguments)}
                   </pre>
                 </div>
               ) : null}
               {resultTrimmed ? (
                 <div>
-                  <span className='mb-3px block text-11px uppercase text-[var(--control-subtle)]'>result</span>
-                  <pre className='!m-0 overflow-auto whitespace-pre-wrap break-words rd-6px bg-[rgba(0,240,255,0.03)] p-8px font-mono text-12px text-[var(--control-text)]'>
+                  <span
+                    className='mb-3px block text-10px uppercase tracking-wider font-bold'
+                    style={{ color: '#39ff14' }}
+                  >
+                    result
+                  </span>
+                  <pre
+                    className='!m-0 overflow-auto whitespace-pre-wrap break-words rd-8px p-8px font-mono text-12px text-[var(--control-text)]'
+                    style={{ background: 'rgba(57,255,20,0.03)', border: '1px solid rgba(57,255,20,0.06)' }}
+                  >
                     {resultTrimmed}
                   </pre>
                 </div>

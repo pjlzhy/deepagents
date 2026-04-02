@@ -3,6 +3,8 @@ import { Button, Select, Tooltip } from '@arco-design/web-react';
 import { useMemo } from 'react';
 import type { SessionSummaryDTO } from '@/shared/types/api';
 
+const CYAN = '#00f0ff';
+
 export type ThreadSidebarProps = {
   agentOptions: { label: string; value: string }[];
   selectedAgentName?: string;
@@ -66,7 +68,10 @@ export default function ThreadSidebar(props: ThreadSidebarProps) {
   // Collapsed state — narrow icon strip
   if (collapsed) {
     return (
-      <div className='flex h-full w-44px shrink-0 flex-col items-center gap-4px border-r border-solid border-[var(--control-border)] bg-[var(--control-panel)] py-8px'>
+      <div
+        className='flex h-full w-44px shrink-0 flex-col items-center gap-4px py-8px'
+        style={{ borderRight: '1px solid var(--control-border)', background: 'rgba(12,16,36,0.97)' }}
+      >
         <Button
           type='text'
           size='small'
@@ -79,12 +84,12 @@ export default function ThreadSidebar(props: ThreadSidebarProps) {
             type='text'
             size='small'
             className='control-quiet-icon-button'
-            icon={<Add theme='outline' size='16' fill='var(--control-primary)' />}
+            icon={<Add theme='outline' size='16' fill={CYAN} />}
             disabled={!selectedAgentName || disabled}
             onClick={onNewChat}
           />
         </Tooltip>
-        <div className='my-4px h-1px w-20px bg-[var(--control-border)]' />
+        <div className='my-4px h-1px w-20px' style={{ background: 'var(--control-border)' }} />
         <div className='control-scroll flex min-h-0 flex-1 flex-col items-center gap-2px overflow-auto'>
           {sortedSessions.map((session) => {
             const isActive = session.thread_id === selectedThreadId;
@@ -104,17 +109,17 @@ export default function ThreadSidebar(props: ThreadSidebarProps) {
               >
                 <button
                   type='button'
-                  className={`flex-center h-30px w-30px cursor-pointer border-none rd-6px transition-colors ${
-                    isActive
-                      ? 'bg-[var(--control-primary-soft)]'
-                      : 'bg-transparent hover:bg-[rgba(100,112,134,0.08)]'
-                  }`}
+                  className='flex-center h-30px w-30px cursor-pointer border-none rd-8px transition-all duration-200'
+                  style={{
+                    background: isActive ? 'rgba(0,240,255,0.10)' : 'transparent',
+                    boxShadow: isActive ? '0 0 8px rgba(0,240,255,0.12)' : 'none',
+                  }}
                   onClick={() => session.thread_id && onThreadSelect(session.thread_id)}
                 >
                   <MessageOne
                     theme='outline'
                     size='14'
-                    fill={isActive ? 'var(--control-primary)' : 'var(--control-subtle)'}
+                    fill={isActive ? CYAN : 'var(--control-subtle)'}
                   />
                 </button>
               </Tooltip>
@@ -126,10 +131,16 @@ export default function ThreadSidebar(props: ThreadSidebarProps) {
   }
 
   return (
-    <div className='flex h-full w-200px shrink-0 flex-col border-r border-solid border-[var(--control-border)] bg-[var(--control-panel)]'>
+    <div
+      className='flex h-full w-220px shrink-0 flex-col'
+      style={{ borderRight: '1px solid var(--control-border)', background: 'rgba(12,16,36,0.97)' }}
+    >
       {/* Header */}
-      <div className='shrink-0 border-b border-solid border-[var(--control-border)] px-8px py-8px'>
-        <div className='mb-6px flex items-center gap-4px'>
+      <div
+        className='shrink-0 px-10px py-10px'
+        style={{ borderBottom: '1px solid var(--control-border)', background: 'rgba(0,240,255,0.02)' }}
+      >
+        <div className='mb-8px flex items-center gap-6px'>
           <Select
             allowClear
             size='small'
@@ -161,33 +172,53 @@ export default function ThreadSidebar(props: ThreadSidebarProps) {
       </div>
 
       {/* Thread list */}
-      <div className='control-scroll min-h-0 flex-1 overflow-auto'>
+      <div className='control-scroll min-h-0 flex-1 overflow-auto px-6px py-6px'>
         {sortedSessions.length === 0 ? (
           <div className='px-10px py-20px text-center text-12px text-[var(--control-subtle)]'>
             {selectedAgentName ? 'No conversations yet' : 'Select an agent'}
           </div>
         ) : (
-          <div className='flex flex-col py-2px'>
+          <div className='flex flex-col gap-2px'>
             {sortedSessions.map((session) => {
               const isActive = session.thread_id === selectedThreadId;
               return (
                 <button
                   key={session.thread_id}
                   type='button'
-                  className={`mx-4px cursor-pointer border-none rd-6px px-8px py-6px text-left transition-colors ${
-                    isActive
-                      ? 'bg-[var(--control-primary-soft)]'
-                      : 'bg-transparent hover:bg-[rgba(100,112,134,0.06)]'
-                  }`}
+                  className='cursor-pointer border-none rd-10px px-10px py-8px text-left transition-all duration-200'
+                  style={{
+                    background: isActive ? 'rgba(0,240,255,0.08)' : 'transparent',
+                    border: isActive ? '1px solid rgba(0,240,255,0.18)' : '1px solid transparent',
+                    boxShadow: isActive ? '0 0 10px rgba(0,240,255,0.06)' : 'none',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isActive) {
+                      e.currentTarget.style.background = 'rgba(0,240,255,0.04)';
+                      e.currentTarget.style.borderColor = 'rgba(0,240,255,0.10)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isActive) {
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.borderColor = 'transparent';
+                    }
+                  }}
                   onClick={() => session.thread_id && onThreadSelect(session.thread_id)}
                 >
-                  <div
-                    className='truncate text-13px leading-18px text-[var(--control-text)]'
-                    style={{ fontWeight: isActive ? 600 : 400 }}
-                  >
-                    {truncatePrompt(session.initial_prompt, 32)}
+                  <div className='flex items-center gap-8px'>
+                    <MessageOne
+                      theme='outline'
+                      size='13'
+                      fill={isActive ? CYAN : 'var(--control-subtle)'}
+                    />
+                    <div
+                      className='truncate text-13px leading-18px'
+                      style={{ color: isActive ? 'var(--control-text)' : 'var(--control-subtle)', fontWeight: isActive ? 600 : 400 }}
+                    >
+                      {truncatePrompt(session.initial_prompt, 28)}
+                    </div>
                   </div>
-                  <div className='mt-1px text-11px text-[var(--control-subtle)]'>
+                  <div className='mt-2px pl-21px text-11px text-[var(--control-subtle)]'>
                     {formatThreadTime(session.updated_at)}
                   </div>
                 </button>

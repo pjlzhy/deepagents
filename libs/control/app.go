@@ -9,6 +9,7 @@ import (
 	"agentctl/pkg/registry"
 	resolverpkg "agentctl/pkg/resolver"
 	"agentctl/pkg/runtimeclient"
+	"agentctl/pkg/secrets"
 	"agentctl/pkg/store"
 	"context"
 	"errors"
@@ -59,6 +60,9 @@ func newApp(ctx context.Context, cfg config.Config) (*controlApp, error) {
 	if err != nil {
 		return closeWithStore(fmt.Errorf("create registry: %w", err))
 	}
+
+	// Configure encryption for secrets at rest (api_key etc.).
+	reg.SetEncryptor(secrets.NewEncryptor(cfg.SecretKey))
 
 	if err := ensureDefaultRuntimeTarget(ctx, reg, cfg); err != nil {
 		return closeWithStore(err)

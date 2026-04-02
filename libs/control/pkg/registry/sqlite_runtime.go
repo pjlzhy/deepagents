@@ -299,6 +299,7 @@ func normalizeModelSpec(spec domain.ModelSpec) domain.ModelSpec {
 	spec.Provider = strings.TrimSpace(spec.Provider)
 	spec.Model = strings.TrimSpace(spec.Model)
 	spec.BaseURL = strings.TrimSpace(spec.BaseURL)
+	spec.APIKey = strings.TrimSpace(spec.APIKey)
 	spec.APIKeyEnv = strings.TrimSpace(spec.APIKeyEnv)
 	return spec
 }

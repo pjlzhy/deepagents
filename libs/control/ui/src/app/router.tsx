@@ -6,6 +6,7 @@ import SkillsPage from '@/pages/registry/SkillsPage';
 import MCPsPage from '@/pages/registry/MCPsPage';
 import SandboxesPage from '@/pages/registry/SandboxesPage';
 import AgentsPage from '@/pages/registry/AgentsPage';
+import AgentBuilderPage from '@/pages/registry/AgentBuilderPage';
 import ChatWorkspacePage from '@/pages/chat';
 
 function StretchPage(props: { children: ReactNode }) {
@@ -22,7 +23,9 @@ export default function AppRouter() {
       <Route path='/registry/mcps' element={<MCPsPage />} />
       <Route path='/registry/sandboxes' element={<SandboxesPage />} />
       <Route path='/registry/agents' element={<AgentsPage />} />
-      <Route path='/registry/agents/new' element={<AgentsPage />} />
+      <Route path='/registry/agents/build' element={<StretchPage><AgentBuilderPage /></StretchPage>} />
+      <Route path='/registry/agents/build/:agentName' element={<StretchPage><AgentBuilderPage /></StretchPage>} />
+      <Route path='/registry/agents/new' element={<Navigate to='/registry/agents/build' replace />} />
       <Route path='/registry/agents/:agentName' element={<AgentsPage />} />
       <Route
         path='/chat'

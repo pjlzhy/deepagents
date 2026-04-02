@@ -22,6 +22,7 @@ type Config struct {
 	RuntimeEndpoint      string
 	NorthboundTransport  string
 	LogLevel             string
+	SecretKey            string // AES-256 key (hex or raw) for encrypting secrets at rest
 }
 
 // Default 返回默认配置。
@@ -54,6 +55,7 @@ func FromEnv(getenv func(string) string) Config {
 		cfg.NorthboundTransport,
 	)
 	cfg.LogLevel = firstNonEmpty(getenv("DEEPAGENTS_CONTROL_LOG_LEVEL"), cfg.LogLevel)
+	cfg.SecretKey = getenv("DEEPAGENTS_CONTROL_SECRET_KEY")
 	return cfg
 }
 

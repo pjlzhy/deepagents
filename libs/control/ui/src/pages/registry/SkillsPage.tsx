@@ -1,11 +1,54 @@
 import { useState } from 'react';
 import { Button, Message, Popconfirm } from '@arco-design/web-react';
+import { Lightning, FolderCode, Shield, Fingerprint } from '@icon-park/react';
 import useSWR from 'swr';
 import SkillDetailDrawer from '@/features/registry/SkillDetailDrawer';
 import SkillEditorDrawer from '@/features/registry/SkillEditorDrawer';
 import RegistryResourcePage from '@/pages/registry/RegistryResourcePage';
+import type { ResourceTypeConfig, StatBadge } from '@/pages/registry/RegistryResourcePage';
 import { controlClient } from '@/shared/api/controlClient';
 import type { SkillDTO, SkillDetailDTO } from '@/shared/types/api';
+
+const RESOURCE_TYPE: ResourceTypeConfig = {
+  kind: 'skill',
+  icon: <Lightning size={28} fill={['#39ff14']} />,
+  accent: '#39ff14',
+  glowColor: 'rgba(57,255,20,0.20)',
+  headerTint: 'rgba(57,255,20,0.04)',
+  categoryLabel: 'SKILL',
+};
+
+function buildStats(item: SkillDTO): StatBadge[] {
+  return [
+    { icon: 'FolderCode', label: 'files', value: item.file_count ?? 0 },
+    { icon: 'Shield', label: 'license', value: formatSkillCardValue(item.license) },
+    { icon: 'Fingerprint', label: 'digest', value: formatDigest(item.snapshot_digest) },
+  ];
+}
+
+function buildExpanded(item: SkillDTO) {
+  const rows: Array<[string, string]> = [];
+  if (item.compatibility !== null && item.compatibility !== undefined) {
+    rows.push(['compatibility', JSON.stringify(item.compatibility)]);
+  }
+  if (item.metadata !== null && item.metadata !== undefined) {
+    rows.push(['metadata', JSON.stringify(item.metadata)]);
+  }
+  if (item.allowed_tools !== null && item.allowed_tools !== undefined) {
+    rows.push(['allowed_tools', JSON.stringify(item.allowed_tools)]);
+  }
+  if (rows.length === 0) return undefined;
+  return (
+    <div className='flex flex-col gap-4px'>
+      {rows.map(([k, v]) => (
+        <div key={k} className='flex flex-col gap-2px'>
+          <span className='text-[var(--control-subtle)]'>{k}</span>
+          <span className='break-all text-[var(--control-text)]'>{v}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function SkillsPage() {
   const [pageNumber, setPageNumber] = useState(1);
@@ -67,7 +110,7 @@ export default function SkillsPage() {
       <RegistryResourcePage
         title='Skills'
         description='Manage uploaded skill snapshots. Skills are created and replaced with zip packages, then inspected in read-only detail.'
-        accent='#39ff14'
+        resourceType={RESOURCE_TYPE}
         actions={
           <Button type='primary' onClick={() => setEditor({ mode: 'create' })}>
             Upload Skill
@@ -87,6 +130,8 @@ export default function SkillsPage() {
           description: item.description,
           status: item.status,
           updatedAt: item.updated_at,
+          stats: buildStats(item),
+          expandedContent: buildExpanded(item),
           details: [
             { label: 'files', value: String(item.file_count ?? 0) },
             { label: 'license', value: formatSkillCardValue(item.license) },
@@ -138,19 +183,13 @@ export default function SkillsPage() {
 }
 
 function formatSkillCardValue(value: unknown): string {
-  if (value === null || value === undefined) {
-    return 'n/a';
-  }
-  if (typeof value === 'string') {
-    return value;
-  }
+  if (value === null || value === undefined) return 'n/a';
+  if (typeof value === 'string') return value;
   return JSON.stringify(value);
 }
 
 function formatDigest(value?: string): string {
-  if (!value) {
-    return 'n/a';
-  }
+  if (!value) return 'n/a';
   return value.length > 12 ? `${value.slice(0, 12)}...` : value;
 }
 

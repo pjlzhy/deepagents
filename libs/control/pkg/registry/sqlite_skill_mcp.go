@@ -11,15 +11,35 @@ import (
 
 // SQLiteRegistry 提供 SQLite-backed registry 实现。
 type SQLiteRegistry struct {
-	db *sql.DB
+	db        *sql.DB
+	encryptor secretEncryptor
 }
+
+// secretEncryptor is the subset of secrets.Encryptor used by the registry.
+type secretEncryptor interface {
+	Encrypt(plaintext string) (string, error)
+	Decrypt(value string) (string, error)
+}
+
+// noopEncryptor is a passthrough when no encryption is configured.
+type noopEncryptor struct{}
+
+func (noopEncryptor) Encrypt(p string) (string, error) { return p, nil }
+func (noopEncryptor) Decrypt(v string) (string, error)  { return v, nil }
 
 // NewSQLiteRegistry 创建一个新的 SQLite registry。
 func NewSQLiteRegistry(db *sql.DB) (*SQLiteRegistry, error) {
 	if db == nil {
 		return nil, errors.New("db must not be nil")
 	}
-	return &SQLiteRegistry{db: db}, nil
+	return &SQLiteRegistry{db: db, encryptor: noopEncryptor{}}, nil
+}
+
+// SetEncryptor configures the secret encryptor for API key encryption at rest.
+func (r *SQLiteRegistry) SetEncryptor(enc secretEncryptor) {
+	if enc != nil {
+		r.encryptor = enc
+	}
 }
 
 // UpsertSkill 持久化一个技能目录快照。

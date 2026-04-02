@@ -56,6 +56,7 @@ type ModelSpec struct {
 	Provider    string
 	Model       string
 	BaseURL     string
+	APIKey      string            `json:"api_key,omitempty"`
 	APIKeyEnv   string
 	ExtraParams map[string]string
 }

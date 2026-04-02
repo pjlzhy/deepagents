@@ -20,6 +20,16 @@ func (r *SQLiteRegistry) UpsertModelConfig(ctx context.Context, config domain.Mo
 		return err
 	}
 
+	// Encrypt api_key before persisting.
+	specToStore := config.Spec
+	if specToStore.APIKey != "" {
+		encrypted, err := r.encryptor.Encrypt(specToStore.APIKey)
+		if err != nil {
+			return fmt.Errorf("encrypt api_key: %w", err)
+		}
+		specToStore.APIKey = encrypted
+	}
+
 	current, err := r.GetModelConfig(ctx, config.Name)
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return err
@@ -36,7 +46,7 @@ func (r *SQLiteRegistry) UpsertModelConfig(ctx context.Context, config domain.Mo
 		config.UpdatedAt = now
 	}
 
-	specJSON, err := marshalJSON(config.Spec)
+	specJSON, err := marshalJSON(specToStore)
 	if err != nil {
 		return fmt.Errorf("marshal model config spec: %w", err)
 	}
@@ -98,6 +108,15 @@ func (r *SQLiteRegistry) GetModelConfig(ctx context.Context, name string) (domai
 		return domain.ModelConfig{}, fmt.Errorf("decode model config spec: %w", err)
 	}
 	config.Spec = normalizeModelSpec(config.Spec)
+
+	// Decrypt api_key after reading.
+	if config.Spec.APIKey != "" {
+		decrypted, decErr := r.encryptor.Decrypt(config.Spec.APIKey)
+		if decErr != nil {
+			return domain.ModelConfig{}, fmt.Errorf("decrypt api_key for %q: %w", name, decErr)
+		}
+		config.Spec.APIKey = decrypted
+	}
 
 	var err error
 	config.CreatedAt, err = parseTime(createdAt)

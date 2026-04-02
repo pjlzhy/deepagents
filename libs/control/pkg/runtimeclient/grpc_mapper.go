@@ -202,6 +202,7 @@ func modelConfigToProto(spec domain.ModelSpec) *runtimev1.ModelConfig {
 		Provider:    spec.Provider,
 		Model:       spec.Model,
 		BaseUrl:     spec.BaseURL,
+		ApiKey:      spec.APIKey,
 		ApiKeyEnv:   spec.APIKeyEnv,
 		ExtraParams: cloneStringMap(spec.ExtraParams),
 	}

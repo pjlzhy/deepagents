@@ -1,9 +1,10 @@
 import { LinkOne, Send, Pause } from '@icon-park/react';
-import { Button, Input, Tag, Typography } from '@arco-design/web-react';
+import { Button, Input, Typography } from '@arco-design/web-react';
 import type { ChangeEvent, RefObject } from 'react';
 import type { RunStatusVM } from '@/features/chat/runtimeEventParser';
 
 const { TextArea } = Input;
+const CYAN = '#00f0ff';
 
 function isRunActive(status: RunStatusVM): boolean {
   return ['starting', 'streaming', 'waiting_hitl', 'canceling'].includes(status);
@@ -52,21 +53,35 @@ export default function ChatComposer(props: ChatComposerProps) {
         : undefined;
 
   return (
-    <div className='shrink-0 border-t border-solid border-[var(--control-border)] bg-[var(--control-panel)] px-24px pb-16px pt-12px'>
+    <div
+      className='shrink-0 px-24px pb-16px pt-12px'
+      style={{ borderTop: '1px solid var(--control-border)', background: 'rgba(12,16,36,0.97)' }}
+    >
       <div>
         {/* Uploaded file tags */}
         {uploadedWorkspaceFiles.length > 0 ? (
           <div className='mb-8px flex flex-wrap items-center gap-6px'>
             {uploadedWorkspaceFiles.map((path) => (
-              <Tag key={path} size='small' color='arcoblue'>
+              <span
+                key={path}
+                className='rd-full px-8px py-2px text-11px font-mono border border-solid'
+                style={{ color: CYAN, borderColor: `${CYAN}30`, background: `${CYAN}08` }}
+              >
                 {path}
-              </Tag>
+              </span>
             ))}
           </div>
         ) : null}
 
         {/* Input area */}
-        <div className='rd-16px border border-solid border-[var(--control-border)] bg-[var(--control-panel-muted)] px-4px py-4px'>
+        <div
+          className='rd-16px px-4px py-4px transition-all duration-200'
+          style={{
+            border: '1px solid rgba(0,240,255,0.15)',
+            background: 'var(--control-panel-muted)',
+            boxShadow: composerValue.trim() ? '0 0 12px rgba(0,240,255,0.06)' : 'none',
+          }}
+        >
           <TextArea
             autoSize={{ minRows: 1, maxRows: 8 }}
             placeholder={selectedAgentName ? 'Message...' : 'Select an agent to start'}
@@ -117,14 +132,19 @@ export default function ChatComposer(props: ChatComposerProps) {
                   onClick={onCancel}
                 />
               ) : null}
-              <Button
-                type='primary'
-                size='small'
-                shape='circle'
-                icon={<Send theme='outline' size='14' fill='currentColor' />}
+              <button
+                type='button'
+                className='flex-center h-30px w-30px rd-full border-none cursor-pointer transition-all duration-200'
                 disabled={disabled || !composerValue.trim()}
+                style={{
+                  background: disabled || !composerValue.trim() ? 'rgba(0,240,255,0.08)' : CYAN,
+                  color: disabled || !composerValue.trim() ? 'var(--control-subtle)' : '#0a0e1a',
+                  boxShadow: disabled || !composerValue.trim() ? 'none' : '0 0 10px rgba(0,240,255,0.3)',
+                }}
                 onClick={onSend}
-              />
+              >
+                <Send theme='outline' size='14' fill='currentColor' />
+              </button>
             </div>
           </div>
         </div>

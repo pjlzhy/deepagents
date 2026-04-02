@@ -1,10 +1,50 @@
 import { useState } from 'react';
 import { Button, Message, Popconfirm } from '@arco-design/web-react';
+import { PlugOne, Terminal, Exchange, Code } from '@icon-park/react';
 import useSWR from 'swr';
 import MCPEditorDrawer from '@/features/registry/MCPEditorDrawer';
 import RegistryResourcePage from '@/pages/registry/RegistryResourcePage';
+import type { ResourceTypeConfig, StatBadge } from '@/pages/registry/RegistryResourcePage';
 import { controlClient } from '@/shared/api/controlClient';
 import type { MCPConfigDTO, MCPConfigUpsertRequestDTO } from '@/shared/types/api';
+
+const RESOURCE_TYPE: ResourceTypeConfig = {
+  kind: 'mcp',
+  icon: <PlugOne size={28} fill={['#ff9f1a']} />,
+  accent: '#ff9f1a',
+  glowColor: 'rgba(255,159,26,0.20)',
+  headerTint: 'rgba(255,159,26,0.04)',
+  categoryLabel: 'MCP',
+};
+
+function buildStats(item: MCPConfigDTO): StatBadge[] {
+  return [
+    { icon: 'Terminal', label: 'command', value: item.command ?? 'n/a' },
+    { icon: 'Exchange', label: 'transport', value: item.transport ?? 'stdio' },
+    { icon: 'Code', label: 'args', value: item.args?.length ?? 0 },
+  ];
+}
+
+function buildExpanded(item: MCPConfigDTO) {
+  const rows: Array<[string, string]> = [];
+  if (item.args && item.args.length > 0) {
+    rows.push(['args', item.args.join(' ')]);
+  }
+  if (item.env && Object.keys(item.env).length > 0) {
+    rows.push(['env keys', Object.keys(item.env).join(', ')]);
+  }
+  if (rows.length === 0) return undefined;
+  return (
+    <div className='flex flex-col gap-4px'>
+      {rows.map(([k, v]) => (
+        <div key={k} className='flex flex-col gap-2px'>
+          <span className='text-[var(--control-subtle)]'>{k}</span>
+          <span className='break-all text-[var(--control-text)]'>{v}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function MCPsPage() {
   const [pageNumber, setPageNumber] = useState(1);
@@ -38,7 +78,7 @@ export default function MCPsPage() {
       <RegistryResourcePage
         title='MCPs'
         description='Manage MCP server configs, including command, args, env, and transport.'
-        accent='#ff9f1a'
+        resourceType={RESOURCE_TYPE}
         actions={
           <Button type='primary' onClick={() => setEditor({ mode: 'create' })}>
             Create MCP
@@ -58,6 +98,9 @@ export default function MCPsPage() {
           description: item.description,
           status: item.status,
           updatedAt: item.updated_at,
+          subtitle: item.command ? `${item.command}` : undefined,
+          stats: buildStats(item),
+          expandedContent: buildExpanded(item),
           details: [
             { label: 'command', value: item.command ?? 'n/a' },
             { label: 'transport', value: item.transport ?? 'stdio' },
