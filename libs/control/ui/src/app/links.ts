@@ -11,5 +11,4 @@ export const links = {
   chatAgent: (agentName: string) => `/chat/${encodeURIComponent(agentName)}`,
   chatThread: (agentName: string, threadId: string) =>
     `/chat/${encodeURIComponent(agentName)}/${encodeURIComponent(threadId)}`,
-  history: () => '/history',
 };

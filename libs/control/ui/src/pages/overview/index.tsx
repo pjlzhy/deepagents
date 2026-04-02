@@ -1,4 +1,4 @@
-import { DocDetail, HistoryQuery, PlayOne, RobotOne } from '@icon-park/react';
+import { DocDetail, PlayOne, RobotOne } from '@icon-park/react';
 import { Button, Card, Space, Spin, Tag, Typography } from '@arco-design/web-react';
 import useSWR from 'swr';
 import { useNavigate } from 'react-router-dom';
@@ -53,14 +53,6 @@ export default function OverviewPage() {
             </Typography.Text>
           </div>
           <Space>
-            <Button
-              type='secondary'
-              size='small'
-              icon={<HistoryQuery theme='outline' size='14' fill='currentColor' />}
-              onClick={() => void navigate(links.history())}
-            >
-              History
-            </Button>
             <Button
               type='primary'
               size='small'

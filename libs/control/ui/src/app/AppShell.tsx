@@ -1,4 +1,4 @@
-import { DataAll, HamburgerButton, HistoryQuery, RobotOne } from '@icon-park/react';
+import { DataAll, HamburgerButton, RobotOne } from '@icon-park/react';
 import { Button, Layout, Menu, Tag, Typography } from '@arco-design/web-react';
 import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -12,8 +12,16 @@ function resolveSelectedKey(pathname: string): string {
   if (pathname.startsWith('/registry/sandboxes')) return links.sandboxes();
   if (pathname.startsWith('/registry/agents')) return links.agents();
   if (pathname.startsWith('/chat')) return links.chatRoot();
-  if (pathname.startsWith('/history')) return links.history();
   return links.overview();
+}
+
+function NavIcon(props: { icon: React.ReactNode; label: string }) {
+  return (
+    <div className='flex items-center gap-8px'>
+      {props.icon}
+      <span>{props.label}</span>
+    </div>
+  );
 }
 
 export default function AppShell() {
@@ -25,23 +33,23 @@ export default function AppShell() {
   return (
     <Layout className='h-screen overflow-hidden bg-transparent'>
       <Layout.Sider
-        width={256}
-        collapsedWidth={56}
+        width={200}
+        collapsedWidth={52}
         collapsed={collapsed}
-        className='m-18px mr-0 flex flex-col overflow-hidden rd-24px border border-solid border-[var(--control-border)] bg-[var(--control-panel)] shadow-[var(--control-shadow)] transition-all duration-200'
+        className='m-14px mr-0 flex flex-col overflow-hidden rd-20px border border-solid border-[var(--control-border)] bg-[var(--control-panel)] shadow-[var(--control-shadow)] transition-all duration-200'
       >
         {/* Collapse toggle */}
-        <div className={`flex shrink-0 items-center px-14px py-12px ${collapsed ? 'justify-center' : 'justify-between'}`}>
+        <div className={`flex shrink-0 items-center px-12px py-10px ${collapsed ? 'justify-center' : 'justify-between'}`}>
           {!collapsed ? (
-            <Typography.Text className='text-14px font-semibold text-[var(--control-text)]'>
+            <Typography.Text className='text-13px font-semibold text-[var(--control-text)]'>
               agents control
             </Typography.Text>
           ) : null}
           <Button
             type='text'
-            size='small'
+            size='mini'
             className='control-quiet-icon-button'
-            icon={<HamburgerButton theme='outline' size='18' fill='var(--control-subtle)' />}
+            icon={<HamburgerButton theme='outline' size='16' fill='var(--control-subtle)' />}
             onClick={() => setCollapsed((prev) => !prev)}
           />
         </div>
@@ -50,21 +58,15 @@ export default function AppShell() {
           selectedKeys={[selectedKey]}
           defaultOpenKeys={collapsed ? [] : ['registry']}
           collapse={collapsed}
-          className='border-none bg-transparent px-10px'
+          className='control-nav-menu border-none bg-transparent px-6px'
           onClickMenuItem={(key) => { void navigate(key); }}
         >
           <Menu.Item key={links.overview()}>
-            <DataAll theme='outline' size='18' fill='var(--control-text)' />
-            <span>概览</span>
+            <NavIcon icon={<DataAll theme='outline' size='16' fill='currentColor' />} label='概览' />
           </Menu.Item>
           <Menu.SubMenu
             key='registry'
-            title={
-              <>
-                <DataAll theme='outline' size='18' fill='var(--control-text)' />
-                <span>Registry</span>
-              </>
-            }
+            title={<NavIcon icon={<DataAll theme='outline' size='16' fill='currentColor' />} label='Registry' />}
           >
             <Menu.Item key={links.models()}>Models</Menu.Item>
             <Menu.Item key={links.skills()}>Skills</Menu.Item>
@@ -73,29 +75,24 @@ export default function AppShell() {
             <Menu.Item key={links.agents()}>Agents</Menu.Item>
           </Menu.SubMenu>
           <Menu.Item key={links.chatRoot()}>
-            <RobotOne theme='outline' size='18' fill='var(--control-text)' />
-            <span>Chat Workspace</span>
-          </Menu.Item>
-          <Menu.Item key={links.history()}>
-            <HistoryQuery theme='outline' size='18' fill='var(--control-text)' />
-            <span>History</span>
+            <NavIcon icon={<RobotOne theme='outline' size='16' fill='currentColor' />} label='Chat' />
           </Menu.Item>
         </Menu>
 
         {!collapsed ? (
-          <div className='mt-auto px-14px py-14px'>
-            <div className='control-muted-card flex items-center justify-between px-12px py-10px'>
-              <div className='flex flex-col gap-2px'>
-                <Typography.Text className='text-12px text-[var(--control-subtle)]'>southbound</Typography.Text>
-                <Typography.Text className='text-[var(--control-text)]'>single default_target</Typography.Text>
+          <div className='mt-auto px-10px py-10px'>
+            <div className='control-muted-card flex items-center justify-between px-10px py-8px'>
+              <div className='flex flex-col gap-1px'>
+                <Typography.Text className='text-11px text-[var(--control-subtle)]'>southbound</Typography.Text>
+                <Typography.Text className='text-12px text-[var(--control-text)]'>default_target</Typography.Text>
               </div>
-              <Tag color='arcoblue'>runtime</Tag>
+              <Tag size='small' color='arcoblue'>rt</Tag>
             </div>
           </div>
         ) : null}
       </Layout.Sider>
       <Layout className='min-h-0 flex-1 bg-transparent'>
-        <Layout.Content className='m-18px flex min-h-0 flex-1 flex-col overflow-hidden rd-24px border border-solid border-[var(--control-border)] bg-[var(--control-panel)] p-24px shadow-[var(--control-shadow)]'>
+        <Layout.Content className='m-14px flex min-h-0 flex-1 flex-col overflow-hidden rd-20px border border-solid border-[var(--control-border)] bg-[var(--control-panel)] p-20px shadow-[var(--control-shadow)]'>
           <div className='flex min-h-0 flex-1 flex-col overflow-hidden'>
             <AppRouter />
           </div>

@@ -53,7 +53,7 @@ export default function ChatComposer(props: ChatComposerProps) {
 
   return (
     <div className='shrink-0 border-t border-solid border-[var(--control-border)] bg-[var(--control-panel)] px-24px pb-16px pt-12px'>
-      <div className='mx-auto max-w-768px'>
+      <div>
         {/* Uploaded file tags */}
         {uploadedWorkspaceFiles.length > 0 ? (
           <div className='mb-8px flex flex-wrap items-center gap-6px'>

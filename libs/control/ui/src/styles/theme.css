@@ -80,6 +80,92 @@ a {
   background: transparent;
 }
 
+/* ── Chat Markdown ── */
+.chat-markdown {
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--control-text);
+}
+
+.chat-markdown p {
+  margin: 0 0 8px;
+}
+
+.chat-markdown p:last-child {
+  margin-bottom: 0;
+}
+
+.chat-markdown strong {
+  color: var(--control-text);
+  font-weight: 600;
+}
+
+.chat-markdown code {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px;
+  background: rgba(0, 240, 255, 0.06);
+  border: 1px solid rgba(0, 240, 255, 0.10);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.chat-markdown pre {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(0, 240, 255, 0.03);
+  border: 1px solid rgba(0, 240, 255, 0.08);
+  overflow-x: auto;
+}
+
+.chat-markdown pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.chat-markdown ul,
+.chat-markdown ol {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+
+.chat-markdown li {
+  margin-bottom: 4px;
+}
+
+.chat-markdown blockquote {
+  margin: 6px 0;
+  padding: 4px 12px;
+  border-left: 3px solid rgba(0, 240, 255, 0.25);
+  color: var(--control-subtle);
+}
+
+.chat-markdown a {
+  color: var(--control-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.chat-markdown table {
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 13px;
+}
+
+.chat-markdown th,
+.chat-markdown td {
+  border: 1px solid rgba(0, 240, 255, 0.10);
+  padding: 4px 10px;
+}
+
+.chat-markdown th {
+  background: rgba(0, 240, 255, 0.04);
+  font-weight: 600;
+}
+
 /* ── Quiet icon button ── */
 .control-quiet-icon-button.arco-btn-text,
 .control-quiet-icon-button.arco-btn-text:hover,
@@ -273,6 +359,27 @@ body {
 
 .arco-menu-inline-content {
   background: transparent !important;
+}
+
+/* Nav menu — compact items with inline icon+text */
+.control-nav-menu .arco-menu-item,
+.control-nav-menu .arco-menu-inline-header {
+  height: 36px !important;
+  line-height: 36px !important;
+  margin-bottom: 2px !important;
+  padding: 0 12px !important;
+  border-radius: 8px !important;
+  font-size: 13px !important;
+}
+
+.control-nav-menu .arco-menu-inline-content .arco-menu-item {
+  padding-left: 36px !important;
+  font-size: 13px !important;
+}
+
+.control-nav-menu .arco-menu-item .arco-menu-icon,
+.control-nav-menu .arco-menu-inline-header .arco-menu-icon {
+  margin-right: 8px !important;
 }
 
 .arco-menu-pop,

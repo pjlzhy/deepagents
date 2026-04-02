@@ -7,7 +7,6 @@ import MCPsPage from '@/pages/registry/MCPsPage';
 import SandboxesPage from '@/pages/registry/SandboxesPage';
 import AgentsPage from '@/pages/registry/AgentsPage';
 import ChatWorkspacePage from '@/pages/chat';
-import HistoryPage from '@/pages/history';
 
 function StretchPage(props: { children: ReactNode }) {
   return <div className='flex min-h-0 flex-1 flex-col overflow-hidden'>{props.children}</div>;
@@ -49,7 +48,6 @@ export default function AppRouter() {
           </StretchPage>
         }
       />
-      <Route path='/history' element={<HistoryPage />} />
       <Route path='*' element={<Navigate to='/overview' replace />} />
     </Routes>
   );

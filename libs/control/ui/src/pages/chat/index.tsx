@@ -1,5 +1,5 @@
-import { RobotOne, SettingConfig } from '@icon-park/react';
-import { Button, Message, Spin, Tag, Typography } from '@arco-design/web-react';
+import { RobotOne } from '@icon-park/react';
+import { Message, Spin, Tag, Typography } from '@arco-design/web-react';
 import useSWR from 'swr';
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -22,7 +22,6 @@ import ThreadSidebar from './ThreadSidebar';
 import { UserBubble, AssistantBubble, HitlRequestBubble } from './MessageBubble';
 import ToolCallCard from './ToolCallCard';
 import ChatComposer from './ChatComposer';
-import InspectorPanel from './InspectorPanel';
 
 function isRunActive(status: RunStatusVM): boolean {
   return ['starting', 'streaming', 'waiting_hitl', 'canceling'].includes(status);
@@ -45,11 +44,29 @@ function formatStatus(status: RunStatusVM): { text: string; color: 'arcoblue' | 
   }
 }
 
-function renderTimelineItem(item: ConversationTimelineItemVM) {
+function renderTimelineItem(
+  item: ConversationTimelineItemVM,
+  opts: {
+    pendingInterrupts: PendingInterruptVM[];
+    onSubmitDecision: (interrupt: PendingInterruptVM, type: 'approve' | 'reject') => void;
+  },
+) {
   if (item.kind === 'user_message') return <UserBubble item={item} />;
   if (item.kind === 'assistant_message' || item.kind === 'assistant_draft') return <AssistantBubble item={item} />;
-  if (item.kind === 'assistant_tool_call') return <ToolCallCard item={item} />;
-  if (item.kind === 'hitl_request') return <HitlRequestBubble item={item} />;
+  if (item.kind === 'assistant_tool_call') {
+    return <ToolCallCard item={item} />;
+  }
+  if (item.kind === 'hitl_request') {
+    const pending = opts.pendingInterrupts.find((p) => p.interruptId === item.interruptId);
+    return (
+      <HitlRequestBubble
+        item={item}
+        resolved={!pending}
+        onApprove={pending ? () => opts.onSubmitDecision(pending, 'approve') : undefined}
+        onReject={pending ? () => opts.onSubmitDecision(pending, 'reject') : undefined}
+      />
+    );
+  }
   return null;
 }
 
@@ -64,7 +81,6 @@ export default function ChatWorkspacePage() {
 
   const [runSessionId, setRunSessionId] = useState<string | undefined>(undefined);
   const [composerValue, setComposerValue] = useState('');
-  const [inspectorOpen, setInspectorOpen] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState(false);
   const [uploadedWorkspaceFiles, setUploadedWorkspaceFiles] = useState<string[]>([]);
   const [runtimeState, setRuntimeState] = useState(() => createRuntimeStateFromHistory([]));
@@ -83,11 +99,8 @@ export default function ChatWorkspacePage() {
   useEffect(() => {
     if (!messagesQuery.data || isRunActive(runtimeState.runStatus)) return;
     setRuntimeState(createRuntimeStateFromHistory(messagesQuery.data.messages));
-  }, [messagesQuery.data, runtimeState.runStatus]);
-
-  useEffect(() => {
-    if (runtimeState.pendingInterrupts.length > 0) setInspectorOpen(true);
-  }, [runtimeState.pendingInterrupts.length]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only rebuild on fresh data fetch, not on runStatus change
+  }, [messagesQuery.data]);
 
   useEffect(() => {
     const viewport = timelineViewportRef.current;
@@ -109,16 +122,11 @@ export default function ChatWorkspacePage() {
     [agentsQuery.data?.agents],
   );
   const sessionItems = sessionsQuery.data?.sessions ?? [];
-  const selectedSession = useMemo(
-    () => sessionItems.find((item) => item.thread_id === selectedThreadId),
-    [selectedThreadId, sessionItems],
-  );
   const chatTimelineItems = useMemo(
     () => createConversationTimeline(runtimeState.timeline).filter((item) => item.kind !== 'system_event'),
     [runtimeState.timeline],
   );
   const statusView = formatStatus(runtimeState.runStatus);
-  const hasPendingInterrupts = runtimeState.pendingInterrupts.length > 0;
 
   // ─── Business logic (preserved from original) ───
 
@@ -161,7 +169,6 @@ export default function ChatWorkspacePage() {
           onClose: () => {
             setRunSessionId(undefined);
             void sessionsQuery.mutate();
-            void messagesQuery.mutate();
           },
         },
       );
@@ -265,7 +272,6 @@ export default function ChatWorkspacePage() {
   function resetWorkspace(): void {
     setRunSessionId(undefined);
     setComposerValue('');
-    setInspectorOpen(false);
     setUploadingFiles(false);
     setUploadedWorkspaceFiles([]);
     setRuntimeState(createRuntimeStateFromHistory([]));
@@ -274,7 +280,7 @@ export default function ChatWorkspacePage() {
   // ─── Layout ───
 
   return (
-    <div className='flex h-full min-h-0 overflow-hidden rd-18px border border-solid border-[var(--control-border)]'>
+    <div className='flex h-full min-h-0 overflow-hidden'>
       {/* Thread sidebar */}
       <ThreadSidebar
         agentOptions={agentOptions}
@@ -304,27 +310,7 @@ export default function ChatWorkspacePage() {
               </Typography.Text>
             ) : null}
           </div>
-          <Button
-            type={inspectorOpen ? 'secondary' : 'text'}
-            size='small'
-            icon={<SettingConfig theme='outline' size='16' fill='currentColor' />}
-            onClick={() => setInspectorOpen((prev) => !prev)}
-          >
-            {hasPendingInterrupts ? `Inspector (${runtimeState.pendingInterrupts.length})` : 'Inspector'}
-          </Button>
         </div>
-
-        {/* HITL banner */}
-        {hasPendingInterrupts && !inspectorOpen ? (
-          <div className='flex shrink-0 items-center justify-between border-b border-solid border-[rgba(209,142,31,0.25)] bg-[rgba(209,142,31,0.06)] px-20px py-8px'>
-            <Typography.Text className='text-13px text-[var(--control-warning)]'>
-              {runtimeState.pendingInterrupts.length} pending approval(s) — open Inspector to respond
-            </Typography.Text>
-            <Button size='mini' type='primary' onClick={() => setInspectorOpen(true)}>
-              Open
-            </Button>
-          </div>
-        ) : null}
 
         {/* Message area */}
         <div className='min-h-0 flex-1 overflow-hidden'>
@@ -349,9 +335,14 @@ export default function ChatWorkspacePage() {
               ref={timelineViewportRef}
               className='control-scroll flex h-full min-h-0 flex-col gap-16px overflow-auto px-24px py-16px'
             >
-              <div className='mx-auto flex w-full max-w-768px flex-col gap-16px'>
+              <div className='flex w-full flex-col gap-12px'>
                 {chatTimelineItems.map((item) => (
-                  <div key={item.id}>{renderTimelineItem(item)}</div>
+                  <div key={item.id}>
+                    {renderTimelineItem(item, {
+                      pendingInterrupts: runtimeState.pendingInterrupts,
+                      onSubmitDecision: (interrupt, type) => { void submitInterruptDecision(interrupt, type); },
+                    })}
+                  </div>
                 ))}
               </div>
             </div>
@@ -374,20 +365,6 @@ export default function ChatWorkspacePage() {
           onFilesSelected={(e) => { void handleWorkspaceFilesSelected(e); }}
         />
       </div>
-
-      {/* Inspector panel */}
-      {inspectorOpen ? (
-        <InspectorPanel
-          runStatus={runtimeState.runStatus}
-          selectedAgentName={selectedAgentName}
-          selectedThreadId={selectedThreadId}
-          runSessionId={runSessionId}
-          selectedSession={selectedSession}
-          pendingInterrupts={runtimeState.pendingInterrupts}
-          timeline={runtimeState.timeline}
-          onSubmitDecision={(interrupt, type) => { void submitInterruptDecision(interrupt, type); }}
-        />
-      ) : null}
     </div>
   );
 }
