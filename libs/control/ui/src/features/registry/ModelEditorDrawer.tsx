@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Button, Drawer, Form, Input, Select, Space } from '@arco-design/web-react';
 import type { ModelConfigDTO, ModelConfigUpsertRequestDTO } from '@/shared/types/api';
-import { authoredStatusOptions, formatJsonValue, parseOptionalStringMap } from '@/features/registry/formCodecs';
+import { authoredStatusOptions } from '@/features/registry/formCodecs';
+import KeyValueEditor from '@/shared/components/KeyValueEditor';
 
 type ModelEditorDrawerProps = {
   visible: boolean;
@@ -19,7 +20,7 @@ type ModelFormValues = {
   baseUrl: string;
   apiKeyEnv: string;
   status: string;
-  extraParamsJson: string;
+  extraParams: Record<string, string>;
 };
 
 export default function ModelEditorDrawer(props: ModelEditorDrawerProps) {
@@ -41,7 +42,7 @@ export default function ModelEditorDrawer(props: ModelEditorDrawerProps) {
       baseUrl: props.value?.base_url ?? '',
       apiKeyEnv: props.value?.api_key_env ?? '',
       status: props.value?.status ?? 'draft',
-      extraParamsJson: formatJsonValue(props.value?.extra_params),
+      extraParams: props.value?.extra_params ?? {},
     });
   }, [form, props.mode, props.value, props.visible]);
 
@@ -57,7 +58,7 @@ export default function ModelEditorDrawer(props: ModelEditorDrawerProps) {
         model: values.model.trim() || undefined,
         base_url: values.baseUrl.trim() || undefined,
         api_key_env: values.apiKeyEnv.trim() || undefined,
-        extra_params: parseOptionalStringMap(values.extraParamsJson, 'extra_params'),
+        extra_params: Object.keys(values.extraParams).length > 0 ? values.extraParams : undefined,
         status: values.status || undefined,
       });
       props.onClose();
@@ -126,11 +127,8 @@ export default function ModelEditorDrawer(props: ModelEditorDrawerProps) {
             <Input placeholder='OPENAI_API_KEY' />
           </Form.Item>
         </div>
-        <Form.Item field='extraParamsJson' label='Extra Params JSON'>
-          <Input.TextArea
-            autoSize={{ minRows: 6, maxRows: 12 }}
-            placeholder='{\n  "reasoning_effort": "medium"\n}'
-          />
+        <Form.Item field='extraParams' label='Extra Params'>
+          <KeyValueEditor keyPlaceholder='Param' valuePlaceholder='Value' />
         </Form.Item>
       </Form>
     </Drawer>

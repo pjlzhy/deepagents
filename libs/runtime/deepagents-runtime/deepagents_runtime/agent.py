@@ -16,6 +16,7 @@ from datetime import datetime
 from langchain.agents.middleware.types import AgentState
 from langchain.messages import ToolCall
 from langchain_core.runnables import RunnableConfig
+from langgraph.config import get_config
 from langgraph.runtime import Runtime
 from langchain.agents.middleware import InterruptOnConfig
 from langgraph.graph.state import CompiledStateGraph
@@ -478,7 +479,7 @@ class RuntimeAgent:
         self.last_invoked: datetime | None = None
 
         self._runtime_lock: asyncio.Lock = asyncio.Lock()
-        self._workspace_lock: asyncio.Lock = asyncio.Lock()
+        self._workspace_locks: dict[str, asyncio.Lock] = {}
         self._runtime_status: str | None = None
 
     def status(self) -> AgentStatus:
@@ -617,13 +618,23 @@ class RuntimeAgent:
 
     def _thread_backend_factory(self, tool_runtime: Any) -> ThreadRuntimeBackend:
         """Resolve a thread-bound backend from the current runnable config."""
-        config = getattr(tool_runtime, "config", {})
-        configurable = config.get("configurable", {}) if isinstance(config, dict) else {}
-        thread_id = str(configurable.get("thread_id", "")).strip()
-        if not thread_id:
+        try:
+            config = get_config()
+            thread_id = config.get("configurable", {}).get("thread_id")
+            if thread_id is not None:
+                return self._make_thread_backend(str(thread_id))
+        except RuntimeError:
+            # Not in a runnable context
             msg = "thread_id is required to resolve runtime workspace"
             raise RuntimeError(msg)
-        return self._make_thread_backend(thread_id)
+        pass
+        #config = getattr(tool_runtime, "config", {})
+        #configurable = config.get("configurable", {}) if isinstance(config, dict) else {}
+        #thread_id = str(configurable.get("thread_id", "")).strip()
+        #if not thread_id:
+        #    msg = "thread_id is required to resolve runtime workspace"
+        #    raise RuntimeError(msg)
+        #return self._make_thread_backend(thread_id)
 
     async def _run_sandbox_setup_commands(
             self,
@@ -707,7 +718,7 @@ class RuntimeAgent:
         """Upload files into one thread workspace."""
         if not files:
             return []
-        async with self._workspace_lock:
+        async with self._workspace_locks.setdefault(thread_id, asyncio.Lock()):
             thread_backend = self._make_thread_backend(thread_id)
             normalized_files = [
                 (normalize_runtime_upload_path(path), content)

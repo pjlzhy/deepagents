@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -231,8 +232,12 @@ func workspaceUploadRequestToProto(
 ) *runtimev1.UploadWorkspaceFilesRequest {
 	files := make([]*runtimev1.UploadWorkspaceFile, 0, len(req.Files))
 	for _, item := range req.Files {
+		cleaned := filepath.ToSlash(filepath.Clean(item.Path))
+		if filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "..") {
+			continue // skip paths that escape the workspace root
+		}
 		files = append(files, &runtimev1.UploadWorkspaceFile{
-			Path:    item.Path,
+			Path:    cleaned,
 			Content: item.Content,
 		})
 	}

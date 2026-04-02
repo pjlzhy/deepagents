@@ -35,6 +35,7 @@ export default function AgentsPage() {
       <RegistryResourcePage
         title='Agents'
         description='Manage authored agent specs and jump into editing or chat.'
+        accent='#a855f7'
         actions={
           <Button type='primary' onClick={() => void navigate(links.newAgent())}>
             Create Agent

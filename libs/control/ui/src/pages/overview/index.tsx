@@ -1,12 +1,20 @@
 import { DocDetail, HistoryQuery, PlayOne, RobotOne } from '@icon-park/react';
-import { Button, Card, Grid, List, Space, Spin, Statistic, Tag, Typography } from '@arco-design/web-react';
+import { Button, Card, Space, Spin, Tag, Typography } from '@arco-design/web-react';
 import useSWR from 'swr';
 import { useNavigate } from 'react-router-dom';
 import { links } from '@/app/links';
 import { controlClient } from '@/shared/api/controlClient';
-import PageHeader from '@/shared/ui/PageHeader';
 
-const { Row, Col } = Grid;
+function StatCard(props: { title: string; value: string | number; color?: string }) {
+  return (
+    <Card className='control-card control-glow-hover flex flex-col items-center py-20px'>
+      <Typography.Text className='text-32px font-bold' style={{ color: props.color ?? 'var(--control-primary)' }}>
+        {props.value}
+      </Typography.Text>
+      <Typography.Text className='mt-4px text-13px text-[var(--control-subtle)]'>{props.title}</Typography.Text>
+    </Card>
+  );
+}
 
 export default function OverviewPage() {
   const navigate = useNavigate();
@@ -27,152 +35,135 @@ export default function OverviewPage() {
   });
   const latestSessionQuery = useSWR('latest-session', () => controlClient.sessions.getLatest());
 
+  const ready = healthQuery.data?.ready;
+  const uptime = Math.round(healthQuery.data?.uptime_seconds ?? 0);
+
   return (
-    <div>
-      <PageHeader
-        title='Overview'
-        description='A compact entry point for health status, registry inventory, and the latest recoverable session.'
-        actions={
-          <>
+    <Spin loading={healthQuery.isLoading || countsQuery.isLoading}>
+      <div className='flex flex-col gap-18px'>
+        {/* Header row: status + uptime */}
+        <div className='flex items-center justify-between'>
+          <div className='flex items-center gap-12px'>
+            <Typography.Title heading={3} className='!mb-0 !mt-0 !text-[var(--control-text)]'>
+              Overview
+            </Typography.Title>
+            <Tag size='small' color={ready ? 'green' : 'orange'}>{ready ? 'ready' : 'not ready'}</Tag>
+            <Typography.Text className='text-13px text-[var(--control-subtle)]'>
+              uptime {uptime}s
+            </Typography.Text>
+          </div>
+          <Space>
             <Button
               type='secondary'
-              icon={<HistoryQuery theme='outline' size='16' fill='currentColor' />}
+              size='small'
+              icon={<HistoryQuery theme='outline' size='14' fill='currentColor' />}
               onClick={() => void navigate(links.history())}
             >
-              Open History
+              History
             </Button>
             <Button
               type='primary'
-              icon={<RobotOne theme='outline' size='16' fill='currentColor' />}
+              size='small'
+              icon={<RobotOne theme='outline' size='14' fill='currentColor' />}
               onClick={() => void navigate(links.chatRoot())}
             >
-              Open Chat
+              Chat
             </Button>
-          </>
-        }
-      />
-      <Spin loading={healthQuery.isLoading || countsQuery.isLoading}>
-        <Row gutter={[18, 18]}>
-          <Col xs={24} lg={8}>
-            <Card className='control-card h-full'>
-              <Statistic
-                title='Service Status'
-                value={healthQuery.data?.status ?? 'unknown'}
-                extra={
-                  <Space wrap>
-                    <Tag color={healthQuery.data?.ready ? 'green' : 'orange'}>
-                      {healthQuery.data?.ready ? 'ready' : 'not ready'}
-                    </Tag>
-                    <Typography.Text className='text-[var(--control-subtle)]'>
-                      uptime {Math.round(healthQuery.data?.uptime_seconds ?? 0)}s
-                    </Typography.Text>
-                  </Space>
-                }
-              />
-            </Card>
-          </Col>
-          <Col xs={12} lg={4}>
-            <Card className='control-card h-full'>
-              <Statistic title='Models' value={countsQuery.data?.models ?? 0} />
-            </Card>
-          </Col>
-          <Col xs={12} lg={4}>
-            <Card className='control-card h-full'>
-              <Statistic title='Skills' value={countsQuery.data?.skills ?? 0} />
-            </Card>
-          </Col>
-          <Col xs={12} lg={4}>
-            <Card className='control-card h-full'>
-              <Statistic title='MCPs' value={countsQuery.data?.mcps ?? 0} />
-            </Card>
-          </Col>
-          <Col xs={12} lg={4}>
-            <Card className='control-card h-full'>
-              <Statistic title='Agents' value={countsQuery.data?.agents ?? 0} />
-            </Card>
-          </Col>
-        </Row>
+          </Space>
+        </div>
 
-        <Row gutter={[18, 18]} className='mt-18px'>
-          <Col xs={24} lg={14}>
-            <Card className='control-card h-full'>
-              <Typography.Title heading={5} className='!mt-0'>
-                Quick Actions
-              </Typography.Title>
-              <Space wrap size='large'>
-                <Button
-                  icon={<DocDetail theme='outline' size='16' fill='currentColor' />}
-                  onClick={() => void navigate(links.models())}
-                >
-                  Browse Models
-                </Button>
-                <Button
-                  icon={<PlayOne theme='outline' size='16' fill='currentColor' />}
-                  onClick={() => void navigate(links.agents())}
-                >
-                  Browse Agents
-                </Button>
-                <Button
-                  icon={<RobotOne theme='outline' size='16' fill='currentColor' />}
-                  onClick={() => void navigate(links.chatRoot())}
-                >
-                  Open Chat Workspace
-                </Button>
-              </Space>
-            </Card>
-          </Col>
-          <Col xs={24} lg={10}>
-            <Card className='control-card h-full'>
-              <Typography.Title heading={5} className='!mt-0'>
+        {/* Registry counts */}
+        <div className='grid grid-cols-2 gap-14px lg:grid-cols-4'>
+          <StatCard title='Models' value={countsQuery.data?.models ?? 0} />
+          <StatCard title='Skills' value={countsQuery.data?.skills ?? 0} />
+          <StatCard title='MCPs' value={countsQuery.data?.mcps ?? 0} />
+          <StatCard title='Agents' value={countsQuery.data?.agents ?? 0} />
+        </div>
+
+        <div className='grid grid-cols-1 gap-14px lg:grid-cols-2'>
+          {/* Latest session */}
+          <Card className='control-card'>
+            <div className='flex items-start justify-between'>
+              <Typography.Text className='text-11px uppercase tracking-widest text-[var(--control-subtle)]'>
                 Latest Session
-              </Typography.Title>
+              </Typography.Text>
               {latestSessionQuery.data?.thread_id ? (
-                <div className='flex flex-col gap-8px'>
-                  <Typography.Text className='text-[var(--control-text)]'>
-                    {latestSessionQuery.data.agent_name} / {latestSessionQuery.data.thread_id}
-                  </Typography.Text>
-                  <Typography.Text className='text-[var(--control-subtle)]'>
-                    {latestSessionQuery.data.updated_at ?? 'no updated_at'}
-                  </Typography.Text>
-                  <Button
-                    type='primary'
-                    onClick={() => {
-                      if (!latestSessionQuery.data?.agent_name || !latestSessionQuery.data.thread_id) {
-                        return;
-                      }
-                      void navigate(links.chatThread(latestSessionQuery.data.agent_name, latestSessionQuery.data.thread_id));
-                    }}
-                  >
-                    Resume Session
-                  </Button>
-                </div>
-              ) : (
-                <Typography.Text className='text-[var(--control-subtle)]'>
-                  No recoverable session is available yet.
+                <Button
+                  size='mini'
+                  type='primary'
+                  onClick={() => {
+                    const d = latestSessionQuery.data;
+                    if (d?.agent_name && d.thread_id) void navigate(links.chatThread(d.agent_name, d.thread_id));
+                  }}
+                >
+                  Resume
+                </Button>
+              ) : null}
+            </div>
+            {latestSessionQuery.data?.thread_id ? (
+              <div className='mt-10px flex flex-col gap-4px'>
+                <Typography.Text className='font-medium text-[var(--control-text)]'>
+                  {latestSessionQuery.data.agent_name}
                 </Typography.Text>
-              )}
-            </Card>
-          </Col>
-        </Row>
-
-        <Card className='control-card mt-18px'>
-          <Typography.Title heading={5} className='!mt-0'>
-            Runtime Snapshot
-          </Typography.Title>
-          <List
-            dataSource={[
-              `assembled_agent_count = ${healthQuery.data?.assembled_agent_count ?? 0}`,
-              `installed_agent_count = ${healthQuery.data?.installed_agent_count ?? 0}`,
-              `running_agent_count = ${healthQuery.data?.running_agent_count ?? 0}`,
-            ]}
-            render={(item) => (
-              <List.Item>
-                <Typography.Text>{item}</Typography.Text>
-              </List.Item>
+                <Typography.Text className='truncate text-12px text-[var(--control-subtle)]'>
+                  {latestSessionQuery.data.thread_id}
+                </Typography.Text>
+                <Typography.Text className='text-12px text-[var(--control-subtle)]'>
+                  {latestSessionQuery.data.updated_at ?? ''}
+                </Typography.Text>
+              </div>
+            ) : (
+              <Typography.Text className='mt-10px block text-[var(--control-subtle)]'>
+                No recoverable session
+              </Typography.Text>
             )}
-          />
-        </Card>
-      </Spin>
-    </div>
+          </Card>
+
+          {/* Runtime snapshot */}
+          <Card className='control-card'>
+            <Typography.Text className='text-11px uppercase tracking-widest text-[var(--control-subtle)]'>
+              Runtime
+            </Typography.Text>
+            <div className='mt-10px flex flex-col gap-8px'>
+              {[
+                { label: 'Assembled', value: healthQuery.data?.assembled_agent_count ?? 0 },
+                { label: 'Installed', value: healthQuery.data?.installed_agent_count ?? 0 },
+                { label: 'Running', value: healthQuery.data?.running_agent_count ?? 0 },
+              ].map((item) => (
+                <div key={item.label} className='flex justify-between'>
+                  <Typography.Text className='text-[var(--control-subtle)]'>{item.label}</Typography.Text>
+                  <Typography.Text className='font-medium text-[var(--control-text)]'>{item.value}</Typography.Text>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+
+        {/* Quick actions */}
+        <div className='flex flex-wrap gap-10px'>
+          <Button
+            size='small'
+            icon={<DocDetail theme='outline' size='14' fill='currentColor' />}
+            onClick={() => void navigate(links.models())}
+          >
+            Models
+          </Button>
+          <Button
+            size='small'
+            icon={<PlayOne theme='outline' size='14' fill='currentColor' />}
+            onClick={() => void navigate(links.agents())}
+          >
+            Agents
+          </Button>
+          <Button
+            size='small'
+            icon={<RobotOne theme='outline' size='14' fill='currentColor' />}
+            onClick={() => void navigate(links.chatRoot())}
+          >
+            Chat Workspace
+          </Button>
+        </div>
+      </div>
+    </Spin>
   );
 }

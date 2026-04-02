@@ -14,7 +14,7 @@ const root = createRoot(document.getElementById('root')!);
 
 root.render(
   <React.StrictMode>
-    <ConfigProvider locale={zhCN} theme={{ primaryColor: '#6678B8' }}>
+    <ConfigProvider locale={zhCN} theme={{ primaryColor: '#00f0ff' }}>
       <BrowserRouter>
         <App />
       </BrowserRouter>

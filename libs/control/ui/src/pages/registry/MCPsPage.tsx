@@ -38,6 +38,7 @@ export default function MCPsPage() {
       <RegistryResourcePage
         title='MCPs'
         description='Manage MCP server configs, including command, args, env, and transport.'
+        accent='#ff9f1a'
         actions={
           <Button type='primary' onClick={() => setEditor({ mode: 'create' })}>
             Create MCP

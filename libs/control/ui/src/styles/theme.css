@@ -1,22 +1,28 @@
 :root {
-  color-scheme: light;
+  color-scheme: dark;
   font-family:
     'IBM Plex Sans',
     'Segoe UI',
     sans-serif;
-  --control-bg: #f5f6fb;
-  --control-panel: rgba(255, 255, 255, 0.96);
-  --control-panel-muted: rgba(247, 249, 252, 0.96);
-  --control-border: #dce2ec;
-  --control-text: #202432;
-  --control-subtle: #647086;
-  --control-primary: #6678b8;
-  --control-primary-soft: rgba(102, 120, 184, 0.12);
-  --control-accent: #c9d2ea;
-  --control-success: #1f8f63;
-  --control-warning: #d18e1f;
-  --control-danger: #c45e59;
-  --control-shadow: 0 18px 48px rgba(31, 43, 66, 0.08);
+
+  /* ── Cyberpunk Dark Palette ── */
+  --control-bg: #0a0e1a;
+  --control-panel: rgba(12, 16, 36, 0.94);
+  --control-panel-muted: rgba(16, 22, 48, 0.92);
+  --control-border: rgba(0, 240, 255, 0.12);
+  --control-text: #e0e6f0;
+  --control-subtle: #5a6a8a;
+  --control-primary: #00f0ff;
+  --control-primary-soft: rgba(0, 240, 255, 0.10);
+  --control-accent: #ff2d95;
+  --control-success: #39ff14;
+  --control-warning: #ff9f1a;
+  --control-danger: #ff3b5c;
+
+  /* ── Glow Shadows ── */
+  --control-shadow: 0 0 20px rgba(0, 240, 255, 0.08), 0 0 60px rgba(0, 240, 255, 0.04);
+  --control-glow: 0 0 8px rgba(0, 240, 255, 0.25);
+  --control-glow-accent: 0 0 8px rgba(255, 45, 149, 0.25);
 }
 
 html,
@@ -28,8 +34,25 @@ body,
 
 body {
   background:
-    radial-gradient(circle at top left, rgba(102, 120, 184, 0.16), transparent 24%),
-    linear-gradient(180deg, #f7f8fc 0%, #eef2f9 100%);
+    /* faint grid overlay */
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 59px,
+      rgba(0, 240, 255, 0.03) 59px,
+      rgba(0, 240, 255, 0.03) 60px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 59px,
+      rgba(0, 240, 255, 0.03) 59px,
+      rgba(0, 240, 255, 0.03) 60px
+    ),
+    /* radial glow */
+    radial-gradient(ellipse at 20% 0%, rgba(0, 240, 255, 0.08), transparent 50%),
+    radial-gradient(ellipse at 80% 100%, rgba(255, 45, 149, 0.06), transparent 50%),
+    linear-gradient(180deg, #0a0e1a 0%, #0f1328 100%);
   color: var(--control-text);
 }
 
@@ -42,13 +65,14 @@ a {
   box-sizing: border-box;
 }
 
+/* ── Scrollbar ── */
 .control-scroll::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 .control-scroll::-webkit-scrollbar-thumb {
-  background: rgba(100, 112, 134, 0.28);
+  background: rgba(0, 240, 255, 0.18);
   border-radius: 999px;
 }
 
@@ -56,6 +80,7 @@ a {
   background: transparent;
 }
 
+/* ── Quiet icon button ── */
 .control-quiet-icon-button.arco-btn-text,
 .control-quiet-icon-button.arco-btn-text:hover,
 .control-quiet-icon-button.arco-btn-text:active,
@@ -63,4 +88,294 @@ a {
 .control-quiet-icon-button.arco-btn-text:focus-visible {
   background: transparent;
   box-shadow: none;
+}
+
+/* ═══════════════════════════════════════
+   Arco Design Global Dark Overrides
+   ═══════════════════════════════════════ */
+
+/* Body-level token overrides */
+body {
+  --color-bg-1: #0a0e1a;
+  --color-bg-2: #0c1024;
+  --color-bg-3: #101630;
+  --color-bg-4: #141a3a;
+  --color-bg-5: #1a2248;
+  --color-text-1: #e0e6f0;
+  --color-text-2: #b0bcd0;
+  --color-text-3: #7a8aa6;
+  --color-text-4: #5a6a8a;
+  --color-fill-1: rgba(0, 240, 255, 0.04);
+  --color-fill-2: rgba(0, 240, 255, 0.06);
+  --color-fill-3: rgba(0, 240, 255, 0.08);
+  --color-fill-4: rgba(0, 240, 255, 0.12);
+  --color-border: rgba(0, 240, 255, 0.10);
+  --color-border-2: rgba(0, 240, 255, 0.15);
+  --color-border-3: rgba(0, 240, 255, 0.20);
+  --color-primary-light-1: rgba(0, 240, 255, 0.10);
+  --color-primary-light-2: rgba(0, 240, 255, 0.15);
+  --color-primary-light-3: rgba(0, 240, 255, 0.20);
+  --color-primary-light-4: rgba(0, 240, 255, 0.25);
+  --color-neutral-1: #0c1024;
+  --color-neutral-2: #101630;
+  --color-neutral-3: #141a3a;
+  --color-neutral-4: #1a2248;
+  --color-neutral-5: #202a58;
+  --color-neutral-6: #2a3468;
+  --color-neutral-7: #3a4478;
+  --color-neutral-8: #5a6a8a;
+  --color-neutral-9: #7a8aa6;
+  --color-neutral-10: #b0bcd0;
+}
+
+/* Input / Select / TextArea */
+.arco-input,
+.arco-select-view,
+.arco-textarea {
+  background: rgba(0, 240, 255, 0.04) !important;
+  border-color: rgba(0, 240, 255, 0.12) !important;
+  color: var(--control-text) !important;
+}
+
+.arco-input:hover,
+.arco-select-view:hover,
+.arco-textarea:hover {
+  border-color: rgba(0, 240, 255, 0.25) !important;
+}
+
+.arco-input:focus,
+.arco-input-focus,
+.arco-select-view.arco-select-view-focus,
+.arco-textarea:focus {
+  border-color: var(--control-primary) !important;
+  box-shadow: var(--control-glow) !important;
+}
+
+.arco-input::placeholder,
+.arco-textarea::placeholder {
+  color: var(--control-subtle) !important;
+}
+
+/* Select dropdown */
+.arco-select-popup,
+.arco-trigger-content {
+  background: #0c1024 !important;
+  border: 1px solid rgba(0, 240, 255, 0.12) !important;
+  box-shadow: var(--control-shadow) !important;
+}
+
+.arco-select-option {
+  color: var(--control-text) !important;
+}
+
+.arco-select-option:hover,
+.arco-select-option-hover {
+  background: rgba(0, 240, 255, 0.08) !important;
+}
+
+.arco-select-option-selected {
+  background: rgba(0, 240, 255, 0.12) !important;
+  color: var(--control-primary) !important;
+}
+
+/* Button — fix icon/text alignment */
+.arco-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+}
+
+.arco-btn > .arco-btn-icon {
+  display: inline-flex !important;
+  align-items: center !important;
+  line-height: 1 !important;
+}
+
+.arco-btn-primary {
+  background: var(--control-primary) !important;
+  color: #0a0e1a !important;
+  border-color: var(--control-primary) !important;
+}
+
+.arco-btn-primary:hover {
+  box-shadow: var(--control-glow) !important;
+  filter: brightness(1.15);
+}
+
+.arco-btn-secondary,
+.arco-btn-outline {
+  color: var(--control-primary) !important;
+  border-color: rgba(0, 240, 255, 0.25) !important;
+  background: transparent !important;
+}
+
+.arco-btn-secondary:hover,
+.arco-btn-outline:hover {
+  background: rgba(0, 240, 255, 0.06) !important;
+  box-shadow: var(--control-glow) !important;
+}
+
+.arco-btn-text {
+  color: var(--control-text) !important;
+}
+
+.arco-btn-text:hover {
+  background: rgba(0, 240, 255, 0.06) !important;
+}
+
+/* Drawer */
+.arco-drawer-content {
+  background: var(--control-panel) !important;
+}
+
+.arco-drawer-header {
+  border-bottom-color: rgba(0, 240, 255, 0.10) !important;
+  background: transparent !important;
+}
+
+.arco-drawer-title {
+  color: var(--control-text) !important;
+}
+
+.arco-drawer-footer {
+  border-top-color: rgba(0, 240, 255, 0.10) !important;
+  background: transparent !important;
+}
+
+/* Card */
+.arco-card {
+  background: var(--control-panel) !important;
+  border-color: rgba(0, 240, 255, 0.12) !important;
+  color: var(--control-text) !important;
+}
+
+/* Menu */
+.arco-menu {
+  background: transparent !important;
+}
+
+.arco-menu-item,
+.arco-menu-inline-header {
+  color: var(--control-text) !important;
+  background: transparent !important;
+}
+
+.arco-menu-item:hover,
+.arco-menu-inline-header:hover {
+  background: rgba(0, 240, 255, 0.06) !important;
+}
+
+.arco-menu-item.arco-menu-selected {
+  color: var(--control-primary) !important;
+  background: rgba(0, 240, 255, 0.10) !important;
+}
+
+.arco-menu-inline-content {
+  background: transparent !important;
+}
+
+.arco-menu-pop,
+.arco-menu-pop .arco-menu-item {
+  background: #0c1024 !important;
+  color: var(--control-text) !important;
+}
+
+.arco-menu-pop .arco-menu-item:hover {
+  background: rgba(0, 240, 255, 0.08) !important;
+}
+
+.arco-menu-collapsed > .arco-menu-inner {
+  padding: 0 6px !important;
+}
+
+/* Arco Layout Sider */
+.arco-layout-sider {
+  background: transparent !important;
+}
+
+/* Tag */
+.arco-tag {
+  border-color: rgba(0, 240, 255, 0.18) !important;
+}
+
+.arco-tag-arcoblue {
+  background: rgba(0, 240, 255, 0.12) !important;
+  color: var(--control-primary) !important;
+}
+
+.arco-tag-green {
+  background: rgba(57, 255, 20, 0.12) !important;
+  color: var(--control-success) !important;
+}
+
+.arco-tag-orange {
+  background: rgba(255, 159, 26, 0.12) !important;
+  color: var(--control-warning) !important;
+}
+
+.arco-tag-red {
+  background: rgba(255, 59, 92, 0.12) !important;
+  color: var(--control-danger) !important;
+}
+
+.arco-tag-gray {
+  background: rgba(90, 106, 138, 0.15) !important;
+  color: var(--control-subtle) !important;
+}
+
+/* Empty */
+.arco-empty-description {
+  color: var(--control-subtle) !important;
+}
+
+/* Spin */
+.arco-spin-icon {
+  color: var(--control-primary) !important;
+}
+
+/* List */
+.arco-list-item {
+  border-color: rgba(0, 240, 255, 0.06) !important;
+}
+
+/* Typography overrides for Arco */
+.arco-typography {
+  color: var(--control-text);
+}
+
+/* Form label */
+.arco-form-label-item > label {
+  color: var(--control-text) !important;
+}
+
+/* Modal / Message */
+.arco-modal-content,
+.arco-message-content {
+  background: #0c1024 !important;
+  border: 1px solid rgba(0, 240, 255, 0.12) !important;
+}
+
+/* Tooltip */
+.arco-tooltip-content {
+  background: #101630 !important;
+  color: var(--control-text) !important;
+}
+
+/* Pagination */
+.arco-pagination-item {
+  background: transparent !important;
+  color: var(--control-text) !important;
+  border-color: rgba(0, 240, 255, 0.12) !important;
+}
+
+.arco-pagination-item:hover {
+  border-color: var(--control-primary) !important;
+  color: var(--control-primary) !important;
+}
+
+.arco-pagination-item-active {
+  background: rgba(0, 240, 255, 0.12) !important;
+  color: var(--control-primary) !important;
+  border-color: var(--control-primary) !important;
 }

@@ -38,6 +38,7 @@ export default function ModelsPage() {
       <RegistryResourcePage
         title='Models'
         description='Manage model configs in the control-plane registry.'
+        accent='#00f0ff'
         actions={
           <Button type='primary' onClick={() => setEditor({ mode: 'create' })}>
             Create Model

@@ -67,6 +67,7 @@ export default function SkillsPage() {
       <RegistryResourcePage
         title='Skills'
         description='Manage uploaded skill snapshots. Skills are created and replaced with zip packages, then inspected in read-only detail.'
+        accent='#39ff14'
         actions={
           <Button type='primary' onClick={() => setEditor({ mode: 'create' })}>
             Upload Skill

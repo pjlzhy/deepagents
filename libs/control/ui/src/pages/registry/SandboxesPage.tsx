@@ -40,6 +40,7 @@ export default function SandboxesPage() {
       <RegistryResourcePage
         title='Sandboxes'
         description='Manage reusable sandbox configs and attach them to agents via `sandbox_ref`.'
+        accent='#ff2d95'
         actions={
           <Button type='primary' onClick={() => setEditor({ mode: 'create' })}>
             Create Sandbox

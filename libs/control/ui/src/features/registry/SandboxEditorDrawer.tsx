@@ -1,14 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Button, Drawer, Form, Input, InputNumber, Select, Space } from '@arco-design/web-react';
-import { z } from 'zod';
 import type { SandboxConfigDTO, SandboxConfigUpsertRequestDTO, SandboxEnvVarDTO } from '@/shared/types/api';
 import {
   authoredStatusOptions,
-  formatJsonValue,
   formatMultilineList,
   parseMultilineList,
-  parseOptionalStringMap,
 } from '@/features/registry/formCodecs';
+import KeyValueEditor from '@/shared/components/KeyValueEditor';
 
 type SandboxEditorDrawerProps = {
   visible: boolean;
@@ -29,22 +27,15 @@ type SandboxFormValues = {
   setupTimeoutSeconds?: number;
   startupTimeoutSeconds?: number;
   maxOutputBytes?: number;
-  envJson: string;
+  env: Record<string, string>;
   setupCommandsText: string;
   dockerCpu: string;
   dockerMemory: string;
   dockerShmSize: string;
   dockerPidsLimit?: number;
-  kubernetesRequestsJson: string;
-  kubernetesLimitsJson: string;
+  kubernetesRequests: Record<string, string>;
+  kubernetesLimits: Record<string, string>;
 };
-
-const sandboxEnvSchema = z.array(
-  z.object({
-    name: z.string().optional(),
-    value: z.string().optional(),
-  }),
-);
 
 const pullPolicyOptions = [
   { label: 'default', value: '' },
@@ -82,14 +73,14 @@ export default function SandboxEditorDrawer(props: SandboxEditorDrawerProps) {
       setupTimeoutSeconds: spec?.execution?.setup_timeout_seconds,
       startupTimeoutSeconds: spec?.execution?.startup_timeout_seconds,
       maxOutputBytes: spec?.execution?.max_output_bytes,
-      envJson: formatJsonValue(spec?.env),
+      env: sandboxEnvToRecord(spec?.env),
       setupCommandsText: formatMultilineList(spec?.setup_commands),
       dockerCpu: spec?.docker?.resources?.cpu ?? '',
       dockerMemory: spec?.docker?.resources?.memory ?? '',
       dockerShmSize: spec?.docker?.resources?.shm_size ?? '',
       dockerPidsLimit: spec?.docker?.resources?.pids_limit,
-      kubernetesRequestsJson: formatJsonValue(spec?.kubernetes?.resources?.requests),
-      kubernetesLimitsJson: formatJsonValue(spec?.kubernetes?.resources?.limits),
+      kubernetesRequests: spec?.kubernetes?.resources?.requests ?? {},
+      kubernetesLimits: spec?.kubernetes?.resources?.limits ?? {},
     });
   }, [form, props.value, props.visible]);
 
@@ -214,19 +205,19 @@ export default function SandboxEditorDrawer(props: SandboxEditorDrawerProps) {
           {(values) =>
             values.backend === 'kubernetes' ? (
               <div className='grid grid-cols-1 gap-16px md:grid-cols-2'>
-                <Form.Item field='kubernetesRequestsJson' label='Kubernetes Requests JSON'>
-                  <Input.TextArea autoSize={{ minRows: 6, maxRows: 12 }} placeholder={'{\n  "cpu": "500m",\n  "memory": "1Gi"\n}'} />
+                <Form.Item field='kubernetesRequests' label='Kubernetes Requests'>
+                  <KeyValueEditor keyPlaceholder='Resource' valuePlaceholder='Value' />
                 </Form.Item>
-                <Form.Item field='kubernetesLimitsJson' label='Kubernetes Limits JSON'>
-                  <Input.TextArea autoSize={{ minRows: 6, maxRows: 12 }} placeholder={'{\n  "cpu": "1",\n  "memory": "2Gi"\n}'} />
+                <Form.Item field='kubernetesLimits' label='Kubernetes Limits'>
+                  <KeyValueEditor keyPlaceholder='Resource' valuePlaceholder='Value' />
                 </Form.Item>
               </div>
             ) : null
           }
         </Form.Item>
 
-        <Form.Item field='envJson' label='Env JSON'>
-          <Input.TextArea autoSize={{ minRows: 6, maxRows: 12 }} placeholder={'[\n  {\n    "name": "PYTHONUNBUFFERED",\n    "value": "1"\n  }\n]'} />
+        <Form.Item field='env' label='Environment Variables'>
+          <KeyValueEditor keyPlaceholder='Variable' valuePlaceholder='Value' />
         </Form.Item>
         <Form.Item field='setupCommandsText' label='Setup Commands'>
           <Input.TextArea autoSize={{ minRows: 4, maxRows: 10 }} placeholder={'python --version\npip install -r requirements.txt'} />
@@ -236,18 +227,23 @@ export default function SandboxEditorDrawer(props: SandboxEditorDrawerProps) {
   );
 }
 
-function parseOptionalSandboxEnv(value: string): SandboxEnvVarDTO[] | undefined {
-  const normalized = value.trim();
-  if (!normalized) {
-    return undefined;
+function sandboxEnvToRecord(env?: SandboxEnvVarDTO[]): Record<string, string> {
+  if (!env || env.length === 0) return {};
+  const result: Record<string, string> = {};
+  for (const item of env) {
+    if (item.name) result[item.name] = item.value ?? '';
   }
+  return result;
+}
 
-  try {
-    return sandboxEnvSchema.parse(JSON.parse(normalized));
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'invalid json';
-    throw new Error(`env must be a SandboxEnvVar JSON array: ${message}`);
-  }
+function recordToSandboxEnv(record: Record<string, string>): SandboxEnvVarDTO[] | undefined {
+  const entries = Object.entries(record);
+  if (entries.length === 0) return undefined;
+  return entries.map(([name, value]) => ({ name, value }));
+}
+
+function optionalRecord(record: Record<string, string>): Record<string, string> | undefined {
+  return Object.keys(record).length > 0 ? record : undefined;
 }
 
 function buildSandboxSpec(values: SandboxFormValues): SandboxConfigUpsertRequestDTO['spec'] {
@@ -258,7 +254,7 @@ function buildSandboxSpec(values: SandboxFormValues): SandboxConfigUpsertRequest
       startup_timeout_seconds: values.startupTimeoutSeconds || undefined,
       max_output_bytes: values.maxOutputBytes || undefined,
     },
-    env: parseOptionalSandboxEnv(values.envJson),
+    env: recordToSandboxEnv(values.env),
     setup_commands: parseMultilineList(values.setupCommandsText),
   };
 
@@ -295,8 +291,8 @@ function buildSandboxSpec(values: SandboxFormValues): SandboxConfigUpsertRequest
   spec.kubernetes = {
     image,
     resources: {
-      requests: parseOptionalStringMap(values.kubernetesRequestsJson, 'kubernetes.requests'),
-      limits: parseOptionalStringMap(values.kubernetesLimitsJson, 'kubernetes.limits'),
+      requests: optionalRecord(values.kubernetesRequests),
+      limits: optionalRecord(values.kubernetesLimits),
     },
   };
   return spec;
@@ -320,14 +316,14 @@ function handleBackendChange(
       'dockerMemory',
       'dockerShmSize',
       'dockerPidsLimit',
-      'kubernetesRequestsJson',
-      'kubernetesLimitsJson',
+      'kubernetesRequests',
+      'kubernetesLimits',
     ]);
     return;
   }
 
   if (backend === 'docker') {
-    form.clearFields(['kubernetesRequestsJson', 'kubernetesLimitsJson']);
+    form.clearFields(['kubernetesRequests', 'kubernetesLimits']);
     return;
   }
 

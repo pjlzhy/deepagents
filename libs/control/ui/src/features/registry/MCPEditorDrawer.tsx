@@ -3,11 +3,10 @@ import { Button, Drawer, Form, Input, Select, Space } from '@arco-design/web-rea
 import type { MCPConfigDTO, MCPConfigUpsertRequestDTO } from '@/shared/types/api';
 import {
   authoredStatusOptions,
-  formatJsonValue,
   formatMultilineList,
   parseMultilineList,
-  parseOptionalStringMap,
 } from '@/features/registry/formCodecs';
+import KeyValueEditor from '@/shared/components/KeyValueEditor';
 
 type MCPEditorDrawerProps = {
   visible: boolean;
@@ -22,7 +21,7 @@ type MCPFormValues = {
   description: string;
   command: string;
   argsText: string;
-  envJson: string;
+  env: Record<string, string>;
   transport: string;
   status: string;
 };
@@ -43,7 +42,7 @@ export default function MCPEditorDrawer(props: MCPEditorDrawerProps) {
       description: props.value?.description ?? '',
       command: props.value?.command ?? '',
       argsText: formatMultilineList(props.value?.args),
-      envJson: formatJsonValue(props.value?.env),
+      env: props.value?.env ?? {},
       transport: props.value?.transport ?? 'stdio',
       status: props.value?.status ?? 'draft',
     });
@@ -59,7 +58,7 @@ export default function MCPEditorDrawer(props: MCPEditorDrawerProps) {
         description: values.description.trim() || undefined,
         command: values.command.trim() || undefined,
         args: parseMultilineList(values.argsText),
-        env: parseOptionalStringMap(values.envJson, 'env'),
+        env: Object.keys(values.env).length > 0 ? values.env : undefined,
         transport: values.transport.trim() || undefined,
         status: values.status || undefined,
       });
@@ -120,11 +119,8 @@ export default function MCPEditorDrawer(props: MCPEditorDrawerProps) {
         <Form.Item field='argsText' label='Args'>
           <Input.TextArea autoSize={{ minRows: 4, maxRows: 10 }} placeholder={'-y\n@mcp/server-github'} />
         </Form.Item>
-        <Form.Item field='envJson' label='Env JSON'>
-          <Input.TextArea
-            autoSize={{ minRows: 8, maxRows: 18 }}
-            placeholder={'{\n  "GITHUB_TOKEN": "$GITHUB_TOKEN"\n}'}
-          />
+        <Form.Item field='env' label='Environment Variables'>
+          <KeyValueEditor keyPlaceholder='Variable' valuePlaceholder='Value' />
         </Form.Item>
       </Form>
     </Drawer>

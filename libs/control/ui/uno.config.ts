@@ -7,6 +7,7 @@ export default defineConfig({
     'control-card': 'rd-18px border border-solid border-[var(--control-border)] bg-[var(--control-panel)] shadow-[var(--control-shadow)]',
     'control-muted-card':
       'rd-18px border border-solid border-[var(--control-border)] bg-[var(--control-panel-muted)] shadow-[var(--control-shadow)]',
+    'control-glow-hover': 'hover:shadow-[var(--control-glow)] hover:border-[rgba(0,240,255,0.25)] transition-all duration-200',
   },
   theme: {
     colors: {

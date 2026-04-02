@@ -99,11 +99,11 @@ class ThreadRuntimeBackend(SandboxBackendProtocol):
         *,
         shell_backend: SandboxBackendProtocol,
         actual_root: str,
-        execute_command: str,
+        execute_command_prefix: str,
     ) -> None:
         self._shell_backend = shell_backend
         self._actual_root = actual_root
-        self._execute_command = execute_command
+        self._execute_command_prefix = execute_command_prefix
 
     @property
     def id(self) -> str:
@@ -117,11 +117,11 @@ class ThreadRuntimeBackend(SandboxBackendProtocol):
         thread_root_dir: Path,
     ) -> ThreadRuntimeBackend:
         actual_root = str(thread_root_dir.resolve())
-        execute_command = f"cd {shlex.quote(actual_root)} && {{command}}"
+        execute_command_prefix = f"cd {shlex.quote(actual_root)} && "
         return cls(
             shell_backend=shell_backend,
             actual_root=actual_root,
-            execute_command=execute_command,
+            execute_command_prefix=execute_command_prefix,
         )
 
     @classmethod
@@ -132,11 +132,11 @@ class ThreadRuntimeBackend(SandboxBackendProtocol):
         thread_root_path: str,
     ) -> ThreadRuntimeBackend:
         actual_root = posixpath.normpath(thread_root_path)
-        execute_command = f"cd {shlex.quote(actual_root)} && {{command}}"
+        execute_command_prefix = f"cd {shlex.quote(actual_root)} && "
         return cls(
             shell_backend=sandbox_backend,
             actual_root=actual_root,
-            execute_command=execute_command,
+            execute_command_prefix=execute_command_prefix,
         )
 
     def ls_info(self, path: str) -> list[FileInfo]:
@@ -258,7 +258,7 @@ class ThreadRuntimeBackend(SandboxBackendProtocol):
         return cast(list[FileDownloadResponse], responses)
 
     def execute(self, command: str, *, timeout: int | None = None) -> ExecuteResponse:
-        wrapped = self._execute_command.format(command=command)
+        wrapped = self._execute_command_prefix + command
         if timeout is not None and execute_accepts_timeout(type(self._shell_backend)):
             return self._shell_backend.execute(wrapped, timeout=timeout)
         return self._shell_backend.execute(wrapped)
