@@ -143,13 +143,15 @@ var AgentExecutor_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	ResourceSync_SyncSkill_FullMethodName            = "/deepagents.runtime.v1.ResourceSync/SyncSkill"
-	ResourceSync_SyncMcp_FullMethodName              = "/deepagents.runtime.v1.ResourceSync/SyncMcp"
-	ResourceSync_SyncAgentSpec_FullMethodName        = "/deepagents.runtime.v1.ResourceSync/SyncAgentSpec"
-	ResourceSync_Assemble_FullMethodName             = "/deepagents.runtime.v1.ResourceSync/Assemble"
-	ResourceSync_UploadWorkspaceFiles_FullMethodName = "/deepagents.runtime.v1.ResourceSync/UploadWorkspaceFiles"
-	ResourceSync_RemoveResource_FullMethodName       = "/deepagents.runtime.v1.ResourceSync/RemoveResource"
-	ResourceSync_Health_FullMethodName               = "/deepagents.runtime.v1.ResourceSync/Health"
+	ResourceSync_SyncSkill_FullMethodName              = "/deepagents.runtime.v1.ResourceSync/SyncSkill"
+	ResourceSync_SyncMcp_FullMethodName                = "/deepagents.runtime.v1.ResourceSync/SyncMcp"
+	ResourceSync_SyncAgentSpec_FullMethodName          = "/deepagents.runtime.v1.ResourceSync/SyncAgentSpec"
+	ResourceSync_Assemble_FullMethodName               = "/deepagents.runtime.v1.ResourceSync/Assemble"
+	ResourceSync_UploadWorkspaceFiles_FullMethodName   = "/deepagents.runtime.v1.ResourceSync/UploadWorkspaceFiles"
+	ResourceSync_DownloadWorkspaceFiles_FullMethodName = "/deepagents.runtime.v1.ResourceSync/DownloadWorkspaceFiles"
+	ResourceSync_ListWorkspaceFiles_FullMethodName     = "/deepagents.runtime.v1.ResourceSync/ListWorkspaceFiles"
+	ResourceSync_RemoveResource_FullMethodName         = "/deepagents.runtime.v1.ResourceSync/RemoveResource"
+	ResourceSync_Health_FullMethodName                 = "/deepagents.runtime.v1.ResourceSync/Health"
 )
 
 // ResourceSyncClient is the client API for ResourceSync service.
@@ -167,6 +169,10 @@ type ResourceSyncClient interface {
 	Assemble(ctx context.Context, in *AssembleRequest, opts ...grpc.CallOption) (*AssembleResponse, error)
 	// Upload files into one thread workspace.
 	UploadWorkspaceFiles(ctx context.Context, in *UploadWorkspaceFilesRequest, opts ...grpc.CallOption) (*UploadWorkspaceFilesResponse, error)
+	// Download files from one thread workspace.
+	DownloadWorkspaceFiles(ctx context.Context, in *DownloadWorkspaceFilesRequest, opts ...grpc.CallOption) (*DownloadWorkspaceFilesResponse, error)
+	// List files in one thread workspace directory.
+	ListWorkspaceFiles(ctx context.Context, in *ListWorkspaceFilesRequest, opts ...grpc.CallOption) (*ListWorkspaceFilesResponse, error)
 	// Remove a synced runtime resource or cached spec from the data plane.
 	RemoveResource(ctx context.Context, in *RemoveResourceRequest, opts ...grpc.CallOption) (*SyncResponse, error)
 	// Health check / readiness probe.
@@ -231,6 +237,26 @@ func (c *resourceSyncClient) UploadWorkspaceFiles(ctx context.Context, in *Uploa
 	return out, nil
 }
 
+func (c *resourceSyncClient) DownloadWorkspaceFiles(ctx context.Context, in *DownloadWorkspaceFilesRequest, opts ...grpc.CallOption) (*DownloadWorkspaceFilesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DownloadWorkspaceFilesResponse)
+	err := c.cc.Invoke(ctx, ResourceSync_DownloadWorkspaceFiles_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *resourceSyncClient) ListWorkspaceFiles(ctx context.Context, in *ListWorkspaceFilesRequest, opts ...grpc.CallOption) (*ListWorkspaceFilesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListWorkspaceFilesResponse)
+	err := c.cc.Invoke(ctx, ResourceSync_ListWorkspaceFiles_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *resourceSyncClient) RemoveResource(ctx context.Context, in *RemoveResourceRequest, opts ...grpc.CallOption) (*SyncResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SyncResponse)
@@ -266,6 +292,10 @@ type ResourceSyncServer interface {
 	Assemble(context.Context, *AssembleRequest) (*AssembleResponse, error)
 	// Upload files into one thread workspace.
 	UploadWorkspaceFiles(context.Context, *UploadWorkspaceFilesRequest) (*UploadWorkspaceFilesResponse, error)
+	// Download files from one thread workspace.
+	DownloadWorkspaceFiles(context.Context, *DownloadWorkspaceFilesRequest) (*DownloadWorkspaceFilesResponse, error)
+	// List files in one thread workspace directory.
+	ListWorkspaceFiles(context.Context, *ListWorkspaceFilesRequest) (*ListWorkspaceFilesResponse, error)
 	// Remove a synced runtime resource or cached spec from the data plane.
 	RemoveResource(context.Context, *RemoveResourceRequest) (*SyncResponse, error)
 	// Health check / readiness probe.
@@ -294,6 +324,12 @@ func (UnimplementedResourceSyncServer) Assemble(context.Context, *AssembleReques
 }
 func (UnimplementedResourceSyncServer) UploadWorkspaceFiles(context.Context, *UploadWorkspaceFilesRequest) (*UploadWorkspaceFilesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method UploadWorkspaceFiles not implemented")
+}
+func (UnimplementedResourceSyncServer) DownloadWorkspaceFiles(context.Context, *DownloadWorkspaceFilesRequest) (*DownloadWorkspaceFilesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DownloadWorkspaceFiles not implemented")
+}
+func (UnimplementedResourceSyncServer) ListWorkspaceFiles(context.Context, *ListWorkspaceFilesRequest) (*ListWorkspaceFilesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListWorkspaceFiles not implemented")
 }
 func (UnimplementedResourceSyncServer) RemoveResource(context.Context, *RemoveResourceRequest) (*SyncResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RemoveResource not implemented")
@@ -412,6 +448,42 @@ func _ResourceSync_UploadWorkspaceFiles_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ResourceSync_DownloadWorkspaceFiles_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DownloadWorkspaceFilesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ResourceSyncServer).DownloadWorkspaceFiles(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ResourceSync_DownloadWorkspaceFiles_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ResourceSyncServer).DownloadWorkspaceFiles(ctx, req.(*DownloadWorkspaceFilesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ResourceSync_ListWorkspaceFiles_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListWorkspaceFilesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ResourceSyncServer).ListWorkspaceFiles(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ResourceSync_ListWorkspaceFiles_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ResourceSyncServer).ListWorkspaceFiles(ctx, req.(*ListWorkspaceFilesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ResourceSync_RemoveResource_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(RemoveResourceRequest)
 	if err := dec(in); err != nil {
@@ -476,6 +548,14 @@ var ResourceSync_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ResourceSync_UploadWorkspaceFiles_Handler,
 		},
 		{
+			MethodName: "DownloadWorkspaceFiles",
+			Handler:    _ResourceSync_DownloadWorkspaceFiles_Handler,
+		},
+		{
+			MethodName: "ListWorkspaceFiles",
+			Handler:    _ResourceSync_ListWorkspaceFiles_Handler,
+		},
+		{
 			MethodName: "RemoveResource",
 			Handler:    _ResourceSync_RemoveResource_Handler,
 		},
@@ -489,11 +569,12 @@ var ResourceSync_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	SessionQuery_ListSessions_FullMethodName       = "/deepagents.runtime.v1.SessionQuery/ListSessions"
-	SessionQuery_GetSession_FullMethodName         = "/deepagents.runtime.v1.SessionQuery/GetSession"
-	SessionQuery_GetSessionMessages_FullMethodName = "/deepagents.runtime.v1.SessionQuery/GetSessionMessages"
-	SessionQuery_GetLatestSession_FullMethodName   = "/deepagents.runtime.v1.SessionQuery/GetLatestSession"
-	SessionQuery_DeleteSession_FullMethodName      = "/deepagents.runtime.v1.SessionQuery/DeleteSession"
+	SessionQuery_ListSessions_FullMethodName        = "/deepagents.runtime.v1.SessionQuery/ListSessions"
+	SessionQuery_GetSession_FullMethodName          = "/deepagents.runtime.v1.SessionQuery/GetSession"
+	SessionQuery_GetSessionMessages_FullMethodName  = "/deepagents.runtime.v1.SessionQuery/GetSessionMessages"
+	SessionQuery_GetLatestSession_FullMethodName    = "/deepagents.runtime.v1.SessionQuery/GetLatestSession"
+	SessionQuery_DeleteSession_FullMethodName       = "/deepagents.runtime.v1.SessionQuery/DeleteSession"
+	SessionQuery_ListThreadArtifacts_FullMethodName = "/deepagents.runtime.v1.SessionQuery/ListThreadArtifacts"
 )
 
 // SessionQueryClient is the client API for SessionQuery service.
@@ -512,6 +593,8 @@ type SessionQueryClient interface {
 	GetLatestSession(ctx context.Context, in *GetLatestSessionRequest, opts ...grpc.CallOption) (*GetLatestSessionResponse, error)
 	// Delete one local session from checkpoint storage by agent_name + thread_id.
 	DeleteSession(ctx context.Context, in *DeleteSessionRequest, opts ...grpc.CallOption) (*DeleteSessionResponse, error)
+	// List artifact metadata for one thread from checkpoint state.
+	ListThreadArtifacts(ctx context.Context, in *ListThreadArtifactsRequest, opts ...grpc.CallOption) (*ListThreadArtifactsResponse, error)
 }
 
 type sessionQueryClient struct {
@@ -572,6 +655,16 @@ func (c *sessionQueryClient) DeleteSession(ctx context.Context, in *DeleteSessio
 	return out, nil
 }
 
+func (c *sessionQueryClient) ListThreadArtifacts(ctx context.Context, in *ListThreadArtifactsRequest, opts ...grpc.CallOption) (*ListThreadArtifactsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListThreadArtifactsResponse)
+	err := c.cc.Invoke(ctx, SessionQuery_ListThreadArtifacts_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SessionQueryServer is the server API for SessionQuery service.
 // All implementations must embed UnimplementedSessionQueryServer
 // for forward compatibility.
@@ -588,6 +681,8 @@ type SessionQueryServer interface {
 	GetLatestSession(context.Context, *GetLatestSessionRequest) (*GetLatestSessionResponse, error)
 	// Delete one local session from checkpoint storage by agent_name + thread_id.
 	DeleteSession(context.Context, *DeleteSessionRequest) (*DeleteSessionResponse, error)
+	// List artifact metadata for one thread from checkpoint state.
+	ListThreadArtifacts(context.Context, *ListThreadArtifactsRequest) (*ListThreadArtifactsResponse, error)
 	mustEmbedUnimplementedSessionQueryServer()
 }
 
@@ -612,6 +707,9 @@ func (UnimplementedSessionQueryServer) GetLatestSession(context.Context, *GetLat
 }
 func (UnimplementedSessionQueryServer) DeleteSession(context.Context, *DeleteSessionRequest) (*DeleteSessionResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteSession not implemented")
+}
+func (UnimplementedSessionQueryServer) ListThreadArtifacts(context.Context, *ListThreadArtifactsRequest) (*ListThreadArtifactsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListThreadArtifacts not implemented")
 }
 func (UnimplementedSessionQueryServer) mustEmbedUnimplementedSessionQueryServer() {}
 func (UnimplementedSessionQueryServer) testEmbeddedByValue()                      {}
@@ -724,6 +822,24 @@ func _SessionQuery_DeleteSession_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SessionQuery_ListThreadArtifacts_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListThreadArtifactsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SessionQueryServer).ListThreadArtifacts(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SessionQuery_ListThreadArtifacts_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SessionQueryServer).ListThreadArtifacts(ctx, req.(*ListThreadArtifactsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // SessionQuery_ServiceDesc is the grpc.ServiceDesc for SessionQuery service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -750,6 +866,10 @@ var SessionQuery_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteSession",
 			Handler:    _SessionQuery_DeleteSession_Handler,
+		},
+		{
+			MethodName: "ListThreadArtifacts",
+			Handler:    _SessionQuery_ListThreadArtifacts_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

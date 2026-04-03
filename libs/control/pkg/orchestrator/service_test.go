@@ -307,6 +307,12 @@ type fakeResourceSyncClient struct {
 	assembleErr    error
 	uploadResp     domain.WorkspaceUploadResponse
 	uploadErr      error
+	downloadResp   domain.WorkspaceDownloadResponse
+	downloadErr    error
+	downloadReq    domain.WorkspaceDownloadRequest
+	listResp       domain.WorkspaceListResponse
+	listErr        error
+	listReq        domain.WorkspaceListRequest
 	healthResp     runtimeclient.HealthResponse
 	healthErr      error
 	syncedSpec     domain.RuntimeAgentSpec
@@ -343,6 +349,22 @@ func (f *fakeResourceSyncClient) UploadWorkspaceFiles(
 ) (domain.WorkspaceUploadResponse, error) {
 	f.uploadReq = req
 	return f.uploadResp, f.uploadErr
+}
+
+func (f *fakeResourceSyncClient) DownloadWorkspaceFiles(
+	_ context.Context,
+	req domain.WorkspaceDownloadRequest,
+) (domain.WorkspaceDownloadResponse, error) {
+	f.downloadReq = req
+	return f.downloadResp, f.downloadErr
+}
+
+func (f *fakeResourceSyncClient) ListWorkspaceFiles(
+	_ context.Context,
+	req domain.WorkspaceListRequest,
+) (domain.WorkspaceListResponse, error) {
+	f.listReq = req
+	return f.listResp, f.listErr
 }
 
 func (f *fakeResourceSyncClient) RemoveAgent(
@@ -449,6 +471,13 @@ func (fakeSessionQueryClient) DeleteSession(context.Context, domain.SessionLocat
 	return nil
 }
 
+func (fakeSessionQueryClient) ListThreadArtifacts(
+	context.Context,
+	domain.ListArtifactsRequest,
+) (domain.ListArtifactsResponse, error) {
+	return domain.ListArtifactsResponse{}, nil
+}
+
 type stubSessionQueryClient struct {
 	listSessionsResp      []domain.SessionSummary
 	listSessionsToken     string
@@ -528,6 +557,13 @@ func (s *stubSessionQueryClient) DeleteSession(
 ) error {
 	s.deleteSessionLocator = locator
 	return s.deleteSessionErr
+}
+
+func (s *stubSessionQueryClient) ListThreadArtifacts(
+	context.Context,
+	domain.ListArtifactsRequest,
+) (domain.ListArtifactsResponse, error) {
+	return domain.ListArtifactsResponse{}, nil
 }
 
 func testResolvedAgentInput(agentName string) domain.ResolvedAgentInput {
@@ -799,6 +835,130 @@ func TestUploadWorkspaceFilesEnsuresRunnableBeforeDelegating(t *testing.T) {
 	}
 	if resourceSync.uploadReq.AgentName != "demo-agent" || resourceSync.uploadReq.ThreadID != "thread-1" {
 		t.Fatalf("unexpected upload request: %#v", resourceSync.uploadReq)
+	}
+
+	wantOrder := []string{"resolve", "package", "sync", "assemble"}
+	if len(callLog) != len(wantOrder) {
+		t.Fatalf("unexpected call count: %#v", callLog)
+	}
+	for index, want := range wantOrder {
+		if callLog[index] != want {
+			t.Fatalf("unexpected call order: %#v", callLog)
+		}
+	}
+}
+
+func TestDownloadWorkspaceFilesEnsuresRunnableBeforeDelegating(t *testing.T) {
+	callLog := []string{}
+	resolver := &fakeResolver{
+		result:  testResolvedAgentInput("demo-agent"),
+		callLog: &callLog,
+	}
+	packager := &fakePackager{
+		result:  testRuntimeAgentSpec("demo-agent"),
+		callLog: &callLog,
+	}
+	resourceSync := &fakeResourceSyncClient{
+		syncResp:     runtimeclient.SyncResponse{OK: true},
+		assembleResp: runtimeclient.AssembleResponse{OK: true, Status: "compiled"},
+		downloadResp: domain.WorkspaceDownloadResponse{
+			ThreadID: "thread-1",
+			Files: []domain.WorkspaceDownloadResult{
+				{Path: "report.txt", Content: []byte("hello")},
+			},
+		},
+		callLog: &callLog,
+	}
+
+	service, err := NewService(Dependencies{
+		Resolver:     resolver,
+		Packager:     packager,
+		ResourceSync: resourceSync,
+		Executor:     fakeExecutorClient{},
+		Sessions:     fakeSessionQueryClient{},
+	})
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	resp, err := service.DownloadWorkspaceFiles(
+		context.Background(),
+		domain.WorkspaceDownloadRequest{
+			AgentName: " demo-agent ",
+			ThreadID:  "thread-1",
+			Paths:     []string{"report.txt"},
+		},
+	)
+	if err != nil {
+		t.Fatalf("DownloadWorkspaceFiles: %v", err)
+	}
+	if resp.ThreadID != "thread-1" || len(resp.Files) != 1 {
+		t.Fatalf("unexpected download response: %#v", resp)
+	}
+	if resourceSync.downloadReq.AgentName != "demo-agent" || resourceSync.downloadReq.ThreadID != "thread-1" {
+		t.Fatalf("unexpected download request: %#v", resourceSync.downloadReq)
+	}
+
+	wantOrder := []string{"resolve", "package", "sync", "assemble"}
+	if len(callLog) != len(wantOrder) {
+		t.Fatalf("unexpected call count: %#v", callLog)
+	}
+	for index, want := range wantOrder {
+		if callLog[index] != want {
+			t.Fatalf("unexpected call order: %#v", callLog)
+		}
+	}
+}
+
+func TestListWorkspaceFilesEnsuresRunnableBeforeDelegating(t *testing.T) {
+	callLog := []string{}
+	resolver := &fakeResolver{
+		result:  testResolvedAgentInput("demo-agent"),
+		callLog: &callLog,
+	}
+	packager := &fakePackager{
+		result:  testRuntimeAgentSpec("demo-agent"),
+		callLog: &callLog,
+	}
+	resourceSync := &fakeResourceSyncClient{
+		syncResp:     runtimeclient.SyncResponse{OK: true},
+		assembleResp: runtimeclient.AssembleResponse{OK: true, Status: "compiled"},
+		listResp: domain.WorkspaceListResponse{
+			ThreadID: "thread-1",
+			Files: []domain.WorkspaceFileInfo{
+				{Path: "report.txt", IsDir: false, Size: 5},
+			},
+		},
+		callLog: &callLog,
+	}
+
+	service, err := NewService(Dependencies{
+		Resolver:     resolver,
+		Packager:     packager,
+		ResourceSync: resourceSync,
+		Executor:     fakeExecutorClient{},
+		Sessions:     fakeSessionQueryClient{},
+	})
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	resp, err := service.ListWorkspaceFiles(
+		context.Background(),
+		domain.WorkspaceListRequest{
+			AgentName: " demo-agent ",
+			ThreadID:  "thread-1",
+			Path:      ".",
+		},
+	)
+	if err != nil {
+		t.Fatalf("ListWorkspaceFiles: %v", err)
+	}
+	if resp.ThreadID != "thread-1" || len(resp.Files) != 1 {
+		t.Fatalf("unexpected list response: %#v", resp)
+	}
+	if resourceSync.listReq.AgentName != "demo-agent" || resourceSync.listReq.ThreadID != "thread-1" {
+		t.Fatalf("unexpected list request: %#v", resourceSync.listReq)
 	}
 
 	wantOrder := []string{"resolve", "package", "sync", "assemble"}

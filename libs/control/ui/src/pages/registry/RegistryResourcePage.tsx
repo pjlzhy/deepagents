@@ -220,13 +220,13 @@ export default function RegistryResourcePage(props: RegistryResourcePageProps) {
                   ) : null}
 
                   {/* Footer: timestamp + actions */}
-                  <div className='flex items-center justify-between'>
-                    <Typography.Text className='text-12px text-[var(--control-subtle)]'>
+                  <div className='flex flex-col gap-6px'>
+                    <Typography.Text className='whitespace-nowrap text-12px text-[var(--control-subtle)]'>
                       {formatUpdatedAt(item.updatedAt)}
                     </Typography.Text>
                     {item.actions ? (
                       <div
-                        className='flex gap-6px'
+                        className='flex flex-wrap gap-6px'
                         onClick={(e) => e.stopPropagation()}
                       >
                         {item.actions}

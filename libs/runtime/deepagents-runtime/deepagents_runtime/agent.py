@@ -24,6 +24,8 @@ from langgraph.types import Command
 
 from deepagents.backends import LocalShellBackend
 from deepagents.backends.protocol import (
+    FileDownloadResponse,
+    FileInfo,
     FileUploadResponse,
     SandboxBackendProtocol,
     execute_accepts_timeout,
@@ -93,12 +95,6 @@ class AgentFilesystemView:
 # ---------------------------------------------------------------------------
 
 DEFAULT_SYSTEM_PROMPT = '''\
-# Deep Agents CLI
-
-You are a Deep Agent, an AI assistant running in an interactive CLI on the user's computer. You help with tasks like coding, debugging, research, analysis, and more.
-
-The user sends you messages and you respond with text and tool calls. Your tools run on the user's machine. The user can see your responses and tool outputs in real time, so keep them informed — but don't over-explain.
-
 # Core Behavior
 
 - Be concise and direct. Answer in fewer than 4 lines unless detail is requested.
@@ -169,8 +165,6 @@ Execute shell commands. Always quote paths with spaces.
 - ls: List directory contents
 - glob: Find files by pattern
 - grep: Search file contents
-
-Always use absolute paths starting with /.
 
 ### web_search
 
@@ -725,6 +719,30 @@ class RuntimeAgent:
                 for path, content in files
             ]
             return thread_backend.upload_files(normalized_files)
+
+    async def download_workspace_files(
+            self,
+            *,
+            thread_id: str,
+            paths: list[str],
+    ) -> list[FileDownloadResponse]:
+        """Download files from one thread workspace."""
+        if not paths:
+            return []
+        async with self._workspace_locks.setdefault(thread_id, asyncio.Lock()):
+            thread_backend = self._make_thread_backend(thread_id)
+            return thread_backend.download_files(paths)
+
+    async def list_workspace_files(
+            self,
+            *,
+            thread_id: str,
+            path: str = ".",
+    ) -> list[FileInfo]:
+        """List files in one thread workspace directory."""
+        async with self._workspace_locks.setdefault(thread_id, asyncio.Lock()):
+            thread_backend = self._make_thread_backend(thread_id)
+            return thread_backend.ls_info(path)
 
     def build_model_extra_kwargs(self) -> dict[str, Any]:
         """Resolve model constructor kwargs from an agent spec."""

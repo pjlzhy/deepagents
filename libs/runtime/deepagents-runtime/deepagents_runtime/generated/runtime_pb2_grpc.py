@@ -173,6 +173,16 @@ class ResourceSyncStub(object):
                 request_serializer=runtime__pb2.UploadWorkspaceFilesRequest.SerializeToString,
                 response_deserializer=runtime__pb2.UploadWorkspaceFilesResponse.FromString,
                 _registered_method=True)
+        self.DownloadWorkspaceFiles = channel.unary_unary(
+                '/deepagents.runtime.v1.ResourceSync/DownloadWorkspaceFiles',
+                request_serializer=runtime__pb2.DownloadWorkspaceFilesRequest.SerializeToString,
+                response_deserializer=runtime__pb2.DownloadWorkspaceFilesResponse.FromString,
+                _registered_method=True)
+        self.ListWorkspaceFiles = channel.unary_unary(
+                '/deepagents.runtime.v1.ResourceSync/ListWorkspaceFiles',
+                request_serializer=runtime__pb2.ListWorkspaceFilesRequest.SerializeToString,
+                response_deserializer=runtime__pb2.ListWorkspaceFilesResponse.FromString,
+                _registered_method=True)
         self.RemoveResource = channel.unary_unary(
                 '/deepagents.runtime.v1.ResourceSync/RemoveResource',
                 request_serializer=runtime__pb2.RemoveResourceRequest.SerializeToString,
@@ -233,6 +243,20 @@ class ResourceSyncServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def DownloadWorkspaceFiles(self, request, context):
+        """Download files from one thread workspace.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListWorkspaceFiles(self, request, context):
+        """List files in one thread workspace directory.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def RemoveResource(self, request, context):
         """Remove a synced runtime resource or cached spec from the data plane.
         """
@@ -274,6 +298,16 @@ def add_ResourceSyncServicer_to_server(servicer, server):
                     servicer.UploadWorkspaceFiles,
                     request_deserializer=runtime__pb2.UploadWorkspaceFilesRequest.FromString,
                     response_serializer=runtime__pb2.UploadWorkspaceFilesResponse.SerializeToString,
+            ),
+            'DownloadWorkspaceFiles': grpc.unary_unary_rpc_method_handler(
+                    servicer.DownloadWorkspaceFiles,
+                    request_deserializer=runtime__pb2.DownloadWorkspaceFilesRequest.FromString,
+                    response_serializer=runtime__pb2.DownloadWorkspaceFilesResponse.SerializeToString,
+            ),
+            'ListWorkspaceFiles': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListWorkspaceFiles,
+                    request_deserializer=runtime__pb2.ListWorkspaceFilesRequest.FromString,
+                    response_serializer=runtime__pb2.ListWorkspaceFilesResponse.SerializeToString,
             ),
             'RemoveResource': grpc.unary_unary_rpc_method_handler(
                     servicer.RemoveResource,
@@ -441,6 +475,60 @@ class ResourceSync(object):
             _registered_method=True)
 
     @staticmethod
+    def DownloadWorkspaceFiles(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/deepagents.runtime.v1.ResourceSync/DownloadWorkspaceFiles',
+            runtime__pb2.DownloadWorkspaceFilesRequest.SerializeToString,
+            runtime__pb2.DownloadWorkspaceFilesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListWorkspaceFiles(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/deepagents.runtime.v1.ResourceSync/ListWorkspaceFiles',
+            runtime__pb2.ListWorkspaceFilesRequest.SerializeToString,
+            runtime__pb2.ListWorkspaceFilesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
     def RemoveResource(request,
             target,
             options=(),
@@ -537,6 +625,11 @@ class SessionQueryStub(object):
                 request_serializer=runtime__pb2.DeleteSessionRequest.SerializeToString,
                 response_deserializer=runtime__pb2.DeleteSessionResponse.FromString,
                 _registered_method=True)
+        self.ListThreadArtifacts = channel.unary_unary(
+                '/deepagents.runtime.v1.SessionQuery/ListThreadArtifacts',
+                request_serializer=runtime__pb2.ListThreadArtifactsRequest.SerializeToString,
+                response_deserializer=runtime__pb2.ListThreadArtifactsResponse.FromString,
+                _registered_method=True)
 
 
 class SessionQueryServicer(object):
@@ -585,6 +678,13 @@ class SessionQueryServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ListThreadArtifacts(self, request, context):
+        """List artifact metadata for one thread from checkpoint state.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_SessionQueryServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -612,6 +712,11 @@ def add_SessionQueryServicer_to_server(servicer, server):
                     servicer.DeleteSession,
                     request_deserializer=runtime__pb2.DeleteSessionRequest.FromString,
                     response_serializer=runtime__pb2.DeleteSessionResponse.SerializeToString,
+            ),
+            'ListThreadArtifacts': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListThreadArtifacts,
+                    request_deserializer=runtime__pb2.ListThreadArtifactsRequest.FromString,
+                    response_serializer=runtime__pb2.ListThreadArtifactsResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -757,6 +862,33 @@ class SessionQuery(object):
             '/deepagents.runtime.v1.SessionQuery/DeleteSession',
             runtime__pb2.DeleteSessionRequest.SerializeToString,
             runtime__pb2.DeleteSessionResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListThreadArtifacts(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/deepagents.runtime.v1.SessionQuery/ListThreadArtifacts',
+            runtime__pb2.ListThreadArtifactsRequest.SerializeToString,
+            runtime__pb2.ListThreadArtifactsResponse.FromString,
             options,
             channel_credentials,
             insecure,

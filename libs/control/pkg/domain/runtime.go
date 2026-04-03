@@ -84,6 +84,47 @@ type WorkspaceUploadResponse struct {
 	Files    []WorkspaceUploadResult
 }
 
+// WorkspaceDownloadRequest is shared across northbound and southbound download flows.
+type WorkspaceDownloadRequest struct {
+	AgentName string
+	ThreadID  string
+	Paths     []string
+}
+
+// WorkspaceDownloadResult captures one downloaded file outcome.
+type WorkspaceDownloadResult struct {
+	Path    string
+	Content []byte
+	Error   string
+}
+
+// WorkspaceDownloadResponse reports the resolved thread and per-file results.
+type WorkspaceDownloadResponse struct {
+	ThreadID string
+	Files    []WorkspaceDownloadResult
+}
+
+// WorkspaceListRequest is shared across northbound and southbound list flows.
+type WorkspaceListRequest struct {
+	AgentName string
+	ThreadID  string
+	Path      string
+}
+
+// WorkspaceFileInfo describes one file entry in a workspace directory listing.
+type WorkspaceFileInfo struct {
+	Path       string
+	IsDir      bool
+	Size       int64
+	ModifiedAt string
+}
+
+// WorkspaceListResponse reports the resolved thread and directory entries.
+type WorkspaceListResponse struct {
+	ThreadID string
+	Files    []WorkspaceFileInfo
+}
+
 // SessionHistoryMode describes one session-history view mode.
 type SessionHistoryMode string
 
@@ -154,4 +195,30 @@ type SessionMessagePage struct {
 	TotalMessageCount    int32
 	Messages             []SessionMessage
 	NextPageToken        string
+}
+
+// ThreadArtifact describes one artifact produced by an agent within a thread.
+type ThreadArtifact struct {
+	ID            string
+	Type          string
+	Path          string
+	Title         string
+	ContentType   string
+	Language      string
+	CreatedByTool string
+	CreatedAt     string
+	ModifiedAt    string
+	Size          int64
+}
+
+// ListArtifactsRequest identifies the thread to query for artifacts.
+type ListArtifactsRequest struct {
+	ThreadID  string
+	AgentName string
+}
+
+// ListArtifactsResponse carries the artifact list for one thread.
+type ListArtifactsResponse struct {
+	ThreadID  string
+	Artifacts []ThreadArtifact
 }

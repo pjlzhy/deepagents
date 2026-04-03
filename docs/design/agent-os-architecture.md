@@ -245,7 +245,7 @@ Control Plane Registry
                     - attach subagents metadata
                     - materialize agent-scoped MCP runtime
                     - materialize agent-scoped sandbox runtime
-                    - create_deep_agent(...)
+                    - create_runtime_deep_agent(...)
                         -> compiled graph + runtime resources
 ```
 

@@ -9,6 +9,7 @@ import (
 	"agentctl/pkg/streamproxy"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -100,6 +101,8 @@ func (h *HTTPHandler) registerRoutes() {
 	h.serveMux.HandleFunc("DELETE /api/v1/agents/{name}", h.handleDeleteAgentSpec)
 	h.serveMux.HandleFunc("POST /api/v1/agents/{agent}/ensure_runnable", h.handleEnsureRunnable)
 	h.serveMux.HandleFunc("POST /api/v1/agents/{agent}/workspace/files", h.handleUploadWorkspaceFiles)
+	h.serveMux.HandleFunc("POST /api/v1/agents/{agent}/workspace/files/download", h.handleDownloadWorkspaceFiles)
+	h.serveMux.HandleFunc("GET /api/v1/agents/{agent}/workspace/files", h.handleListWorkspaceFiles)
 	h.serveMux.HandleFunc("POST /api/v1/agents/{agent}/runs/stream", h.handleRunStream)
 	h.serveMux.HandleFunc("GET /api/v1/sessions", h.handleListSessions)
 	h.serveMux.HandleFunc("GET /api/v1/sessions/latest", h.handleGetLatestSession)
@@ -113,6 +116,7 @@ func (h *HTTPHandler) registerRoutes() {
 		h.handleGetSessionMessages,
 	)
 	h.serveMux.HandleFunc("DELETE /api/v1/sessions/{thread_id}", h.handleDeleteSession)
+	h.serveMux.HandleFunc("GET /api/v1/sessions/{thread_id}/artifacts", h.handleListThreadArtifacts)
 	h.serveMux.HandleFunc(
 		"POST /api/v1/run_sessions/{session_id}/cancel",
 		h.handleRunCancel,
@@ -225,6 +229,61 @@ func (h *HTTPHandler) handleUploadWorkspaceFiles(w http.ResponseWriter, r *http.
 	writeJSON(w, http.StatusCreated, newHTTPWorkspaceUploadResponse(response))
 }
 
+func (h *HTTPHandler) handleDownloadWorkspaceFiles(w http.ResponseWriter, r *http.Request) {
+	agentName := strings.TrimSpace(r.PathValue("agent"))
+	body, err := decodeJSON[struct {
+		ThreadID string   `json:"thread_id"`
+		Paths    []string `json:"paths"`
+	}](r, false)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+	if len(body.Paths) == 0 {
+		writeJSONError(w, http.StatusBadRequest, errors.New("paths must not be empty"))
+		return
+	}
+	if strings.TrimSpace(body.ThreadID) == "" {
+		writeJSONError(w, http.StatusBadRequest, errors.New("thread_id must not be empty"))
+		return
+	}
+
+	response, err := h.service.DownloadWorkspaceFiles(r.Context(), domain.WorkspaceDownloadRequest{
+		AgentName: agentName,
+		ThreadID:  strings.TrimSpace(body.ThreadID),
+		Paths:     body.Paths,
+	})
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, newHTTPWorkspaceDownloadResponse(response))
+}
+
+func (h *HTTPHandler) handleListWorkspaceFiles(w http.ResponseWriter, r *http.Request) {
+	agentName := strings.TrimSpace(r.PathValue("agent"))
+	threadID := strings.TrimSpace(r.URL.Query().Get("thread_id"))
+	if threadID == "" {
+		writeJSONError(w, http.StatusBadRequest, errors.New("thread_id query parameter is required"))
+		return
+	}
+	path := strings.TrimSpace(r.URL.Query().Get("path"))
+	if path == "" {
+		path = "."
+	}
+
+	response, err := h.service.ListWorkspaceFiles(r.Context(), domain.WorkspaceListRequest{
+		AgentName: agentName,
+		ThreadID:  threadID,
+		Path:      path,
+	})
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, newHTTPWorkspaceListResponse(response))
+}
+
 func (h *HTTPHandler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	query, err := decodeListSessionsQuery(r)
 	if err != nil {
@@ -320,6 +379,25 @@ func (h *HTTPHandler) handleDeleteSession(w http.ResponseWriter, r *http.Request
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *HTTPHandler) handleListThreadArtifacts(w http.ResponseWriter, r *http.Request) {
+	threadID := strings.TrimSpace(r.PathValue("thread_id"))
+	if threadID == "" {
+		writeJSONError(w, http.StatusBadRequest, errors.New("thread_id is required"))
+		return
+	}
+	agentName := strings.TrimSpace(r.URL.Query().Get("agent_name"))
+
+	response, err := h.service.ListThreadArtifacts(r.Context(), domain.ListArtifactsRequest{
+		ThreadID:  threadID,
+		AgentName: agentName,
+	})
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, newHTTPListArtifactsResponse(response))
 }
 
 func (h *HTTPHandler) handleListModelConfigs(w http.ResponseWriter, r *http.Request) {
@@ -924,6 +1002,47 @@ type workspaceUploadFileResponse struct {
 type workspaceUploadResponse struct {
 	ThreadID string                        `json:"thread_id,omitempty"`
 	Files    []workspaceUploadFileResponse `json:"files"`
+}
+
+type workspaceDownloadFileResponse struct {
+	Path          string `json:"path,omitempty"`
+	ContentBase64 string `json:"content_base64,omitempty"`
+	Error         string `json:"error,omitempty"`
+}
+
+type workspaceDownloadResponse struct {
+	ThreadID string                          `json:"thread_id,omitempty"`
+	Files    []workspaceDownloadFileResponse `json:"files"`
+}
+
+type workspaceFileInfoResponse struct {
+	Path       string `json:"path,omitempty"`
+	IsDir      bool   `json:"is_dir,omitempty"`
+	Size       int64  `json:"size,omitempty"`
+	ModifiedAt string `json:"modified_at,omitempty"`
+}
+
+type workspaceListResponse struct {
+	ThreadID string                      `json:"thread_id,omitempty"`
+	Files    []workspaceFileInfoResponse `json:"files"`
+}
+
+type threadArtifactResponse struct {
+	ID            string `json:"id,omitempty"`
+	Type          string `json:"type,omitempty"`
+	Path          string `json:"path,omitempty"`
+	Title         string `json:"title,omitempty"`
+	ContentType   string `json:"content_type,omitempty"`
+	Language      string `json:"language,omitempty"`
+	CreatedByTool string `json:"created_by_tool,omitempty"`
+	CreatedAt     string `json:"created_at,omitempty"`
+	ModifiedAt    string `json:"modified_at,omitempty"`
+	Size          int64  `json:"size,omitempty"`
+}
+
+type listArtifactsResponse struct {
+	ThreadID  string                   `json:"thread_id,omitempty"`
+	Artifacts []threadArtifactResponse `json:"artifacts"`
 }
 
 type cancelRequest struct {
@@ -1908,6 +2027,63 @@ func newHTTPWorkspaceUploadResponse(resp domain.WorkspaceUploadResponse) workspa
 	return workspaceUploadResponse{
 		ThreadID: resp.ThreadID,
 		Files:    files,
+	}
+}
+
+func newHTTPWorkspaceDownloadResponse(resp domain.WorkspaceDownloadResponse) workspaceDownloadResponse {
+	files := make([]workspaceDownloadFileResponse, 0, len(resp.Files))
+	for _, item := range resp.Files {
+		encoded := ""
+		if item.Content != nil {
+			encoded = base64.StdEncoding.EncodeToString(item.Content)
+		}
+		files = append(files, workspaceDownloadFileResponse{
+			Path:          item.Path,
+			ContentBase64: encoded,
+			Error:         item.Error,
+		})
+	}
+	return workspaceDownloadResponse{
+		ThreadID: resp.ThreadID,
+		Files:    files,
+	}
+}
+
+func newHTTPWorkspaceListResponse(resp domain.WorkspaceListResponse) workspaceListResponse {
+	files := make([]workspaceFileInfoResponse, 0, len(resp.Files))
+	for _, item := range resp.Files {
+		files = append(files, workspaceFileInfoResponse{
+			Path:       item.Path,
+			IsDir:      item.IsDir,
+			Size:       item.Size,
+			ModifiedAt: item.ModifiedAt,
+		})
+	}
+	return workspaceListResponse{
+		ThreadID: resp.ThreadID,
+		Files:    files,
+	}
+}
+
+func newHTTPListArtifactsResponse(resp domain.ListArtifactsResponse) listArtifactsResponse {
+	artifacts := make([]threadArtifactResponse, 0, len(resp.Artifacts))
+	for _, item := range resp.Artifacts {
+		artifacts = append(artifacts, threadArtifactResponse{
+			ID:            item.ID,
+			Type:          item.Type,
+			Path:          item.Path,
+			Title:         item.Title,
+			ContentType:   item.ContentType,
+			Language:      item.Language,
+			CreatedByTool: item.CreatedByTool,
+			CreatedAt:     item.CreatedAt,
+			ModifiedAt:    item.ModifiedAt,
+			Size:          item.Size,
+		})
+	}
+	return listArtifactsResponse{
+		ThreadID:  resp.ThreadID,
+		Artifacts: artifacts,
 	}
 }
 

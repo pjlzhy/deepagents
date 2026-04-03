@@ -21,7 +21,7 @@ from contextlib import suppress
 from datetime import UTC, datetime
 from typing import Any
 
-from deepagents.backends.protocol import FileUploadResponse
+from deepagents.backends.protocol import FileDownloadResponse, FileInfo, FileUploadResponse
 from deepagents_runtime import events
 from deepagents_runtime.agent import HITLHandler, RuntimeAgent
 from deepagents_runtime.events import RuntimeEvent
@@ -251,6 +251,54 @@ class AgentManager:
             files=files,
         )
         return resolved_thread_id, responses
+
+    async def download_workspace_files(
+            self,
+            *,
+            name: str,
+            thread_id: str,
+            paths: list[str],
+    ) -> tuple[str, list[FileDownloadResponse]]:
+        """Download files from one thread workspace."""
+        await self.setup()
+        agent = await self._get_or_create_agent(name)
+
+        if not agent.has_runtime():
+            msg = f"Agent '{name}' has not been assembled"
+            raise RuntimeError(msg)
+
+        resolved_thread_id = thread_id.strip()
+        if not resolved_thread_id:
+            raise ValueError("thread_id is required for download")
+        responses = await agent.download_workspace_files(
+            thread_id=resolved_thread_id,
+            paths=paths,
+        )
+        return resolved_thread_id, responses
+
+    async def list_workspace_files(
+            self,
+            *,
+            name: str,
+            thread_id: str,
+            path: str = ".",
+    ) -> tuple[str, list[FileInfo]]:
+        """List files in one thread workspace directory."""
+        await self.setup()
+        agent = await self._get_or_create_agent(name)
+
+        if not agent.has_runtime():
+            msg = f"Agent '{name}' has not been assembled"
+            raise RuntimeError(msg)
+
+        resolved_thread_id = thread_id.strip()
+        if not resolved_thread_id:
+            raise ValueError("thread_id is required for listing")
+        entries = await agent.list_workspace_files(
+            thread_id=resolved_thread_id,
+            path=path,
+        )
+        return resolved_thread_id, entries
 
     async def invoke(
             self,

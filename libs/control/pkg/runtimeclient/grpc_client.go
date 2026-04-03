@@ -135,6 +135,44 @@ func (c *GRPCClient) UploadWorkspaceFiles(
 	return workspaceUploadResponseFromProto(response), nil
 }
 
+// DownloadWorkspaceFiles retrieves files from one runtime thread workspace.
+func (c *GRPCClient) DownloadWorkspaceFiles(
+	ctx context.Context,
+	req domain.WorkspaceDownloadRequest,
+) (domain.WorkspaceDownloadResponse, error) {
+	response, err := c.resourceSync.DownloadWorkspaceFiles(
+		ctx,
+		workspaceDownloadRequestToProto(req),
+	)
+	if err != nil {
+		return domain.WorkspaceDownloadResponse{}, normalizeRPCError(
+			"download workspace files",
+			err,
+		)
+	}
+
+	return workspaceDownloadResponseFromProto(response), nil
+}
+
+// ListWorkspaceFiles lists files in one runtime thread workspace directory.
+func (c *GRPCClient) ListWorkspaceFiles(
+	ctx context.Context,
+	req domain.WorkspaceListRequest,
+) (domain.WorkspaceListResponse, error) {
+	response, err := c.resourceSync.ListWorkspaceFiles(
+		ctx,
+		workspaceListRequestToProto(req),
+	)
+	if err != nil {
+		return domain.WorkspaceListResponse{}, normalizeRPCError(
+			"list workspace files",
+			err,
+		)
+	}
+
+	return workspaceListResponseFromProto(response), nil
+}
+
 // RemoveAgent removes an installed runtime-side agent resource.
 func (c *GRPCClient) RemoveAgent(
 	ctx context.Context,
@@ -297,6 +335,21 @@ func (c *GRPCClient) DeleteSession(ctx context.Context, locator domain.SessionLo
 		return ErrNotFound
 	}
 	return nil
+}
+
+// ListThreadArtifacts queries artifact metadata for one thread from checkpoint state.
+func (c *GRPCClient) ListThreadArtifacts(
+	ctx context.Context,
+	req domain.ListArtifactsRequest,
+) (domain.ListArtifactsResponse, error) {
+	response, err := c.sessions.ListThreadArtifacts(ctx, &runtimev1.ListThreadArtifactsRequest{
+		ThreadId:  req.ThreadID,
+		AgentName: req.AgentName,
+	})
+	if err != nil {
+		return domain.ListArtifactsResponse{}, normalizeRPCError("list thread artifacts", err)
+	}
+	return threadArtifactsResponseFromProto(response), nil
 }
 
 func normalizeRPCError(action string, err error) error {

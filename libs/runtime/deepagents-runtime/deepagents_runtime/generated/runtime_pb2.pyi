@@ -574,6 +574,64 @@ class UploadWorkspaceFilesResponse(_message.Message):
     files: _containers.RepeatedCompositeFieldContainer[UploadWorkspaceFileResult]
     def __init__(self, thread_id: _Optional[str] = ..., files: _Optional[_Iterable[_Union[UploadWorkspaceFileResult, _Mapping]]] = ...) -> None: ...
 
+class DownloadWorkspaceFilesRequest(_message.Message):
+    __slots__ = ("agent_name", "thread_id", "paths")
+    AGENT_NAME_FIELD_NUMBER: _ClassVar[int]
+    THREAD_ID_FIELD_NUMBER: _ClassVar[int]
+    PATHS_FIELD_NUMBER: _ClassVar[int]
+    agent_name: str
+    thread_id: str
+    paths: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, agent_name: _Optional[str] = ..., thread_id: _Optional[str] = ..., paths: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class DownloadWorkspaceFileResult(_message.Message):
+    __slots__ = ("path", "content", "error")
+    PATH_FIELD_NUMBER: _ClassVar[int]
+    CONTENT_FIELD_NUMBER: _ClassVar[int]
+    ERROR_FIELD_NUMBER: _ClassVar[int]
+    path: str
+    content: bytes
+    error: str
+    def __init__(self, path: _Optional[str] = ..., content: _Optional[bytes] = ..., error: _Optional[str] = ...) -> None: ...
+
+class DownloadWorkspaceFilesResponse(_message.Message):
+    __slots__ = ("thread_id", "files")
+    THREAD_ID_FIELD_NUMBER: _ClassVar[int]
+    FILES_FIELD_NUMBER: _ClassVar[int]
+    thread_id: str
+    files: _containers.RepeatedCompositeFieldContainer[DownloadWorkspaceFileResult]
+    def __init__(self, thread_id: _Optional[str] = ..., files: _Optional[_Iterable[_Union[DownloadWorkspaceFileResult, _Mapping]]] = ...) -> None: ...
+
+class ListWorkspaceFilesRequest(_message.Message):
+    __slots__ = ("agent_name", "thread_id", "path")
+    AGENT_NAME_FIELD_NUMBER: _ClassVar[int]
+    THREAD_ID_FIELD_NUMBER: _ClassVar[int]
+    PATH_FIELD_NUMBER: _ClassVar[int]
+    agent_name: str
+    thread_id: str
+    path: str
+    def __init__(self, agent_name: _Optional[str] = ..., thread_id: _Optional[str] = ..., path: _Optional[str] = ...) -> None: ...
+
+class WorkspaceFileInfo(_message.Message):
+    __slots__ = ("path", "is_dir", "size", "modified_at")
+    PATH_FIELD_NUMBER: _ClassVar[int]
+    IS_DIR_FIELD_NUMBER: _ClassVar[int]
+    SIZE_FIELD_NUMBER: _ClassVar[int]
+    MODIFIED_AT_FIELD_NUMBER: _ClassVar[int]
+    path: str
+    is_dir: bool
+    size: int
+    modified_at: str
+    def __init__(self, path: _Optional[str] = ..., is_dir: bool = ..., size: _Optional[int] = ..., modified_at: _Optional[str] = ...) -> None: ...
+
+class ListWorkspaceFilesResponse(_message.Message):
+    __slots__ = ("thread_id", "files")
+    THREAD_ID_FIELD_NUMBER: _ClassVar[int]
+    FILES_FIELD_NUMBER: _ClassVar[int]
+    thread_id: str
+    files: _containers.RepeatedCompositeFieldContainer[WorkspaceFileInfo]
+    def __init__(self, thread_id: _Optional[str] = ..., files: _Optional[_Iterable[_Union[WorkspaceFileInfo, _Mapping]]] = ...) -> None: ...
+
 class RemoveResourceRequest(_message.Message):
     __slots__ = ("resource_type", "name")
     RESOURCE_TYPE_FIELD_NUMBER: _ClassVar[int]
@@ -751,3 +809,43 @@ class SessionMessage(_message.Message):
     is_error: bool
     raw: _struct_pb2.Struct
     def __init__(self, index: _Optional[int] = ..., role: _Optional[_Union[SessionMessageRole, str]] = ..., text: _Optional[str] = ..., tool_call_id: _Optional[str] = ..., tool_name: _Optional[str] = ..., is_error: bool = ..., raw: _Optional[_Union[_struct_pb2.Struct, _Mapping]] = ...) -> None: ...
+
+class ListThreadArtifactsRequest(_message.Message):
+    __slots__ = ("thread_id", "agent_name")
+    THREAD_ID_FIELD_NUMBER: _ClassVar[int]
+    AGENT_NAME_FIELD_NUMBER: _ClassVar[int]
+    thread_id: str
+    agent_name: str
+    def __init__(self, thread_id: _Optional[str] = ..., agent_name: _Optional[str] = ...) -> None: ...
+
+class ThreadArtifact(_message.Message):
+    __slots__ = ("id", "type", "path", "title", "content_type", "language", "created_by_tool", "created_at", "modified_at", "size")
+    ID_FIELD_NUMBER: _ClassVar[int]
+    TYPE_FIELD_NUMBER: _ClassVar[int]
+    PATH_FIELD_NUMBER: _ClassVar[int]
+    TITLE_FIELD_NUMBER: _ClassVar[int]
+    CONTENT_TYPE_FIELD_NUMBER: _ClassVar[int]
+    LANGUAGE_FIELD_NUMBER: _ClassVar[int]
+    CREATED_BY_TOOL_FIELD_NUMBER: _ClassVar[int]
+    CREATED_AT_FIELD_NUMBER: _ClassVar[int]
+    MODIFIED_AT_FIELD_NUMBER: _ClassVar[int]
+    SIZE_FIELD_NUMBER: _ClassVar[int]
+    id: str
+    type: str
+    path: str
+    title: str
+    content_type: str
+    language: str
+    created_by_tool: str
+    created_at: str
+    modified_at: str
+    size: int
+    def __init__(self, id: _Optional[str] = ..., type: _Optional[str] = ..., path: _Optional[str] = ..., title: _Optional[str] = ..., content_type: _Optional[str] = ..., language: _Optional[str] = ..., created_by_tool: _Optional[str] = ..., created_at: _Optional[str] = ..., modified_at: _Optional[str] = ..., size: _Optional[int] = ...) -> None: ...
+
+class ListThreadArtifactsResponse(_message.Message):
+    __slots__ = ("thread_id", "artifacts")
+    THREAD_ID_FIELD_NUMBER: _ClassVar[int]
+    ARTIFACTS_FIELD_NUMBER: _ClassVar[int]
+    thread_id: str
+    artifacts: _containers.RepeatedCompositeFieldContainer[ThreadArtifact]
+    def __init__(self, thread_id: _Optional[str] = ..., artifacts: _Optional[_Iterable[_Union[ThreadArtifact, _Mapping]]] = ...) -> None: ...

@@ -20,9 +20,17 @@ type fakeAgentService struct {
 	uploadErr  error
 	uploadReq  domain.WorkspaceUploadRequest
 
-	uploadResp domain.WorkspaceUploadResponse
-	uploadErr  error
-	uploadReq  domain.WorkspaceUploadRequest
+	downloadResp domain.WorkspaceDownloadResponse
+	downloadErr  error
+	downloadReq  domain.WorkspaceDownloadRequest
+
+	listFilesResp domain.WorkspaceListResponse
+	listFilesErr  error
+	listFilesReq  domain.WorkspaceListRequest
+
+	artifactsResp domain.ListArtifactsResponse
+	artifactsErr  error
+	artifactsReq  domain.ListArtifactsRequest
 
 	healthResp runtimeclient.HealthResponse
 	healthErr  error
@@ -136,6 +144,30 @@ func (f *fakeAgentService) UploadWorkspaceFiles(
 ) (domain.WorkspaceUploadResponse, error) {
 	f.uploadReq = req
 	return f.uploadResp, f.uploadErr
+}
+
+func (f *fakeAgentService) DownloadWorkspaceFiles(
+	_ context.Context,
+	req domain.WorkspaceDownloadRequest,
+) (domain.WorkspaceDownloadResponse, error) {
+	f.downloadReq = req
+	return f.downloadResp, f.downloadErr
+}
+
+func (f *fakeAgentService) ListWorkspaceFiles(
+	_ context.Context,
+	req domain.WorkspaceListRequest,
+) (domain.WorkspaceListResponse, error) {
+	f.listFilesReq = req
+	return f.listFilesResp, f.listFilesErr
+}
+
+func (f *fakeAgentService) ListThreadArtifacts(
+	_ context.Context,
+	req domain.ListArtifactsRequest,
+) (domain.ListArtifactsResponse, error) {
+	f.artifactsReq = req
+	return f.artifactsResp, f.artifactsErr
 }
 
 func (f *fakeAgentService) Health(context.Context) (runtimeclient.HealthResponse, error) {

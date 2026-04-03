@@ -272,6 +272,106 @@ func workspaceUploadResponseFromProto(
 	}
 }
 
+func workspaceDownloadRequestToProto(
+	req domain.WorkspaceDownloadRequest,
+) *runtimev1.DownloadWorkspaceFilesRequest {
+	paths := make([]string, 0, len(req.Paths))
+	for _, p := range req.Paths {
+		cleaned := filepath.ToSlash(filepath.Clean(p))
+		if filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "..") {
+			continue // skip paths that escape the workspace root
+		}
+		paths = append(paths, cleaned)
+	}
+	return &runtimev1.DownloadWorkspaceFilesRequest{
+		AgentName: req.AgentName,
+		ThreadId:  req.ThreadID,
+		Paths:     paths,
+	}
+}
+
+func workspaceDownloadResponseFromProto(
+	resp *runtimev1.DownloadWorkspaceFilesResponse,
+) domain.WorkspaceDownloadResponse {
+	if resp == nil {
+		return domain.WorkspaceDownloadResponse{}
+	}
+	files := make([]domain.WorkspaceDownloadResult, 0, len(resp.GetFiles()))
+	for _, item := range resp.GetFiles() {
+		files = append(files, domain.WorkspaceDownloadResult{
+			Path:    item.GetPath(),
+			Content: item.GetContent(),
+			Error:   item.GetError(),
+		})
+	}
+	return domain.WorkspaceDownloadResponse{
+		ThreadID: resp.GetThreadId(),
+		Files:    files,
+	}
+}
+
+func workspaceListRequestToProto(
+	req domain.WorkspaceListRequest,
+) *runtimev1.ListWorkspaceFilesRequest {
+	path := filepath.ToSlash(filepath.Clean(req.Path))
+	if filepath.IsAbs(path) || strings.HasPrefix(path, "..") {
+		path = "."
+	}
+	return &runtimev1.ListWorkspaceFilesRequest{
+		AgentName: req.AgentName,
+		ThreadId:  req.ThreadID,
+		Path:      path,
+	}
+}
+
+func workspaceListResponseFromProto(
+	resp *runtimev1.ListWorkspaceFilesResponse,
+) domain.WorkspaceListResponse {
+	if resp == nil {
+		return domain.WorkspaceListResponse{}
+	}
+	files := make([]domain.WorkspaceFileInfo, 0, len(resp.GetFiles()))
+	for _, item := range resp.GetFiles() {
+		files = append(files, domain.WorkspaceFileInfo{
+			Path:       item.GetPath(),
+			IsDir:      item.GetIsDir(),
+			Size:       item.GetSize(),
+			ModifiedAt: item.GetModifiedAt(),
+		})
+	}
+	return domain.WorkspaceListResponse{
+		ThreadID: resp.GetThreadId(),
+		Files:    files,
+	}
+}
+
+func threadArtifactsResponseFromProto(
+	resp *runtimev1.ListThreadArtifactsResponse,
+) domain.ListArtifactsResponse {
+	if resp == nil {
+		return domain.ListArtifactsResponse{}
+	}
+	artifacts := make([]domain.ThreadArtifact, 0, len(resp.GetArtifacts()))
+	for _, item := range resp.GetArtifacts() {
+		artifacts = append(artifacts, domain.ThreadArtifact{
+			ID:            item.GetId(),
+			Type:          item.GetType(),
+			Path:          item.GetPath(),
+			Title:         item.GetTitle(),
+			ContentType:   item.GetContentType(),
+			Language:      item.GetLanguage(),
+			CreatedByTool: item.GetCreatedByTool(),
+			CreatedAt:     item.GetCreatedAt(),
+			ModifiedAt:    item.GetModifiedAt(),
+			Size:          item.GetSize(),
+		})
+	}
+	return domain.ListArtifactsResponse{
+		ThreadID:  resp.GetThreadId(),
+		Artifacts: artifacts,
+	}
+}
+
 func sessionSummaryFromProto(
 	summary *runtimev1.SessionSummary,
 	checkpointCount int32,

@@ -264,6 +264,14 @@ service ResourceSync {
   rpc UploadWorkspaceFiles(UploadWorkspaceFilesRequest)
       returns (UploadWorkspaceFilesResponse);
 
+  // Download files from one thread workspace.
+  rpc DownloadWorkspaceFiles(DownloadWorkspaceFilesRequest)
+      returns (DownloadWorkspaceFilesResponse);
+
+  // List files in one thread workspace directory.
+  rpc ListWorkspaceFiles(ListWorkspaceFilesRequest)
+      returns (ListWorkspaceFilesResponse);
+
   // Remove a synced runtime resource or cached spec from the data plane.
   rpc RemoveResource(RemoveResourceRequest) returns (SyncResponse);
 
@@ -296,6 +304,10 @@ service SessionQuery {
 
   // Delete one local session from checkpoint storage by agent_name + thread_id.
   rpc DeleteSession(DeleteSessionRequest) returns (DeleteSessionResponse);
+
+  // List artifact metadata for one thread from checkpoint state.
+  rpc ListThreadArtifacts(ListThreadArtifactsRequest)
+      returns (ListThreadArtifactsResponse);
 }
 
 // -----------------------------------------------------------------------------
@@ -542,6 +554,55 @@ message UploadWorkspaceFilesResponse {
 }
 
 // -----------------------------------------------------------------------------
+// Workspace file download
+// -----------------------------------------------------------------------------
+
+message DownloadWorkspaceFilesRequest {
+  string agent_name = 1;
+  string thread_id = 2;
+  // Relative paths inside the thread workspace root.
+  repeated string paths = 3;
+}
+
+message DownloadWorkspaceFileResult {
+  // Relative path inside the thread workspace root.
+  string path = 1;
+  bytes content = 2;
+  // Empty on success, standardized file-operation error on failure.
+  string error = 3;
+}
+
+message DownloadWorkspaceFilesResponse {
+  string thread_id = 1;
+  repeated DownloadWorkspaceFileResult files = 2;
+}
+
+// -----------------------------------------------------------------------------
+// Workspace file listing
+// -----------------------------------------------------------------------------
+
+message ListWorkspaceFilesRequest {
+  string agent_name = 1;
+  string thread_id = 2;
+  // Directory to list, relative to workspace root. Defaults to root (".").
+  string path = 3;
+}
+
+message WorkspaceFileInfo {
+  // Relative path inside the thread workspace root.
+  string path = 1;
+  bool is_dir = 2;
+  int64 size = 3;
+  // ISO 8601 timestamp, best-effort.
+  string modified_at = 4;
+}
+
+message ListWorkspaceFilesResponse {
+  string thread_id = 1;
+  repeated WorkspaceFileInfo files = 2;
+}
+
+// -----------------------------------------------------------------------------
 // Resource removal
 // -----------------------------------------------------------------------------
 
@@ -686,4 +747,41 @@ message SessionMessage {
   string tool_name = 5;
   bool is_error = 6;
   google.protobuf.Struct raw = 7;
+}
+
+// -----------------------------------------------------------------------------
+// Thread artifacts
+// -----------------------------------------------------------------------------
+
+message ListThreadArtifactsRequest {
+  string thread_id = 1;
+  string agent_name = 2;
+}
+
+message ThreadArtifact {
+  // Artifact identifier (workspace-relative path used as key).
+  string id = 1;
+  // Artifact type, currently always "file".
+  string type = 2;
+  // Workspace-relative file path.
+  string path = 3;
+  // Display name (typically the filename).
+  string title = 4;
+  // Coarse content type, e.g. "code/python", "text/markdown".
+  string content_type = 5;
+  // Programming language if applicable.
+  string language = 6;
+  // Name of the tool that produced this artifact.
+  string created_by_tool = 7;
+  // ISO 8601 creation timestamp.
+  string created_at = 8;
+  // ISO 8601 last-modification timestamp.
+  string modified_at = 9;
+  // File size in bytes (0 if unknown).
+  int64 size = 10;
+}
+
+message ListThreadArtifactsResponse {
+  string thread_id = 1;
+  repeated ThreadArtifact artifacts = 2;
 }

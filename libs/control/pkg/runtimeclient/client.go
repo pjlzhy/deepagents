@@ -108,6 +108,8 @@ type ResourceSyncClient interface {
 	SyncAgentSpec(ctx context.Context, spec domain.RuntimeAgentSpec) (SyncResponse, error)
 	Assemble(ctx context.Context, agentName string) (AssembleResponse, error)
 	UploadWorkspaceFiles(ctx context.Context, req domain.WorkspaceUploadRequest) (domain.WorkspaceUploadResponse, error)
+	DownloadWorkspaceFiles(ctx context.Context, req domain.WorkspaceDownloadRequest) (domain.WorkspaceDownloadResponse, error)
+	ListWorkspaceFiles(ctx context.Context, req domain.WorkspaceListRequest) (domain.WorkspaceListResponse, error)
 	RemoveAgent(ctx context.Context, agentName string) (SyncResponse, error)
 	Health(ctx context.Context) (HealthResponse, error)
 }
@@ -125,4 +127,5 @@ type SessionQueryClient interface {
 	GetSessionMessages(ctx context.Context, query domain.SessionMessageQuery) ([]domain.SessionMessage, string, error)
 	GetLatestSession(ctx context.Context, agentName string) (domain.SessionSummary, error)
 	DeleteSession(ctx context.Context, locator domain.SessionLocator) error
+	ListThreadArtifacts(ctx context.Context, req domain.ListArtifactsRequest) (domain.ListArtifactsResponse, error)
 }

@@ -291,6 +291,21 @@ def _checkpoint_messages(data: object) -> list[object]:
     return cast("list[object]", messages)
 
 
+def _checkpoint_artifacts(data: object) -> dict[str, object]:
+    """Return artifacts channel when the decoded checkpoint has the expected shape."""
+    if not isinstance(data, dict):
+        return {}
+    payload = cast("dict[str, object]", data)
+    channel_values = payload.get("channel_values")
+    if not isinstance(channel_values, dict):
+        return {}
+    channel_values_dict = cast("dict[str, object]", channel_values)
+    artifacts = channel_values_dict.get("artifacts")
+    if not isinstance(artifacts, dict):
+        return {}
+    return cast("dict[str, object]", artifacts)
+
+
 def _message_type_name(message: object) -> str:
     """Return the logical type name for a checkpoint message object."""
     if isinstance(message, dict):
@@ -759,6 +774,35 @@ async def get_session_messages(
             messages=paged_messages,
             next_page_token=next_page_token,
         )
+
+
+async def get_thread_artifacts(
+    thread_id: str,
+    *,
+    agent_name: str | None = None,
+    db_path: Path | None = None,
+) -> list[dict[str, str]] | None:
+    """Read artifact entries from the latest checkpoint for one thread.
+
+    Returns a list of artifact dicts (each with an ``id`` key) or ``None``
+    if the thread/checkpoint cannot be found.
+    """
+    # resolved_db_path = db_path or default_db_path()
+
+    async with _connect(db_path) as conn:
+        row = await _load_checkpoint_row(
+            conn,
+            thread_id=thread_id,
+            agent_name=agent_name,
+        )
+        if row is None:
+            return None
+
+        _, type_str, blob, _ = row
+        serde = await _get_jsonplus_serializer()
+        data = serde.loads_typed((type_str, blob))
+        artifacts = _checkpoint_artifacts(data)
+        return [{"id": k, **(v if isinstance(v, dict) else {})} for k, v in artifacts.items()]
 
 
 async def list_threads(

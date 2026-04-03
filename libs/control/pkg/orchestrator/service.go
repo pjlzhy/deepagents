@@ -172,6 +172,74 @@ func (s *Service) UploadWorkspaceFiles(
 	return response, nil
 }
 
+// DownloadWorkspaceFiles retrieves files from one agent/thread workspace.
+func (s *Service) DownloadWorkspaceFiles(
+	ctx context.Context,
+	req domain.WorkspaceDownloadRequest,
+) (domain.WorkspaceDownloadResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return domain.WorkspaceDownloadResponse{}, err
+	}
+
+	agentName := strings.TrimSpace(req.AgentName)
+	if agentName == "" {
+		return domain.WorkspaceDownloadResponse{}, ErrEmptyAgentName
+	}
+	req.AgentName = agentName
+
+	if err := s.ensureRunnable(ctx, agentName); err != nil {
+		return domain.WorkspaceDownloadResponse{}, fmt.Errorf(
+			"ensure runnable agent %q: %w",
+			agentName,
+			err,
+		)
+	}
+
+	response, err := s.resourceSync.DownloadWorkspaceFiles(ctx, req)
+	if err != nil {
+		return domain.WorkspaceDownloadResponse{}, fmt.Errorf(
+			"download workspace files for agent %q: %w",
+			agentName,
+			err,
+		)
+	}
+	return response, nil
+}
+
+// ListWorkspaceFiles lists files in one agent/thread workspace directory.
+func (s *Service) ListWorkspaceFiles(
+	ctx context.Context,
+	req domain.WorkspaceListRequest,
+) (domain.WorkspaceListResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return domain.WorkspaceListResponse{}, err
+	}
+
+	agentName := strings.TrimSpace(req.AgentName)
+	if agentName == "" {
+		return domain.WorkspaceListResponse{}, ErrEmptyAgentName
+	}
+	req.AgentName = agentName
+
+	if err := s.ensureRunnable(ctx, agentName); err != nil {
+		return domain.WorkspaceListResponse{}, fmt.Errorf(
+			"ensure runnable agent %q: %w",
+			agentName,
+			err,
+		)
+	}
+
+	response, err := s.resourceSync.ListWorkspaceFiles(ctx, req)
+	if err != nil {
+		return domain.WorkspaceListResponse{}, fmt.Errorf(
+			"list workspace files for agent %q: %w",
+			agentName,
+			err,
+		)
+	}
+	return response, nil
+}
+
 // Health 预留 data plane health 的 northbound 聚合入口。
 func (s *Service) Health(ctx context.Context) (runtimeclient.HealthResponse, error) {
 	resp, err := s.resourceSync.Health(ctx)
@@ -261,6 +329,18 @@ func (s *Service) DeleteSession(ctx context.Context, locator domain.SessionLocat
 		return fmt.Errorf("delete session %q/%q: %w", locator.AgentName, locator.ThreadID, err)
 	}
 	return nil
+}
+
+// ListThreadArtifacts queries artifact metadata for one thread from checkpoint state.
+func (s *Service) ListThreadArtifacts(
+	ctx context.Context,
+	req domain.ListArtifactsRequest,
+) (domain.ListArtifactsResponse, error) {
+	resp, err := s.sessions.ListThreadArtifacts(ctx, req)
+	if err != nil {
+		return domain.ListArtifactsResponse{}, fmt.Errorf("list thread artifacts %q: %w", req.ThreadID, err)
+	}
+	return resp, nil
 }
 
 // UpsertModelConfig persists one reusable model config and returns the stored value.

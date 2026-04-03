@@ -314,6 +314,7 @@ func cloneModelSpec(spec domain.ModelSpec) domain.ModelSpec {
 		Provider:    spec.Provider,
 		Model:       spec.Model,
 		BaseURL:     spec.BaseURL,
+		APIKey:      spec.APIKey,
 		APIKeyEnv:   spec.APIKeyEnv,
 		ExtraParams: maps.Clone(spec.ExtraParams),
 	}

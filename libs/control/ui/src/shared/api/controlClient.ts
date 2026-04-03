@@ -7,6 +7,7 @@ import type {
   CancelRunRequestDTO,
   HealthResponse,
   HTTPAgentEventDTO,
+  ListArtifactsResponseDTO,
   MCPConfigListDTO,
   MCPConfigDTO,
   MCPConfigUpsertRequestDTO,
@@ -26,6 +27,8 @@ import type {
   SkillListDTO,
   SkillUpsertRequestDTO,
   SubmitHitlDecisionsRequestDTO,
+  WorkspaceDownloadResponseDTO,
+  WorkspaceListResponseDTO,
   WorkspaceUploadResponseDTO,
 } from '@/shared/types/api';
 
@@ -173,6 +176,18 @@ export const controlClient = {
         form,
       );
     },
+    downloadWorkspaceFiles(agentName: string, threadId: string, paths: string[]) {
+      return httpClient.post<{ thread_id: string; paths: string[] }, WorkspaceDownloadResponseDTO>(
+        `/api/v1/agents/${encodeURIComponent(agentName)}/workspace/files/download`,
+        { thread_id: threadId, paths },
+      );
+    },
+    listWorkspaceFiles(agentName: string, threadId: string, path?: string) {
+      return httpClient.get<WorkspaceListResponseDTO>(
+        `/api/v1/agents/${encodeURIComponent(agentName)}/workspace/files`,
+        { thread_id: threadId, path },
+      );
+    },
     delete(agentName: string) {
       return httpClient.delete<void>(`/api/v1/agents/${encodeURIComponent(agentName)}`);
     },
@@ -219,6 +234,12 @@ export const controlClient = {
       return httpClient.delete<void>(`/api/v1/sessions/${encodeURIComponent(threadId)}`, {
         agent_name: agentName,
       });
+    },
+    listArtifacts(threadId: string, agentName?: string) {
+      return httpClient.get<ListArtifactsResponseDTO>(
+        `/api/v1/sessions/${encodeURIComponent(threadId)}/artifacts`,
+        { agent_name: agentName },
+      );
     },
   },
   runs: {

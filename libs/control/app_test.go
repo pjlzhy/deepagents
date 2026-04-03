@@ -40,6 +40,20 @@ func (*stubBootstrapRuntimeClient) UploadWorkspaceFiles(
 	return domain.WorkspaceUploadResponse{}, nil
 }
 
+func (*stubBootstrapRuntimeClient) DownloadWorkspaceFiles(
+	context.Context,
+	domain.WorkspaceDownloadRequest,
+) (domain.WorkspaceDownloadResponse, error) {
+	return domain.WorkspaceDownloadResponse{}, nil
+}
+
+func (*stubBootstrapRuntimeClient) ListWorkspaceFiles(
+	context.Context,
+	domain.WorkspaceListRequest,
+) (domain.WorkspaceListResponse, error) {
+	return domain.WorkspaceListResponse{}, nil
+}
+
 func (*stubBootstrapRuntimeClient) RemoveAgent(
 	context.Context,
 	string,
@@ -94,6 +108,13 @@ func (*stubBootstrapRuntimeClient) GetLatestSession(
 
 func (*stubBootstrapRuntimeClient) DeleteSession(context.Context, domain.SessionLocator) error {
 	return nil
+}
+
+func (*stubBootstrapRuntimeClient) ListThreadArtifacts(
+	context.Context,
+	domain.ListArtifactsRequest,
+) (domain.ListArtifactsResponse, error) {
+	return domain.ListArtifactsResponse{}, nil
 }
 
 func (s *stubBootstrapRuntimeClient) Close() error {

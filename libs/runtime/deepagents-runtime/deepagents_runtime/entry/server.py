@@ -40,6 +40,7 @@ from deepagents_runtime.sessions import (
     get_latest_session,
     get_session,
     get_session_messages,
+    get_thread_artifacts,
     list_sessions,
 )
 from deepagents_runtime.spec import AgentStatus, RunConfig
@@ -495,6 +496,95 @@ class ResourceSyncServicer(runtime_pb2_grpc.ResourceSyncServicer):
             ],
         )
 
+    async def DownloadWorkspaceFiles(
+        self,
+        request: pb2.DownloadWorkspaceFilesRequest,
+        context: grpc.aio.ServicerContext,
+    ) -> pb2.DownloadWorkspaceFilesResponse:
+        """Download files from one thread workspace."""
+        agent_name = request.agent_name.strip()
+        if not agent_name:
+            await _abort_invalid_argument(context, "agent_name is required")
+            return pb2.DownloadWorkspaceFilesResponse()
+        if not request.paths:
+            await _abort_invalid_argument(context, "at least one path is required")
+            return pb2.DownloadWorkspaceFilesResponse()
+        if not request.thread_id.strip():
+            await _abort_invalid_argument(context, "thread_id is required")
+            return pb2.DownloadWorkspaceFilesResponse()
+
+        try:
+            thread_id, responses = await self._manager.download_workspace_files(
+                name=agent_name,
+                thread_id=request.thread_id,
+                paths=list(request.paths),
+            )
+        except KeyError as exc:
+            await context.abort(grpc.StatusCode.NOT_FOUND, str(exc))
+            return pb2.DownloadWorkspaceFilesResponse()
+        except ValueError as exc:
+            await _abort_invalid_argument(context, str(exc))
+            return pb2.DownloadWorkspaceFilesResponse()
+        except RuntimeError as exc:
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
+            return pb2.DownloadWorkspaceFilesResponse()
+
+        return pb2.DownloadWorkspaceFilesResponse(
+            thread_id=thread_id,
+            files=[
+                pb2.DownloadWorkspaceFileResult(
+                    path=item.path,
+                    content=item.content or b"",
+                    error=item.error or "",
+                )
+                for item in responses
+            ],
+        )
+
+    async def ListWorkspaceFiles(
+        self,
+        request: pb2.ListWorkspaceFilesRequest,
+        context: grpc.aio.ServicerContext,
+    ) -> pb2.ListWorkspaceFilesResponse:
+        """List files in one thread workspace directory."""
+        agent_name = request.agent_name.strip()
+        if not agent_name:
+            await _abort_invalid_argument(context, "agent_name is required")
+            return pb2.ListWorkspaceFilesResponse()
+        if not request.thread_id.strip():
+            await _abort_invalid_argument(context, "thread_id is required")
+            return pb2.ListWorkspaceFilesResponse()
+
+        path = request.path.strip() or "."
+        try:
+            thread_id, entries = await self._manager.list_workspace_files(
+                name=agent_name,
+                thread_id=request.thread_id,
+                path=path,
+            )
+        except KeyError as exc:
+            await context.abort(grpc.StatusCode.NOT_FOUND, str(exc))
+            return pb2.ListWorkspaceFilesResponse()
+        except ValueError as exc:
+            await _abort_invalid_argument(context, str(exc))
+            return pb2.ListWorkspaceFilesResponse()
+        except RuntimeError as exc:
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
+            return pb2.ListWorkspaceFilesResponse()
+
+        return pb2.ListWorkspaceFilesResponse(
+            thread_id=thread_id,
+            files=[
+                pb2.WorkspaceFileInfo(
+                    path=entry.get("path", ""),
+                    is_dir=entry.get("is_dir", False),
+                    size=entry.get("size", 0),
+                    modified_at=entry.get("modified_at", ""),
+                )
+                for entry in entries
+            ],
+        )
+
     async def RemoveResource(
         self,
         request: pb2.RemoveResourceRequest,
@@ -749,6 +839,54 @@ class SessionQueryServicer(runtime_pb2_grpc.SessionQueryServicer):
         if deleted:
             self._manager.registry.delete_thread_dir(agent_name, thread_id)
         return pb2.DeleteSessionResponse(deleted=deleted)
+
+    async def ListThreadArtifacts(
+        self,
+        request: pb2.ListThreadArtifactsRequest,
+        context: grpc.aio.ServicerContext,
+    ) -> pb2.ListThreadArtifactsResponse:
+        """List artifact metadata for one thread from checkpoint state."""
+        thread_id = request.thread_id.strip()
+        if not thread_id:
+            await _abort_invalid_argument(context, "thread_id is required")
+            return pb2.ListThreadArtifactsResponse()
+
+        agent_name = request.agent_name.strip() or None
+        try:
+            artifacts = await get_thread_artifacts(
+                thread_id,
+                agent_name=agent_name,
+                db_path=self._db_path,
+            )
+        except ValueError as exc:
+            await _abort_invalid_argument(context, str(exc))
+            return pb2.ListThreadArtifactsResponse()
+        except RuntimeError as exc:
+            await context.abort(grpc.StatusCode.INTERNAL, str(exc))
+            return pb2.ListThreadArtifactsResponse()
+
+        if artifacts is None:
+            await context.abort(grpc.StatusCode.NOT_FOUND, f"thread '{thread_id}' not found")
+            return pb2.ListThreadArtifactsResponse()
+
+        return pb2.ListThreadArtifactsResponse(
+            thread_id=thread_id,
+            artifacts=[
+                pb2.ThreadArtifact(
+                    id=item.get("id", ""),
+                    type=item.get("type", "file"),
+                    path=item.get("path", ""),
+                    title=item.get("title", ""),
+                    content_type=item.get("content_type", ""),
+                    language=item.get("language", ""),
+                    created_by_tool=item.get("created_by_tool", ""),
+                    created_at=item.get("created_at", ""),
+                    modified_at=item.get("modified_at", ""),
+                    size=item.get("size", 0),
+                )
+                for item in artifacts
+            ],
+        )
 
 
 def _resolve_run_timeout_seconds(

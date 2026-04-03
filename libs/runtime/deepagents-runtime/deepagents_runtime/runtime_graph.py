@@ -20,7 +20,6 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Checkpointer
 
 from deepagents._models import resolve_model
-from deepagents.graph import BASE_AGENT_PROMPT
 from deepagents.backends.protocol import BackendFactory, BackendProtocol
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from deepagents.middleware.subagents import (
@@ -29,9 +28,41 @@ from deepagents.middleware.subagents import (
     SubAgent,
     SubAgentMiddleware,
 )
+from deepagents_runtime.artifacts import ArtifactsMiddleware
 from deepagents.middleware.summarization import create_summarization_middleware
 from deepagents_runtime.runtime_filesystem import RuntimeFilesystemMiddleware
 
+BASE_AGENT_PROMPT = """## Core Behavior
+
+- Be concise and direct. Don't over-explain unless asked.
+- NEVER add unnecessary preamble (\"Sure!\", \"Great question!\", \"I'll now...\").
+- Don't say \"I'll now do X\" — just do it.
+- If the request is ambiguous, ask questions before acting.
+- If asked how to approach something, explain first, then act.
+
+## Professional Objectivity
+
+- Prioritize accuracy over validating the user's beliefs
+- Disagree respectfully when the user is incorrect
+- Avoid unnecessary superlatives, praise, or emotional validation
+
+## Doing Tasks
+
+When the user asks you to do something:
+
+1. **Understand first** — read relevant files, check existing patterns. Quick but thorough — gather enough evidence to start, then iterate.
+2. **Act** — implement the solution. Work quickly but accurately.
+3. **Verify** — check your work against what was asked, not against your own output. Your first attempt is rarely correct — iterate.
+
+Keep working until the task is fully complete. Don't stop partway and explain what you would do — just do it. Only yield back to the user when the task is done or you're genuinely blocked.
+
+**When things go wrong:**
+- If something fails repeatedly, stop and analyze *why* — don't keep retrying the same approach.
+- If you're blocked, tell the user what's wrong and ask for guidance.
+
+## Progress Updates
+
+For longer tasks, provide brief progress updates at reasonable intervals — a concise sentence recapping what you've done and what's next."""
 
 def create_runtime_deep_agent(
     model: BaseChatModel,
@@ -53,6 +84,7 @@ def create_runtime_deep_agent(
     gp_middleware: list[AgentMiddleware[Any, Any, Any]] = [
         TodoListMiddleware(),
         RuntimeFilesystemMiddleware(backend=backend),
+        ArtifactsMiddleware(),
         create_summarization_middleware(model, backend),
         AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
         PatchToolCallsMiddleware(),
@@ -76,6 +108,7 @@ def create_runtime_deep_agent(
         subagent_middleware: list[AgentMiddleware[Any, Any, Any]] = [
             TodoListMiddleware(),
             RuntimeFilesystemMiddleware(backend=backend),
+            ArtifactsMiddleware(),
             create_summarization_middleware(model, backend),
             AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
             PatchToolCallsMiddleware(),
@@ -98,6 +131,7 @@ def create_runtime_deep_agent(
     deepagent_middleware: list[AgentMiddleware[Any, Any, Any]] = [
         TodoListMiddleware(),
         RuntimeFilesystemMiddleware(backend=backend),
+        ArtifactsMiddleware(),
         SubAgentMiddleware(
             backend=backend,
             subagents=all_subagents,

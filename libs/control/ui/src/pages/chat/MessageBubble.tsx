@@ -2,7 +2,7 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Check, CloseOne, RobotOne, User } from '@icon-park/react';
 import { Button } from '@arco-design/web-react';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { ConversationTimelineItemVM } from '@/features/chat/runtimeEventParser';
 
 function formatCompactDateTime(value?: string): string {
@@ -116,30 +116,46 @@ export function HitlRequestBubble(props: {
   return (
     <div className='flex justify-center'>
       <div
-        className='max-w-[85%] rd-12px px-14px py-9px text-center'
+        className='max-w-[85%] min-w-280px rd-12px px-14px py-9px'
         style={{
           background: 'rgba(255,159,26,0.06)',
           border: '1px solid rgba(255,159,26,0.22)',
           boxShadow: '0 0 10px rgba(255,159,26,0.06)',
         }}
       >
-        <span className='text-11px font-semibold uppercase tracking-widest text-[var(--control-warning)]'>
-          approval required
-        </span>
-        <div className='mt-3px text-14px text-[var(--control-text)]'>{item.title}</div>
+        <div className='text-center'>
+          <span className='text-11px font-semibold uppercase tracking-widest text-[var(--control-warning)]'>
+            approval required
+          </span>
+        </div>
         {item.actionRequests.length > 0 ? (
-          <div className='mt-6px flex flex-wrap justify-center gap-4px'>
+          <div className='mt-6px flex flex-col gap-6px'>
             {item.actionRequests.map((req, i) => (
-              <span
+              <div
                 key={i}
-                className='rd-4px px-6px py-1px text-12px text-[var(--control-subtle)]'
-                style={{ background: 'rgba(255,159,26,0.08)', border: '1px solid rgba(255,159,26,0.15)' }}
+                className='rd-8px px-10px py-8px'
+                style={{ background: 'rgba(255,159,26,0.04)', border: '1px solid rgba(255,159,26,0.10)' }}
               >
-                {req.name}
-              </span>
+                <span
+                  className='rd-4px px-6px py-1px text-11px font-semibold font-mono'
+                  style={{ color: 'var(--control-warning)', background: 'rgba(255,159,26,0.10)', border: '1px solid rgba(255,159,26,0.18)' }}
+                >
+                  {req.name}
+                </span>
+                {req.description ? (
+                  <div className='mt-4px whitespace-pre-wrap text-12px leading-18px text-[var(--control-text)]'>
+                    {req.description}
+                  </div>
+                ) : null}
+                {req.arguments && typeof req.arguments === 'object' ? (
+                  <HitlArguments args={req.arguments as Record<string, unknown>} />
+                ) : null}
+              </div>
             ))}
           </div>
-        ) : null}
+        ) : (
+          <div className='mt-3px text-center text-14px text-[var(--control-text)]'>{item.title}</div>
+        )}
         {!resolved && (onApprove || onReject) ? (
           <div className='mt-8px flex justify-center gap-8px'>
             {onReject ? (
@@ -164,12 +180,103 @@ export function HitlRequestBubble(props: {
             ) : null}
           </div>
         ) : resolved ? (
-          <div className='mt-6px text-12px text-[var(--control-subtle)]'>resolved</div>
+          <div className='mt-6px text-center text-12px text-[var(--control-subtle)]'>resolved</div>
         ) : null}
-        <div className='mt-3px'>
+        <div className='mt-3px text-center'>
           <Timestamp value={item.createdAt} />
         </div>
       </div>
     </div>
   );
+}
+
+/** Max characters for an argument value to be shown inline (not collapsed). */
+const ARG_INLINE_LIMIT = 80;
+/** Lines shown in collapsed preview for long values. */
+const ARG_PREVIEW_LINES = 4;
+
+function HitlArguments(props: { args: Record<string, unknown> }) {
+  const { args } = props;
+  const entries = Object.entries(args);
+  if (entries.length === 0) return null;
+
+  const inlineEntries: [string, string][] = [];
+  const longEntries: [string, string][] = [];
+
+  for (const [key, value] of entries) {
+    const display = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+    if (display.length <= ARG_INLINE_LIMIT && !display.includes('\n')) {
+      inlineEntries.push([key, display]);
+    } else {
+      longEntries.push([key, display]);
+    }
+  }
+
+  return (
+    <div
+      className='mt-4px rd-6px px-8px py-6px font-mono text-11px leading-16px'
+      style={{ background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.06)' }}
+    >
+      {inlineEntries.map(([key, value]) => (
+        <div key={key} className='mb-2px'>
+          <span style={{ color: 'var(--control-warning)', opacity: 0.8 }}>{key}</span>
+          <span style={{ color: 'var(--control-subtle)' }}>{': '}</span>
+          <span style={{ color: 'var(--control-text)', opacity: 0.85 }}>{value}</span>
+        </div>
+      ))}
+      {longEntries.map(([key, value]) => (
+        <CollapsibleArgValue key={key} name={key} value={value} />
+      ))}
+    </div>
+  );
+}
+
+function CollapsibleArgValue(props: { name: string; value: string }) {
+  const { name, value } = props;
+  const [expanded, setExpanded] = useState(false);
+
+  const lines = value.split('\n');
+  const totalLines = lines.length;
+  const totalChars = value.length;
+  const needsCollapse = totalLines > ARG_PREVIEW_LINES || totalChars > ARG_INLINE_LIMIT * 3;
+
+  const preview = needsCollapse && !expanded
+    ? lines.slice(0, ARG_PREVIEW_LINES).join('\n')
+    : value;
+
+  return (
+    <div className='mb-2px'>
+      <div className='flex items-center gap-4px'>
+        <span style={{ color: 'var(--control-warning)', opacity: 0.8 }}>{name}</span>
+        {needsCollapse ? (
+          <span
+            className='cursor-pointer select-none rd-3px px-4px text-10px'
+            style={{ color: 'var(--control-primary)', background: 'rgba(0,240,255,0.08)' }}
+            onClick={() => setExpanded((prev) => !prev)}
+          >
+            {expanded ? 'collapse' : `${totalLines} lines · ${formatArgSize(totalChars)}`}
+          </span>
+        ) : null}
+      </div>
+      <div
+        className='mt-1px whitespace-pre-wrap break-all'
+        style={{
+          color: 'var(--control-text)',
+          opacity: 0.85,
+          maxHeight: expanded ? 'none' : '80px',
+          overflow: 'hidden',
+        }}
+      >
+        {preview}
+        {needsCollapse && !expanded ? (
+          <span style={{ color: 'var(--control-subtle)' }}>{' …'}</span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function formatArgSize(chars: number): string {
+  if (chars < 1024) return `${chars} chars`;
+  return `${(chars / 1024).toFixed(1)}K chars`;
 }

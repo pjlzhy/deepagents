@@ -365,3 +365,52 @@ export type SubmitHitlDecisionsRequestDTO = {
   interrupt_id: string;
   decisions: HitlDecisionDTO[];
 };
+
+// ---------------------------------------------------------------------------
+// Workspace file operations
+// ---------------------------------------------------------------------------
+
+export type WorkspaceDownloadFileResultDTO = {
+  path?: string;
+  content_base64?: string;
+  error?: string;
+};
+
+export type WorkspaceDownloadResponseDTO = {
+  thread_id?: string;
+  files: WorkspaceDownloadFileResultDTO[];
+};
+
+export type WorkspaceFileInfoDTO = {
+  path?: string;
+  is_dir?: boolean;
+  size?: number;
+  modified_at?: string;
+};
+
+export type WorkspaceListResponseDTO = {
+  thread_id?: string;
+  files: WorkspaceFileInfoDTO[];
+};
+
+// ---------------------------------------------------------------------------
+// Thread artifacts
+// ---------------------------------------------------------------------------
+
+export type ThreadArtifactDTO = {
+  id?: string;
+  type?: string;
+  path?: string;
+  title?: string;
+  content_type?: string;
+  language?: string;
+  created_by_tool?: string;
+  created_at?: string;
+  modified_at?: string;
+  size?: number;
+};
+
+export type ListArtifactsResponseDTO = {
+  thread_id?: string;
+  artifacts: ThreadArtifactDTO[];
+};

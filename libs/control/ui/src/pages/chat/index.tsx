@@ -1,5 +1,5 @@
-import { RobotOne } from '@icon-park/react';
-import { Message, Spin, Typography } from '@arco-design/web-react';
+import { RobotOne, FolderOpen } from '@icon-park/react';
+import { Button, Message, Spin, Typography } from '@arco-design/web-react';
 import useSWR from 'swr';
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -23,6 +23,7 @@ import ThreadSidebar from './ThreadSidebar';
 import { UserBubble, AssistantBubble, HitlRequestBubble } from './MessageBubble';
 import ToolCallCard from './ToolCallCard';
 import ChatComposer from './ChatComposer';
+import ArtifactsPanel from './ArtifactsPanel';
 
 const CYAN = '#00f0ff';
 
@@ -90,6 +91,7 @@ export default function ChatWorkspacePage() {
   const [uploadedWorkspaceFiles, setUploadedWorkspaceFiles] = useState<string[]>([]);
   const [runtimeState, setRuntimeState] = useState(() => createRuntimeStateFromHistory([]));
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [artifactsPanelOpen, setArtifactsPanelOpen] = useState(false);
 
   const agentsQuery = useSWR('chat-agents', () => controlClient.agents.list({ pageSize: 100, pageNumber: 1 }));
   const sessionsQuery = useSWR(
@@ -99,6 +101,10 @@ export default function ChatWorkspacePage() {
   const messagesQuery = useSWR(
     selectedAgentName && selectedThreadId ? ['chat-messages', selectedAgentName, selectedThreadId] : null,
     () => controlClient.sessions.getMessages(selectedAgentName!, selectedThreadId!, { pageSize: 200 }),
+  );
+  const artifactsQuery = useSWR(
+    selectedAgentName && selectedThreadId ? ['thread-artifacts', selectedAgentName, selectedThreadId] : null,
+    () => controlClient.sessions.listArtifacts(selectedThreadId!, selectedAgentName!),
   );
 
   useEffect(() => {
@@ -174,6 +180,7 @@ export default function ChatWorkspacePage() {
           onClose: () => {
             setRunSessionId(undefined);
             void sessionsQuery.mutate();
+            void artifactsQuery.mutate();
           },
         },
       );
@@ -227,6 +234,7 @@ export default function ChatWorkspacePage() {
       }
       void sessionsQuery.mutate();
       void messagesQuery.mutate();
+      void artifactsQuery.mutate();
       if (successful.length > 0 && failed.length === 0) {
         Message.success(`uploaded ${successful.length} file${successful.length === 1 ? '' : 's'}`);
       } else if (successful.length > 0) {
@@ -279,6 +287,7 @@ export default function ChatWorkspacePage() {
     setComposerValue('');
     setUploadingFiles(false);
     setUploadedWorkspaceFiles([]);
+    setArtifactsPanelOpen(false);
     setRuntimeState(createRuntimeStateFromHistory([]));
   }
 
@@ -300,8 +309,9 @@ export default function ChatWorkspacePage() {
         onToggleCollapse={() => setSidebarCollapsed((prev) => !prev)}
       />
 
-      {/* Main chat area */}
-      <div className='flex min-w-0 flex-1 flex-col bg-[var(--control-panel)]'>
+      {/* Main chat area + artifacts panel */}
+      <div className='flex min-w-0 flex-1 min-h-0'>
+        <div className='flex min-w-0 flex-1 flex-col bg-[var(--control-panel)]'>
         {/* Top bar */}
         <div
           className='flex shrink-0 items-center justify-between px-20px py-10px'
@@ -336,6 +346,17 @@ export default function ChatWorkspacePage() {
               <Typography.Text className='text-12px text-[var(--control-subtle)]'>
                 {selectedThreadId}
               </Typography.Text>
+            ) : null}
+          </div>
+          <div className='flex items-center gap-6px'>
+            {selectedThreadId && (artifactsQuery.data?.artifacts?.length ?? 0) > 0 ? (
+              <Button
+                type='text'
+                size='mini'
+                className='control-quiet-icon-button'
+                icon={<FolderOpen theme='outline' size='16' fill={artifactsPanelOpen ? CYAN : 'var(--control-subtle)'} />}
+                onClick={() => setArtifactsPanelOpen((prev) => !prev)}
+              />
             ) : null}
           </div>
         </div>
@@ -397,6 +418,18 @@ export default function ChatWorkspacePage() {
           onUploadClick={openWorkspaceUploadPicker}
           onFilesSelected={(e) => { void handleWorkspaceFilesSelected(e); }}
         />
+      </div>
+
+        {/* Artifacts panel */}
+        {artifactsPanelOpen && selectedAgentName && selectedThreadId ? (
+          <ArtifactsPanel
+            agentName={selectedAgentName}
+            threadId={selectedThreadId}
+            artifacts={artifactsQuery.data?.artifacts ?? []}
+            loading={artifactsQuery.isLoading}
+            onClose={() => setArtifactsPanelOpen(false)}
+          />
+        ) : null}
       </div>
     </div>
   );

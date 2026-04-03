@@ -13,6 +13,8 @@ type AgentService interface {
 	EnsureRunnable(ctx context.Context, agentName string) error
 	RunAgent(ctx context.Context, req domain.RunRequest) (runtimeclient.RunStream, error)
 	UploadWorkspaceFiles(ctx context.Context, req domain.WorkspaceUploadRequest) (domain.WorkspaceUploadResponse, error)
+	DownloadWorkspaceFiles(ctx context.Context, req domain.WorkspaceDownloadRequest) (domain.WorkspaceDownloadResponse, error)
+	ListWorkspaceFiles(ctx context.Context, req domain.WorkspaceListRequest) (domain.WorkspaceListResponse, error)
 	Health(ctx context.Context) (runtimeclient.HealthResponse, error)
 	ListSessions(ctx context.Context, agentName string, pageSize int32, pageToken string) ([]domain.SessionSummary, string, error)
 	GetSession(ctx context.Context, locator domain.SessionLocator) (domain.SessionSummary, error)
@@ -20,6 +22,7 @@ type AgentService interface {
 	GetSessionMessages(ctx context.Context, query domain.SessionMessageQuery) ([]domain.SessionMessage, string, error)
 	GetLatestSession(ctx context.Context, agentName string) (domain.SessionSummary, error)
 	DeleteSession(ctx context.Context, locator domain.SessionLocator) error
+	ListThreadArtifacts(ctx context.Context, req domain.ListArtifactsRequest) (domain.ListArtifactsResponse, error)
 	UpsertModelConfig(ctx context.Context, config domain.ModelConfig) (domain.ModelConfig, error)
 	GetModelConfig(ctx context.Context, name string) (domain.ModelConfig, error)
 	ListModelConfigs(ctx context.Context) ([]domain.ModelConfig, error)
@@ -81,6 +84,22 @@ func (s *Server) UploadWorkspaceFiles(
 	return s.service.UploadWorkspaceFiles(ctx, req)
 }
 
+// DownloadWorkspaceFiles forwards one workspace download request to the backing service.
+func (s *Server) DownloadWorkspaceFiles(
+	ctx context.Context,
+	req domain.WorkspaceDownloadRequest,
+) (domain.WorkspaceDownloadResponse, error) {
+	return s.service.DownloadWorkspaceFiles(ctx, req)
+}
+
+// ListWorkspaceFiles forwards one workspace list request to the backing service.
+func (s *Server) ListWorkspaceFiles(
+	ctx context.Context,
+	req domain.WorkspaceListRequest,
+) (domain.WorkspaceListResponse, error) {
+	return s.service.ListWorkspaceFiles(ctx, req)
+}
+
 // Health forwards the runtime health query to the backing service.
 func (s *Server) Health(ctx context.Context) (runtimeclient.HealthResponse, error) {
 	return s.service.Health(ctx)
@@ -125,6 +144,14 @@ func (s *Server) GetLatestSession(ctx context.Context, agentName string) (domain
 // DeleteSession forwards one runtime-local agent-scoped session delete request.
 func (s *Server) DeleteSession(ctx context.Context, locator domain.SessionLocator) error {
 	return s.service.DeleteSession(ctx, locator)
+}
+
+// ListThreadArtifacts forwards one thread artifacts query to the backing service.
+func (s *Server) ListThreadArtifacts(
+	ctx context.Context,
+	req domain.ListArtifactsRequest,
+) (domain.ListArtifactsResponse, error) {
+	return s.service.ListThreadArtifacts(ctx, req)
 }
 
 // UpsertModelConfig forwards one model config upsert request.
