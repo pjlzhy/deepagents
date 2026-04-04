@@ -12,6 +12,8 @@ import (
 type AgentService interface {
 	EnsureRunnable(ctx context.Context, agentName string) error
 	RunAgent(ctx context.Context, req domain.RunRequest) (runtimeclient.RunStream, error)
+	RunAgentTelemetry(ctx context.Context, req domain.RunRequest) (runtimeclient.TelemetryStream, error)
+	GetAgentGraph(ctx context.Context, agentName string, xrayDepth int32) ([]byte, error)
 	UploadWorkspaceFiles(ctx context.Context, req domain.WorkspaceUploadRequest) (domain.WorkspaceUploadResponse, error)
 	DownloadWorkspaceFiles(ctx context.Context, req domain.WorkspaceDownloadRequest) (domain.WorkspaceDownloadResponse, error)
 	ListWorkspaceFiles(ctx context.Context, req domain.WorkspaceListRequest) (domain.WorkspaceListResponse, error)
@@ -74,6 +76,23 @@ func (s *Server) RunAgent(
 	req domain.RunRequest,
 ) (runtimeclient.RunStream, error) {
 	return s.service.RunAgent(ctx, req)
+}
+
+// RunAgentTelemetry forwards one telemetry run request to the backing service.
+func (s *Server) RunAgentTelemetry(
+	ctx context.Context,
+	req domain.RunRequest,
+) (runtimeclient.TelemetryStream, error) {
+	return s.service.RunAgentTelemetry(ctx, req)
+}
+
+// GetAgentGraph forwards one graph query request to the backing service.
+func (s *Server) GetAgentGraph(
+	ctx context.Context,
+	agentName string,
+	xrayDepth int32,
+) ([]byte, error) {
+	return s.service.GetAgentGraph(ctx, agentName, xrayDepth)
 }
 
 // UploadWorkspaceFiles forwards one workspace upload request to the backing service.

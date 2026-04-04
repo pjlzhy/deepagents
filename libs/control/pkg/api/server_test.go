@@ -13,12 +13,19 @@ type fakeAgentService struct {
 	ensureRunnableErr error
 	ensureAgent       string
 
-	runStream  runtimeclient.RunStream
-	runErr     error
-	runRequest domain.RunRequest
-	uploadResp domain.WorkspaceUploadResponse
-	uploadErr  error
-	uploadReq  domain.WorkspaceUploadRequest
+	runStream        runtimeclient.RunStream
+	runErr           error
+	runRequest       domain.RunRequest
+	telemetryStream  runtimeclient.TelemetryStream
+	telemetryErr     error
+	telemetryRequest domain.RunRequest
+	graphResp        []byte
+	graphErr         error
+	graphAgentName   string
+	graphXrayDepth   int32
+	uploadResp       domain.WorkspaceUploadResponse
+	uploadErr        error
+	uploadReq        domain.WorkspaceUploadRequest
 
 	downloadResp domain.WorkspaceDownloadResponse
 	downloadErr  error
@@ -136,6 +143,17 @@ func (f *fakeAgentService) EnsureRunnable(_ context.Context, agentName string) e
 func (f *fakeAgentService) RunAgent(_ context.Context, req domain.RunRequest) (runtimeclient.RunStream, error) {
 	f.runRequest = req
 	return f.runStream, f.runErr
+}
+
+func (f *fakeAgentService) RunAgentTelemetry(_ context.Context, req domain.RunRequest) (runtimeclient.TelemetryStream, error) {
+	f.telemetryRequest = req
+	return f.telemetryStream, f.telemetryErr
+}
+
+func (f *fakeAgentService) GetAgentGraph(_ context.Context, agentName string, xrayDepth int32) ([]byte, error) {
+	f.graphAgentName = agentName
+	f.graphXrayDepth = xrayDepth
+	return f.graphResp, f.graphErr
 }
 
 func (f *fakeAgentService) UploadWorkspaceFiles(
@@ -376,6 +394,15 @@ func (stubRunStream) SendHITLDecision(context.Context, string, []runtimeclient.T
 func (stubRunStream) SendCancel(context.Context, string) error { return nil }
 func (stubRunStream) Close() error                             { return nil }
 
+type stubTelemetryStream struct{}
+
+func (stubTelemetryStream) Events() <-chan runtimeclient.TelemetryEvent { return nil }
+func (stubTelemetryStream) SendHITLDecision(context.Context, string, []runtimeclient.ToolDecision) error {
+	return nil
+}
+func (stubTelemetryStream) SendCancel(context.Context, string) error { return nil }
+func (stubTelemetryStream) Close() error                             { return nil }
+
 func TestNewServerRejectsNilService(t *testing.T) {
 	if _, err := NewServer(nil); err == nil {
 		t.Fatal("expected nil service rejection")
@@ -417,6 +444,33 @@ func TestServerDelegatesLifecycleAndHealth(t *testing.T) {
 	}
 	if service.runRequest.AgentName != "assistant" {
 		t.Fatalf("unexpected run inputs: %#v", service)
+	}
+
+	service.telemetryStream = stubTelemetryStream{}
+	telemetryStream, err := server.RunAgentTelemetry(context.Background(), domain.RunRequest{
+		AgentName: "assistant",
+		Message:   "hello telemetry",
+	})
+	if err != nil {
+		t.Fatalf("RunAgentTelemetry: %v", err)
+	}
+	if telemetryStream == nil {
+		t.Fatal("expected telemetry stream")
+	}
+	if service.telemetryRequest.AgentName != "assistant" {
+		t.Fatalf("unexpected telemetry inputs: %#v", service)
+	}
+
+	service.graphResp = []byte(`{"nodes":[{"id":"model"}],"edges":[]}`)
+	graph, err := server.GetAgentGraph(context.Background(), "assistant", 2)
+	if err != nil {
+		t.Fatalf("GetAgentGraph: %v", err)
+	}
+	if string(graph) != `{"nodes":[{"id":"model"}],"edges":[]}` {
+		t.Fatalf("unexpected graph payload: %s", string(graph))
+	}
+	if service.graphAgentName != "assistant" || service.graphXrayDepth != 2 {
+		t.Fatalf("unexpected graph inputs: %#v", service)
 	}
 
 	uploadResp, err := server.UploadWorkspaceFiles(

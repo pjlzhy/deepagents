@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"reflect"
 	"testing"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 type testRuntimeServer struct {
 	runtimev1.UnimplementedResourceSyncServer
 	runtimev1.UnimplementedAgentExecutorServer
+	runtimev1.UnimplementedAgentTelemetryServer
 	runtimev1.UnimplementedSessionQueryServer
 
 	syncAgentSpecResponse *runtimev1.SyncResponse
@@ -30,6 +32,8 @@ type testRuntimeServer struct {
 
 	assembleResponse *runtimev1.AssembleResponse
 	assembleRequest  *runtimev1.AssembleRequest
+	graphResponse    *runtimev1.GetAgentGraphResponse
+	graphRequest     *runtimev1.GetAgentGraphRequest
 
 	uploadResponse *runtimev1.UploadWorkspaceFilesResponse
 	uploadRequest  *runtimev1.UploadWorkspaceFilesRequest
@@ -48,9 +52,12 @@ type testRuntimeServer struct {
 	deleteSessionResponse *runtimev1.DeleteSessionResponse
 	deleteSessionRequest  *runtimev1.DeleteSessionRequest
 
-	receivedRunRequest   *runtimev1.RunRequest
-	receivedHITLDecision *runtimev1.HITLDecision
-	receivedCancel       *runtimev1.CancelRequest
+	receivedRunRequest      *runtimev1.RunRequest
+	receivedTelemetryRun    *runtimev1.RunRequest
+	receivedHITLDecision    *runtimev1.HITLDecision
+	receivedCancel          *runtimev1.CancelRequest
+	receivedTelemetryHITL   *runtimev1.HITLDecision
+	receivedTelemetryCancel *runtimev1.CancelRequest
 }
 
 func (s *testRuntimeServer) SyncAgentSpec(
@@ -69,6 +76,17 @@ func (s *testRuntimeServer) Assemble(
 		return &runtimev1.AssembleResponse{Ok: true, Status: "compiled"}, nil
 	}
 	return s.assembleResponse, nil
+}
+
+func (s *testRuntimeServer) GetAgentGraph(
+	_ context.Context,
+	request *runtimev1.GetAgentGraphRequest,
+) (*runtimev1.GetAgentGraphResponse, error) {
+	s.graphRequest = request
+	if s.graphResponse == nil {
+		return &runtimev1.GetAgentGraphResponse{}, nil
+	}
+	return s.graphResponse, nil
 }
 
 func (s *testRuntimeServer) UploadWorkspaceFiles(
@@ -257,9 +275,142 @@ func (s *testRuntimeServer) Run(
 	})
 }
 
+func (s *testRuntimeServer) RunTelemetry(
+	stream runtimev1.AgentTelemetry_RunTelemetryServer,
+) error {
+	first, err := stream.Recv()
+	if err != nil {
+		return err
+	}
+	s.receivedTelemetryRun = first.GetRunRequest()
+
+	if err := stream.Send(&runtimev1.TelemetryEvent{
+		RunId:      "run-telemetry-1",
+		AgentName:  s.receivedTelemetryRun.GetAgentName(),
+		Timestamp:  timestamppb.New(time.Unix(200, 0)),
+		StreamMode: "lifecycle",
+		EventType:  "run_started",
+		PublicEvent: &runtimev1.AgentEvent{
+			RunId:     "run-telemetry-1",
+			AgentName: s.receivedTelemetryRun.GetAgentName(),
+			Timestamp: timestamppb.New(time.Unix(200, 0)),
+			Payload: &runtimev1.AgentEvent_RunStarted{
+				RunStarted: &runtimev1.RunStarted{ThreadId: s.receivedTelemetryRun.GetThreadId()},
+			},
+		},
+	}); err != nil {
+		return err
+	}
+
+	if err := stream.Send(&runtimev1.TelemetryEvent{
+		RunId:      "run-telemetry-1",
+		AgentName:  s.receivedTelemetryRun.GetAgentName(),
+		Timestamp:  timestamppb.New(time.Unix(201, 0)),
+		Ns:         []string{"task:research"},
+		StreamMode: "messages",
+		EventType:  "reasoning",
+		Metadata:   mustStructValue(map[string]any{"langgraph_node": "planner"}),
+		Payload: mustValueValue(map[string]any{
+			"summary": []any{
+				map[string]any{"type": "summary_text", "text": "thinking..."},
+			},
+		}),
+	}); err != nil {
+		return err
+	}
+
+	if err := stream.Send(&runtimev1.TelemetryEvent{
+		RunId:      "run-telemetry-1",
+		AgentName:  s.receivedTelemetryRun.GetAgentName(),
+		Timestamp:  timestamppb.New(time.Unix(202, 0)),
+		Ns:         []string{"task:research"},
+		StreamMode: "debug",
+		EventType:  "task",
+		Metadata:   mustStructValue(map[string]any{"step": 2}),
+		Payload: mustValueValue(map[string]any{
+			"id":       "task-1",
+			"name":     "research",
+			"triggers": []any{"messages"},
+		}),
+	}); err != nil {
+		return err
+	}
+
+	if err := stream.Send(&runtimev1.TelemetryEvent{
+		RunId:      "run-telemetry-1",
+		AgentName:  s.receivedTelemetryRun.GetAgentName(),
+		Timestamp:  timestamppb.New(time.Unix(203, 0)),
+		StreamMode: "lifecycle",
+		EventType:  "hitl_request",
+		PublicEvent: &runtimev1.AgentEvent{
+			RunId:     "run-telemetry-1",
+			AgentName: s.receivedTelemetryRun.GetAgentName(),
+			Timestamp: timestamppb.New(time.Unix(203, 0)),
+			Payload: &runtimev1.AgentEvent_HitlRequest{
+				HitlRequest: &runtimev1.HITLRequest{
+					InterruptId: "interrupt-1",
+					ActionRequests: []*runtimev1.ActionRequest{
+						{
+							Name:        "write_file",
+							Args:        mustStructValue(map[string]any{"path": "/tmp/a.txt"}),
+							Description: "Write /tmp/a.txt",
+						},
+					},
+					ReviewConfigs: []*runtimev1.ReviewConfig{
+						{
+							ActionName:       "write_file",
+							AllowedDecisions: []string{"approve", "reject"},
+						},
+					},
+				},
+			},
+		},
+	}); err != nil {
+		return err
+	}
+
+	next, err := stream.Recv()
+	if err != nil {
+		return err
+	}
+	s.receivedTelemetryHITL = next.GetHitlDecision()
+
+	last, err := stream.Recv()
+	if err != nil {
+		return err
+	}
+	s.receivedTelemetryCancel = last.GetCancel()
+
+	return stream.Send(&runtimev1.TelemetryEvent{
+		RunId:      "run-telemetry-1",
+		AgentName:  s.receivedTelemetryRun.GetAgentName(),
+		Timestamp:  timestamppb.New(time.Unix(204, 0)),
+		StreamMode: "lifecycle",
+		EventType:  "run_canceled",
+		PublicEvent: &runtimev1.AgentEvent{
+			RunId:     "run-telemetry-1",
+			AgentName: s.receivedTelemetryRun.GetAgentName(),
+			Timestamp: timestamppb.New(time.Unix(204, 0)),
+			Payload: &runtimev1.AgentEvent_RunCanceled{
+				RunCanceled: &runtimev1.RunCanceled{Reason: s.receivedTelemetryCancel.GetReason()},
+			},
+		},
+	})
+}
+
 func TestGRPCClientSyncAgentSpecHealthAndRemove(t *testing.T) {
 	server := &testRuntimeServer{
 		syncAgentSpecResponse: &runtimev1.SyncResponse{Ok: true, Message: "synced"},
+		graphResponse: &runtimev1.GetAgentGraphResponse{
+			Graph: mustValueValue(map[string]any{
+				"nodes": []any{
+					map[string]any{"id": "model", "type": "runnable", "data": map[string]any{"name": "model"}},
+				},
+				"edges": []any{
+					map[string]any{"source": "__start__", "target": "model"},
+				},
+			}),
+		},
 		uploadResponse: &runtimev1.UploadWorkspaceFilesResponse{
 			ThreadId: "thread-upload",
 			Files: []*runtimev1.UploadWorkspaceFileResult{
@@ -420,6 +571,23 @@ func TestGRPCClientSyncAgentSpecHealthAndRemove(t *testing.T) {
 	}
 	if server.assembleRequest.GetAgentName() != "assistant" {
 		t.Fatalf("unexpected assemble request: %#v", server.assembleRequest)
+	}
+
+	graph, err := client.GetAgentGraph(context.Background(), "assistant", 1)
+	if err != nil {
+		t.Fatalf("GetAgentGraph returned error: %v", err)
+	}
+	if !payloadContains(t, graph, "nodes", []any{
+		map[string]any{
+			"id":   "model",
+			"type": "runnable",
+			"data": map[string]any{"name": "model"},
+		},
+	}) {
+		t.Fatalf("unexpected graph payload: %s", string(graph))
+	}
+	if server.graphRequest == nil || server.graphRequest.GetAgentName() != "assistant" || server.graphRequest.GetXrayDepth() != 1 {
+		t.Fatalf("unexpected graph request: %#v", server.graphRequest)
 	}
 
 	removeResponse, err := client.RemoveAgent(context.Background(), "assistant")
@@ -682,6 +850,85 @@ func TestGRPCClientRunStream(t *testing.T) {
 	}
 }
 
+func TestGRPCClientRunTelemetryStream(t *testing.T) {
+	server := &testRuntimeServer{}
+	client, cleanup := newTestClient(t, server)
+	defer cleanup()
+
+	stream, err := client.OpenRunTelemetry(context.Background(), domain.RunRequest{
+		AgentName: "assistant",
+		Message:   "hello telemetry",
+		ThreadID:  "thread-telemetry-1",
+		Metadata:  map[string]string{"timeout_seconds": "30"},
+	})
+	if err != nil {
+		t.Fatalf("OpenRunTelemetry returned error: %v", err)
+	}
+	defer stream.Close()
+
+	first := <-stream.Events()
+	if first.StreamMode != "lifecycle" || first.EventType != "run_started" {
+		t.Fatalf("unexpected first telemetry event: %#v", first)
+	}
+	if first.PublicEvent == nil || first.PublicEvent.ThreadID != "thread-telemetry-1" {
+		t.Fatalf("unexpected first telemetry public event: %#v", first.PublicEvent)
+	}
+
+	second := <-stream.Events()
+	if second.StreamMode != "messages" || second.EventType != "reasoning" {
+		t.Fatalf("unexpected second telemetry event: %#v", second)
+	}
+	if len(second.Namespace) != 1 || second.Namespace[0] != "task:research" {
+		t.Fatalf("unexpected second telemetry namespace: %#v", second.Namespace)
+	}
+	if !payloadContains(t, second.Metadata, "langgraph_node", "planner") {
+		t.Fatalf("unexpected second telemetry metadata: %s", string(second.Metadata))
+	}
+	if !payloadContains(t, second.Payload, "summary", []any{map[string]any{"type": "summary_text", "text": "thinking..."}}) {
+		t.Fatalf("unexpected second telemetry payload: %s", string(second.Payload))
+	}
+
+	third := <-stream.Events()
+	if third.StreamMode != "debug" || third.EventType != "task" {
+		t.Fatalf("unexpected third telemetry event: %#v", third)
+	}
+	if !payloadContains(t, third.Metadata, "step", float64(2)) {
+		t.Fatalf("unexpected third telemetry metadata: %s", string(third.Metadata))
+	}
+
+	fourth := <-stream.Events()
+	if fourth.EventType != "hitl_request" || fourth.PublicEvent == nil || fourth.PublicEvent.InterruptID != "interrupt-1" {
+		t.Fatalf("unexpected fourth telemetry event: %#v", fourth)
+	}
+	if len(fourth.PublicEvent.Actions) != 1 || fourth.PublicEvent.Actions[0].Name != "write_file" {
+		t.Fatalf("unexpected telemetry HITL action mapping: %#v", fourth.PublicEvent)
+	}
+
+	if err := stream.SendHITLDecision(context.Background(), "interrupt-1", []ToolDecision{
+		{Type: "approve"},
+	}); err != nil {
+		t.Fatalf("telemetry SendHITLDecision returned error: %v", err)
+	}
+	if err := stream.SendCancel(context.Background(), "stop telemetry"); err != nil {
+		t.Fatalf("telemetry SendCancel returned error: %v", err)
+	}
+
+	fifth := <-stream.Events()
+	if fifth.EventType != "run_canceled" || fifth.PublicEvent == nil || fifth.PublicEvent.Reason != "stop telemetry" {
+		t.Fatalf("unexpected fifth telemetry event: %#v", fifth)
+	}
+
+	if server.receivedTelemetryRun == nil || server.receivedTelemetryRun.GetAgentName() != "assistant" {
+		t.Fatalf("unexpected telemetry run request: %#v", server.receivedTelemetryRun)
+	}
+	if server.receivedTelemetryHITL == nil || server.receivedTelemetryHITL.GetInterruptId() != "interrupt-1" {
+		t.Fatalf("unexpected telemetry hitl decision: %#v", server.receivedTelemetryHITL)
+	}
+	if server.receivedTelemetryCancel == nil || server.receivedTelemetryCancel.GetReason() != "stop telemetry" {
+		t.Fatalf("unexpected telemetry cancel request: %#v", server.receivedTelemetryCancel)
+	}
+}
+
 func TestGRPCClientMapsNotFound(t *testing.T) {
 	client, cleanup := newTestClient(t, &testRuntimeServer{})
 	defer cleanup()
@@ -718,6 +965,7 @@ func newTestClient(t *testing.T, server *testRuntimeServer) (*GRPCClient, func()
 	grpcServer := grpc.NewServer()
 	runtimev1.RegisterResourceSyncServer(grpcServer, &resourceSyncCaptureServer{server})
 	runtimev1.RegisterAgentExecutorServer(grpcServer, server)
+	runtimev1.RegisterAgentTelemetryServer(grpcServer, server)
 	runtimev1.RegisterSessionQueryServer(grpcServer, server)
 
 	go func() {
@@ -801,5 +1049,5 @@ func payloadContains(t *testing.T, payload json.RawMessage, key string, expected
 	if !ok {
 		return false
 	}
-	return value == expected
+	return reflect.DeepEqual(value, expected)
 }

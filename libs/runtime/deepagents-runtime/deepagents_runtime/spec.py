@@ -268,7 +268,7 @@ class ModelConfigSpec(TypedDict, total=False):
     base_url: str
     api_key: str
     api_key_env: str
-    extra_params: dict[str, str]
+    extra_params: dict[str, Any]
 
 
 @dataclass

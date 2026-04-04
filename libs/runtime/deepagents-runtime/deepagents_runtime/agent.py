@@ -1,7 +1,9 @@
 import asyncio
+import json
 import logging
 import os
 import posixpath
+import re
 import time
 import uuid
 
@@ -64,6 +66,12 @@ from deepagents_runtime.spec import (
     validate_agent_spec,
 )
 from deepagents_runtime.streams import StreamParserState, parse_stream_part
+from deepagents_runtime.telemetry import (
+    TelemetryEvent,
+    TelemetryParserState,
+    parse_telemetry_stream_part,
+    telemetry_from_runtime_event,
+)
 
 REQUIRE_COMPACT_TOOL_APPROVAL: bool = True
 """When ``True``, ``compact_conversation`` requires HITL approval."""
@@ -73,6 +81,41 @@ _MAX_HITL_ITERATIONS = 50
 logger = logging.getLogger(__name__)
 
 HITLHandler = Callable[[dict[str, Any]], Awaitable[list[dict[str, Any]]]]
+
+_JSON_NUMBER_RE = re.compile(r"^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$")
+
+
+def _parse_model_extra_param(value: Any) -> Any:
+    """Coerce serialized model extra params into runtime-native values.
+
+    `extra_params` may arrive from YAML as native booleans/lists, or from the
+    protobuf/control plane path as strings only. Parse the common JSON-shaped
+    values that `init_chat_model` expects so callers can configure params like
+    `use_responses_api=True`, `store=False`, and
+    `include=["reasoning.encrypted_content"]`.
+    """
+    if not isinstance(value, str):
+        return value
+
+    raw = value.strip()
+    if not raw:
+        return value
+
+    lowered = raw.lower()
+    if lowered in {"true", "false", "null"}:
+        return json.loads(lowered)
+
+    if (
+        _JSON_NUMBER_RE.fullmatch(raw)
+        or (raw.startswith("[") and raw.endswith("]"))
+        or (raw.startswith("{") and raw.endswith("}"))
+    ):
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return value
+
+    return value
 
 
 @dataclass(frozen=True)
@@ -757,7 +800,10 @@ class RuntimeAgent:
                 if env_val:
                     extra_kwargs["api_key"] = env_val
             if self.spec.model_config.get("extra_params"):
-                extra_kwargs.update(self.spec.model_config["extra_params"])
+                extra_kwargs.update({
+                    key: _parse_model_extra_param(value)
+                    for key, value in self.spec.model_config["extra_params"].items()
+                })
         return extra_kwargs
 
     @asynccontextmanager
@@ -982,6 +1028,46 @@ class RuntimeAgent:
             ):
                 yield event
 
+    async def atelemetry(
+            self,
+            *,
+            context: Any = None,
+            message: str,
+            config: RunnableConfig,
+            hitl_handler: HITLHandler | None = None,
+    ) -> AsyncIterator[TelemetryEvent]:
+        """Stream one invocation as telemetry events."""
+
+        async with self._runtime_phase(
+                blocked_states=("running", "releasing", "assembling"),
+                enter_state="running",
+                success_state="assembled",
+        ):
+            async for event in self._atelemetry_impl(
+                    context=context,
+                    message=message,
+                    config=config,
+                    hitl_handler=hitl_handler,
+            ):
+                yield event
+
+    def _resolve_run_identifiers(
+            self,
+            config: RunnableConfig,
+    ) -> tuple[str, str]:
+        """Resolve the run and thread identifiers for one invocation."""
+
+        run_id = uuid.uuid4().hex[:12]
+        thread_id = ""
+        configurable = config.get("configurable", {})
+        if isinstance(configurable, dict):
+            thread_id = str(configurable.get("thread_id", ""))
+            if configurable.get("run_id"):
+                run_id = str(configurable["run_id"])
+        if thread_id:
+            self._materialize_thread_filesystem(thread_id)
+        return run_id, thread_id
+
     async def _astream_impl(self,
                             *,
                             context: Any = None,
@@ -994,15 +1080,7 @@ class RuntimeAgent:
             msg = f"Agent '{self.spec.name}' has not been assembled"
             raise RuntimeError(msg)
 
-        run_id = uuid.uuid4().hex[:12]
-        thread_id = ""
-        configurable = config.get("configurable", {})
-        if isinstance(configurable, dict):
-            thread_id = str(configurable.get("thread_id", ""))
-            if configurable.get("run_id"):
-                run_id = str(configurable["run_id"])
-        if thread_id:
-            self._materialize_thread_filesystem(thread_id)
+        run_id, thread_id = self._resolve_run_identifiers(config)
 
         yield events.run_start(
             run_id=run_id,
@@ -1107,6 +1185,149 @@ class RuntimeAgent:
             },
         )
         return
+
+    async def _atelemetry_impl(
+            self,
+            *,
+            context: Any = None,
+            message: str,
+            config: RunnableConfig,
+            hitl_handler: HITLHandler | None = None,
+    ) -> AsyncIterator[TelemetryEvent]:
+        """Stream one invocation as telemetry events."""
+
+        if self._graph is None:
+            msg = f"Agent '{self.spec.name}' has not been assembled"
+            raise RuntimeError(msg)
+
+        run_id, thread_id = self._resolve_run_identifiers(config)
+
+        yield telemetry_from_runtime_event(
+            events.run_start(
+                run_id=run_id,
+                agent_name=self.spec.name,
+                thread_id=thread_id,
+            )
+        )
+
+        parser_state = TelemetryParserState(
+            run_id=run_id,
+            agent_name=self.spec.name,
+        )
+        wall_start = time.monotonic()
+        iteration = 0
+        stream_input: dict[str, Any] | Any = {
+            "messages": [{"role": "user", "content": message}],
+        }
+
+        runtime_context = context
+        while True:
+            pending_interrupts: dict[str, dict[str, Any]] = {}
+
+            async for part in self._graph.astream(
+                    stream_input,
+                    config=config,
+                    context=runtime_context,
+                    stream_mode=["messages", "updates", "debug", "custom"],
+                    subgraphs=True,
+                    version="v2",
+            ):
+                parsed = parse_telemetry_stream_part(part, parser_state)
+                pending_interrupts.update(parsed.interrupts)
+                for event in parsed.events:
+                    yield event
+
+            if not pending_interrupts:
+                break
+
+            iteration += 1
+            if iteration > _MAX_HITL_ITERATIONS:
+                msg = (
+                    f"HITL loop exceeded {_MAX_HITL_ITERATIONS} iterations "
+                    f"for agent '{self.spec.name}'"
+                )
+                raise RuntimeError(msg)
+
+            hitl_response: dict[str, Any] = {}
+            for interrupt_id, request in pending_interrupts.items():
+                action_requests = (
+                    request.get("action_requests", [])
+                    if isinstance(request, dict)
+                    else []
+                )
+                yield telemetry_from_runtime_event(
+                    events.hitl_request(
+                        interrupt_id=interrupt_id,
+                        action_requests=[dict(ar) for ar in action_requests],
+                        review_configs=[
+                            dict(config)
+                            for config in request.get("review_configs", [])
+                        ]
+                        if isinstance(request, dict)
+                        else [],
+                        run_id=run_id,
+                        agent_name=self.spec.name,
+                    )
+                )
+
+                if hitl_handler is not None:
+                    decisions = await hitl_handler({
+                        "interrupt_id": interrupt_id,
+                        "action_requests": action_requests,
+                        "review_configs": (
+                            request.get("review_configs", [])
+                            if isinstance(request, dict)
+                            else []
+                        ),
+                    })
+                else:
+                    decisions = [{"type": "approve"} for _ in action_requests]
+
+                hitl_response[interrupt_id] = {"decisions": decisions}
+
+            stream_input = Command(resume=hitl_response)
+
+        wall_time = time.monotonic() - wall_start
+        parser_state.stats.wall_time_seconds = wall_time
+
+        full_text = "".join(parser_state.full_response)
+        if full_text:
+            yield telemetry_from_runtime_event(
+                events.text_done(
+                    full_text,
+                    run_id=run_id,
+                    agent_name=self.spec.name,
+                )
+            )
+
+        yield telemetry_from_runtime_event(
+            events.run_end(
+                run_id=run_id,
+                agent_name=self.spec.name,
+                stats={
+                    "request_count": parser_state.stats.request_count,
+                    "input_tokens": parser_state.stats.input_tokens,
+                    "output_tokens": parser_state.stats.output_tokens,
+                    "wall_time_seconds": round(wall_time, 2),
+                },
+            )
+        )
+        return
+
+    def get_graph_json(self, *, xray_depth: int = 0) -> dict[str, Any]:
+        """Return a JSON-serializable drawable graph representation."""
+
+        if self._graph is None:
+            msg = f"Agent '{self.spec.name}' has not been assembled"
+            raise RuntimeError(msg)
+
+        xray: int | bool
+        if xray_depth <= 0:
+            xray = False
+        else:
+            xray = xray_depth
+
+        return self._graph.get_graph(xray=xray).to_json()
 
     async def release(self):
         async with self._runtime_phase(

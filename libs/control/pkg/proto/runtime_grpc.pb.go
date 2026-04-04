@@ -143,10 +143,123 @@ var AgentExecutor_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
+	AgentTelemetry_RunTelemetry_FullMethodName = "/deepagents.runtime.v1.AgentTelemetry/RunTelemetry"
+)
+
+// AgentTelemetryClient is the client API for AgentTelemetry service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type AgentTelemetryClient interface {
+	// Run an agent and stream structured telemetry events.
+	//
+	// Protocol:
+	//  1. Client sends RunRequest as the first ClientMessage
+	//  2. Server streams TelemetryEvents
+	//  3. If HITL is triggered, server emits interrupt telemetry and pauses
+	//  4. Client sends HITLDecision, server resumes
+	//  5. Client may send CancelRequest at any time
+	RunTelemetry(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ClientMessage, TelemetryEvent], error)
+}
+
+type agentTelemetryClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewAgentTelemetryClient(cc grpc.ClientConnInterface) AgentTelemetryClient {
+	return &agentTelemetryClient{cc}
+}
+
+func (c *agentTelemetryClient) RunTelemetry(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ClientMessage, TelemetryEvent], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &AgentTelemetry_ServiceDesc.Streams[0], AgentTelemetry_RunTelemetry_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[ClientMessage, TelemetryEvent]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AgentTelemetry_RunTelemetryClient = grpc.BidiStreamingClient[ClientMessage, TelemetryEvent]
+
+// AgentTelemetryServer is the server API for AgentTelemetry service.
+// All implementations must embed UnimplementedAgentTelemetryServer
+// for forward compatibility.
+type AgentTelemetryServer interface {
+	// Run an agent and stream structured telemetry events.
+	//
+	// Protocol:
+	//  1. Client sends RunRequest as the first ClientMessage
+	//  2. Server streams TelemetryEvents
+	//  3. If HITL is triggered, server emits interrupt telemetry and pauses
+	//  4. Client sends HITLDecision, server resumes
+	//  5. Client may send CancelRequest at any time
+	RunTelemetry(grpc.BidiStreamingServer[ClientMessage, TelemetryEvent]) error
+	mustEmbedUnimplementedAgentTelemetryServer()
+}
+
+// UnimplementedAgentTelemetryServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedAgentTelemetryServer struct{}
+
+func (UnimplementedAgentTelemetryServer) RunTelemetry(grpc.BidiStreamingServer[ClientMessage, TelemetryEvent]) error {
+	return status.Error(codes.Unimplemented, "method RunTelemetry not implemented")
+}
+func (UnimplementedAgentTelemetryServer) mustEmbedUnimplementedAgentTelemetryServer() {}
+func (UnimplementedAgentTelemetryServer) testEmbeddedByValue()                        {}
+
+// UnsafeAgentTelemetryServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to AgentTelemetryServer will
+// result in compilation errors.
+type UnsafeAgentTelemetryServer interface {
+	mustEmbedUnimplementedAgentTelemetryServer()
+}
+
+func RegisterAgentTelemetryServer(s grpc.ServiceRegistrar, srv AgentTelemetryServer) {
+	// If the following call panics, it indicates UnimplementedAgentTelemetryServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&AgentTelemetry_ServiceDesc, srv)
+}
+
+func _AgentTelemetry_RunTelemetry_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(AgentTelemetryServer).RunTelemetry(&grpc.GenericServerStream[ClientMessage, TelemetryEvent]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AgentTelemetry_RunTelemetryServer = grpc.BidiStreamingServer[ClientMessage, TelemetryEvent]
+
+// AgentTelemetry_ServiceDesc is the grpc.ServiceDesc for AgentTelemetry service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var AgentTelemetry_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "deepagents.runtime.v1.AgentTelemetry",
+	HandlerType: (*AgentTelemetryServer)(nil),
+	Methods:     []grpc.MethodDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "RunTelemetry",
+			Handler:       _AgentTelemetry_RunTelemetry_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
+		},
+	},
+	Metadata: "runtime.proto",
+}
+
+const (
 	ResourceSync_SyncSkill_FullMethodName              = "/deepagents.runtime.v1.ResourceSync/SyncSkill"
 	ResourceSync_SyncMcp_FullMethodName                = "/deepagents.runtime.v1.ResourceSync/SyncMcp"
 	ResourceSync_SyncAgentSpec_FullMethodName          = "/deepagents.runtime.v1.ResourceSync/SyncAgentSpec"
 	ResourceSync_Assemble_FullMethodName               = "/deepagents.runtime.v1.ResourceSync/Assemble"
+	ResourceSync_GetAgentGraph_FullMethodName          = "/deepagents.runtime.v1.ResourceSync/GetAgentGraph"
 	ResourceSync_UploadWorkspaceFiles_FullMethodName   = "/deepagents.runtime.v1.ResourceSync/UploadWorkspaceFiles"
 	ResourceSync_DownloadWorkspaceFiles_FullMethodName = "/deepagents.runtime.v1.ResourceSync/DownloadWorkspaceFiles"
 	ResourceSync_ListWorkspaceFiles_FullMethodName     = "/deepagents.runtime.v1.ResourceSync/ListWorkspaceFiles"
@@ -167,6 +280,8 @@ type ResourceSyncClient interface {
 	// Trigger agent assembly on the data plane.
 	// Prerequisite: the target AgentSpec must already be synced.
 	Assemble(ctx context.Context, in *AssembleRequest, opts ...grpc.CallOption) (*AssembleResponse, error)
+	// Return a JSON-serializable drawable graph representation for one agent.
+	GetAgentGraph(ctx context.Context, in *GetAgentGraphRequest, opts ...grpc.CallOption) (*GetAgentGraphResponse, error)
 	// Upload files into one thread workspace.
 	UploadWorkspaceFiles(ctx context.Context, in *UploadWorkspaceFilesRequest, opts ...grpc.CallOption) (*UploadWorkspaceFilesResponse, error)
 	// Download files from one thread workspace.
@@ -221,6 +336,16 @@ func (c *resourceSyncClient) Assemble(ctx context.Context, in *AssembleRequest, 
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(AssembleResponse)
 	err := c.cc.Invoke(ctx, ResourceSync_Assemble_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *resourceSyncClient) GetAgentGraph(ctx context.Context, in *GetAgentGraphRequest, opts ...grpc.CallOption) (*GetAgentGraphResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetAgentGraphResponse)
+	err := c.cc.Invoke(ctx, ResourceSync_GetAgentGraph_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -290,6 +415,8 @@ type ResourceSyncServer interface {
 	// Trigger agent assembly on the data plane.
 	// Prerequisite: the target AgentSpec must already be synced.
 	Assemble(context.Context, *AssembleRequest) (*AssembleResponse, error)
+	// Return a JSON-serializable drawable graph representation for one agent.
+	GetAgentGraph(context.Context, *GetAgentGraphRequest) (*GetAgentGraphResponse, error)
 	// Upload files into one thread workspace.
 	UploadWorkspaceFiles(context.Context, *UploadWorkspaceFilesRequest) (*UploadWorkspaceFilesResponse, error)
 	// Download files from one thread workspace.
@@ -321,6 +448,9 @@ func (UnimplementedResourceSyncServer) SyncAgentSpec(context.Context, *SyncAgent
 }
 func (UnimplementedResourceSyncServer) Assemble(context.Context, *AssembleRequest) (*AssembleResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Assemble not implemented")
+}
+func (UnimplementedResourceSyncServer) GetAgentGraph(context.Context, *GetAgentGraphRequest) (*GetAgentGraphResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetAgentGraph not implemented")
 }
 func (UnimplementedResourceSyncServer) UploadWorkspaceFiles(context.Context, *UploadWorkspaceFilesRequest) (*UploadWorkspaceFilesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method UploadWorkspaceFiles not implemented")
@@ -426,6 +556,24 @@ func _ResourceSync_Assemble_Handler(srv interface{}, ctx context.Context, dec fu
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ResourceSyncServer).Assemble(ctx, req.(*AssembleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ResourceSync_GetAgentGraph_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetAgentGraphRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ResourceSyncServer).GetAgentGraph(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ResourceSync_GetAgentGraph_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ResourceSyncServer).GetAgentGraph(ctx, req.(*GetAgentGraphRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -542,6 +690,10 @@ var ResourceSync_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Assemble",
 			Handler:    _ResourceSync_Assemble_Handler,
+		},
+		{
+			MethodName: "GetAgentGraph",
+			Handler:    _ResourceSync_GetAgentGraph_Handler,
 		},
 		{
 			MethodName: "UploadWorkspaceFiles",

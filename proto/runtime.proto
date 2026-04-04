@@ -40,6 +40,30 @@ service AgentExecutor {
 }
 
 // -----------------------------------------------------------------------------
+//  Service 1B: AgentTelemetry
+//
+//  Bidirectional streaming RPC for telemetry-grade agent execution.
+//  Client = Control Plane / monitoring consumer
+//  Server = Data Plane
+//
+//  Reuses the same control-plane request stream as `AgentExecutor.Run`, but
+//  emits a richer telemetry event stream that preserves LangGraph stream
+//  structure such as `ns`, `stream_mode`, `debug`, and `custom`.
+// -----------------------------------------------------------------------------
+
+service AgentTelemetry {
+  // Run an agent and stream structured telemetry events.
+  //
+  // Protocol:
+  //   1. Client sends RunRequest as the first ClientMessage
+  //   2. Server streams TelemetryEvents
+  //   3. If HITL is triggered, server emits interrupt telemetry and pauses
+  //   4. Client sends HITLDecision, server resumes
+  //   5. Client may send CancelRequest at any time
+  rpc RunTelemetry(stream ClientMessage) returns (stream TelemetryEvent);
+}
+
+// -----------------------------------------------------------------------------
 // Client -> Server messages
 // -----------------------------------------------------------------------------
 
@@ -237,6 +261,39 @@ message ErrorOccurred {
   string error_type = 2;
 }
 
+// Structured telemetry event for monitoring and auditing-oriented consumers.
+message TelemetryEvent {
+  // Unique identifier for this execution run.
+  string run_id = 1;
+
+  // Agent name that produced this event.
+  string agent_name = 2;
+
+  // When this event was created.
+  google.protobuf.Timestamp timestamp = 3;
+
+  // LangGraph namespace path. Empty means the root graph.
+  repeated string ns = 4;
+
+  // Original stream mode, for example `messages`, `updates`, `debug`,
+  // `custom`, or runtime-owned `lifecycle`.
+  string stream_mode = 5;
+
+  // Fine-grained telemetry event type within the stream mode, for example
+  // `text`, `reasoning`, `checkpoint`, `task`, or `interrupt`.
+  string event_type = 6;
+
+  // Structured metadata associated with the event.
+  google.protobuf.Struct metadata = 7;
+
+  // Structured main payload associated with the event.
+  google.protobuf.Value payload = 8;
+
+  // Optional compatibility projection when this telemetry event can be mapped
+  // into the existing public `AgentEvent` transport.
+  AgentEvent public_event = 9;
+}
+
 // -----------------------------------------------------------------------------
 //  Service 2: ResourceSync
 //
@@ -259,6 +316,9 @@ service ResourceSync {
   // Trigger agent assembly on the data plane.
   // Prerequisite: the target AgentSpec must already be synced.
   rpc Assemble(AssembleRequest) returns (AssembleResponse);
+
+  // Return a JSON-serializable drawable graph representation for one agent.
+  rpc GetAgentGraph(GetAgentGraphRequest) returns (GetAgentGraphResponse);
 
   // Upload files into one thread workspace.
   rpc UploadWorkspaceFiles(UploadWorkspaceFilesRequest)
@@ -523,6 +583,15 @@ message AssembleResponse {
   bool   ok      = 1;
   string message = 2;
   string status  = 3;  // "compiled" on success
+}
+
+message GetAgentGraphRequest {
+  string agent_name = 1;
+  int32 xray_depth = 2;
+}
+
+message GetAgentGraphResponse {
+  google.protobuf.Value graph = 1;
 }
 
 // -----------------------------------------------------------------------------

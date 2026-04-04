@@ -244,6 +244,25 @@ export type AgentSpecListDTO = NumberPageMeta & {
   agents: AgentSpecDTO[];
 };
 
+export type AgentGraphNodeDTO = {
+  id: string | number;
+  type?: string;
+  data?: unknown;
+  metadata?: Record<string, unknown>;
+};
+
+export type AgentGraphEdgeDTO = {
+  source: string | number;
+  target: string | number;
+  data?: unknown;
+  conditional?: boolean;
+};
+
+export type AgentGraphDTO = {
+  nodes: AgentGraphNodeDTO[];
+  edges: AgentGraphEdgeDTO[];
+};
+
 export type SessionSummaryDTO = {
   thread_id?: string;
   agent_name?: string;
@@ -334,6 +353,18 @@ export type HTTPAgentEventDTO = {
   review_configs?: HTTPReviewConfigDTO[];
 };
 
+export type HTTPTelemetryEventDTO = {
+  run_id?: string;
+  agent_name?: string;
+  timestamp?: string;
+  namespace?: string[];
+  stream_mode?: string;
+  event_type?: string;
+  metadata?: unknown;
+  payload?: unknown;
+  public_event?: HTTPAgentEventDTO;
+};
+
 export type RuntimeEventType =
   | 'run_started'
   | 'text_delta'
@@ -342,6 +373,27 @@ export type RuntimeEventType =
   | 'tool_call_done'
   | 'tool_result'
   | 'hitl_request'
+  | 'run_ended'
+  | 'run_canceled'
+  | 'error';
+
+export type TelemetryEventType =
+  | 'run_started'
+  | 'text'
+  | 'reasoning'
+  | 'tool_call_chunk'
+  | 'tool_call'
+  | 'tool_call_start'
+  | 'tool_call_done'
+  | 'tool_result'
+  | 'state_update'
+  | 'update_metadata'
+  | 'interrupt'
+  | 'task'
+  | 'task_result'
+  | 'checkpoint'
+  | 'custom'
+  | 'text_done'
   | 'run_ended'
   | 'run_canceled'
   | 'error';

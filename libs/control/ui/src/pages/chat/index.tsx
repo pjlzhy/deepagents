@@ -251,8 +251,10 @@ export default function ChatWorkspacePage() {
 
   async function submitInterruptDecision(interrupt: PendingInterruptVM, type: 'approve' | 'reject'): Promise<void> {
     if (!runSessionId) { Message.warning('No active run_session.'); return; }
+    const decisionCount = Math.max(1, interrupt.actionRequests.length);
+    const decisions = Array.from({ length: decisionCount }, () => ({ type }));
     try {
-      await controlClient.runs.submitHitl(runSessionId, { interrupt_id: interrupt.interruptId, decisions: [{ type }] });
+      await controlClient.runs.submitHitl(runSessionId, { interrupt_id: interrupt.interruptId, decisions });
       setRuntimeState((prev) => markInterruptResolved(prev, interrupt.interruptId));
       Message.success(`${type} submitted`);
     } catch (error) {

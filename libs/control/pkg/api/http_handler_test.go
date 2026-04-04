@@ -84,6 +84,70 @@ func (s *httpTransportRunStream) Close() error {
 	return s.closeErr
 }
 
+type httpTransportTelemetryStream struct {
+	events chan runtimeclient.TelemetryEvent
+
+	mu              sync.Mutex
+	decisions       []runtimeclient.ToolDecision
+	interruptIDs    []string
+	cancels         []string
+	sendDecisionErr error
+	sendCancelErr   error
+	closeErr        error
+	closeCalls      int
+	decisionSignal  chan struct{}
+	cancelSignal    chan struct{}
+}
+
+func newHTTPTransportTelemetryStream() *httpTransportTelemetryStream {
+	return &httpTransportTelemetryStream{
+		events:         make(chan runtimeclient.TelemetryEvent, 16),
+		decisionSignal: make(chan struct{}, 1),
+		cancelSignal:   make(chan struct{}, 1),
+	}
+}
+
+func (s *httpTransportTelemetryStream) Events() <-chan runtimeclient.TelemetryEvent {
+	return s.events
+}
+
+func (s *httpTransportTelemetryStream) SendHITLDecision(
+	_ context.Context,
+	interruptID string,
+	decisions []runtimeclient.ToolDecision,
+) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.interruptIDs = append(s.interruptIDs, interruptID)
+	s.decisions = append(s.decisions, decisions...)
+	select {
+	case s.decisionSignal <- struct{}{}:
+	default:
+	}
+	return s.sendDecisionErr
+}
+
+func (s *httpTransportTelemetryStream) SendCancel(_ context.Context, reason string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.cancels = append(s.cancels, reason)
+	select {
+	case s.cancelSignal <- struct{}{}:
+	default:
+	}
+	return s.sendCancelErr
+}
+
+func (s *httpTransportTelemetryStream) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.closeCalls++
+	return s.closeErr
+}
+
 func TestHTTPHandlerStreamsRunEventsOverSSE(t *testing.T) {
 	runStream := newHTTPTransportRunStream()
 	service := &fakeAgentService{runStream: runStream}
@@ -187,6 +251,129 @@ func TestHTTPHandlerStreamsRunEventsOverSSE(t *testing.T) {
 	}
 	if runStream.closeCalls != 1 {
 		t.Fatalf("expected upstream close once, got %d", runStream.closeCalls)
+	}
+}
+
+func TestHTTPHandlerStreamsTelemetryEventsOverSSE(t *testing.T) {
+	telemetryStream := newHTTPTransportTelemetryStream()
+	service := &fakeAgentService{telemetryStream: telemetryStream}
+	handler, err := NewHTTPHandler(service, nil)
+	if err != nil {
+		t.Fatalf("NewHTTPHandler: %v", err)
+	}
+
+	startedAt := time.Unix(1710000000, 125000000).UTC()
+	reasoningAt := time.Unix(1710000000, 250000000).UTC()
+	debugAt := time.Unix(1710000000, 375000000).UTC()
+
+	go func() {
+		telemetryStream.events <- runtimeclient.TelemetryEvent{
+			RunID:      "run-telemetry-1",
+			AgentName:  "assistant",
+			Timestamp:  startedAt,
+			StreamMode: "lifecycle",
+			EventType:  "run_started",
+			PublicEvent: &runtimeclient.AgentEvent{
+				Type:      runtimeclient.AgentEventTypeRunStarted,
+				RunID:     "run-telemetry-1",
+				AgentName: "assistant",
+				ThreadID:  "thread-1",
+				Timestamp: startedAt,
+			},
+		}
+		telemetryStream.events <- runtimeclient.TelemetryEvent{
+			RunID:      "run-telemetry-1",
+			AgentName:  "assistant",
+			Timestamp:  reasoningAt,
+			Namespace:  []string{"task:research"},
+			StreamMode: "messages",
+			EventType:  "reasoning",
+			Metadata:   json.RawMessage(`{"langgraph_node":"planner"}`),
+			Payload:    json.RawMessage(`{"summary":[{"type":"summary_text","text":"thinking..."}]}`),
+		}
+		telemetryStream.events <- runtimeclient.TelemetryEvent{
+			RunID:      "run-telemetry-1",
+			AgentName:  "assistant",
+			Timestamp:  debugAt,
+			Namespace:  []string{"task:research"},
+			StreamMode: "debug",
+			EventType:  "task",
+			Metadata:   json.RawMessage(`{"step":2}`),
+			Payload:    json.RawMessage(`{"id":"task-1","name":"research"}`),
+		}
+		close(telemetryStream.events)
+	}()
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/agents/assistant/telemetry/stream",
+		strings.NewReader(`{"message":"hello telemetry","thread_id":"thread-1","metadata":{"source":"test"}}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	body := recorder.Body.Bytes()
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected telemetry status: %d body=%s", recorder.Code, string(body))
+	}
+	sessionID := recorder.Header().Get(runSessionHeader)
+	if sessionID == "" {
+		t.Fatal("expected telemetry run session header")
+	}
+	bodyText := string(body)
+	if !strings.Contains(bodyText, "event: run_session") ||
+		!strings.Contains(bodyText, `"session_id":"`+sessionID+`"`) {
+		t.Fatalf("expected telemetry run session event, got %s", bodyText)
+	}
+	if !strings.Contains(bodyText, "event: run_started") ||
+		!strings.Contains(bodyText, "event: reasoning") ||
+		!strings.Contains(bodyText, "event: task") {
+		t.Fatalf("expected telemetry events in body, got %s", bodyText)
+	}
+	if !strings.Contains(bodyText, `"stream_mode":"messages"`) ||
+		!strings.Contains(bodyText, `"namespace":["task:research"]`) ||
+		!strings.Contains(bodyText, `"metadata":{"langgraph_node":"planner"}`) ||
+		!strings.Contains(bodyText, `"public_event":{"type":"run_started"`) {
+		t.Fatalf("expected telemetry payload in body, got %s", bodyText)
+	}
+
+	if service.telemetryRequest.AgentName != "assistant" ||
+		service.telemetryRequest.Message != "hello telemetry" ||
+		service.telemetryRequest.ThreadID != "thread-1" ||
+		service.telemetryRequest.Metadata["source"] != "test" {
+		t.Fatalf("unexpected telemetry run request: %#v", service.telemetryRequest)
+	}
+	if telemetryStream.closeCalls != 1 {
+		t.Fatalf("expected telemetry upstream close once, got %d", telemetryStream.closeCalls)
+	}
+}
+
+func TestHTTPHandlerReturnsAgentGraphJSON(t *testing.T) {
+	service := &fakeAgentService{
+		graphResp: []byte(`{"nodes":[{"id":"model","type":"runnable","data":{"name":"model"}}],"edges":[{"source":"__start__","target":"model"}]}`),
+	}
+	handler, err := NewHTTPHandler(service, nil)
+	if err != nil {
+		t.Fatalf("NewHTTPHandler: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/agents/assistant/graph?xray_depth=2", nil)
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected graph status: %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, `"nodes"`) || !strings.Contains(body, `"edges"`) || !strings.Contains(body, `"model"`) {
+		t.Fatalf("unexpected graph payload: %s", body)
+	}
+	if service.graphAgentName != "assistant" || service.graphXrayDepth != 2 {
+		t.Fatalf("unexpected graph request inputs: %#v", service)
 	}
 }
 

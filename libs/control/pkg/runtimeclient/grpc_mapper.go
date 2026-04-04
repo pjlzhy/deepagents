@@ -495,6 +495,28 @@ func agentEventFromProto(event *runtimev1.AgentEvent) AgentEvent {
 	return mapped
 }
 
+func telemetryEventFromProto(event *runtimev1.TelemetryEvent) TelemetryEvent {
+	if event == nil {
+		return TelemetryEvent{}
+	}
+
+	mapped := TelemetryEvent{
+		RunID:      event.GetRunId(),
+		AgentName:  event.GetAgentName(),
+		Timestamp:  timestampFromProto(event.GetTimestamp()),
+		Namespace:  cloneStrings(event.GetNs()),
+		StreamMode: event.GetStreamMode(),
+		EventType:  event.GetEventType(),
+		Metadata:   structToRawJSON(event.GetMetadata()),
+		Payload:    valueToRawJSON(event.GetPayload()),
+	}
+	if event.GetPublicEvent() != nil {
+		publicEvent := agentEventFromProto(event.GetPublicEvent())
+		mapped.PublicEvent = &publicEvent
+	}
+	return mapped
+}
+
 func actionRequestsFromProto(requests []*runtimev1.ActionRequest) []ActionRequest {
 	items := make([]ActionRequest, 0, len(requests))
 	for _, request := range requests {

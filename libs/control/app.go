@@ -21,6 +21,7 @@ import (
 type runtimeControlClient interface {
 	runtimeclient.ResourceSyncClient
 	runtimeclient.AgentExecutorClient
+	runtimeclient.AgentTelemetryClient
 	runtimeclient.SessionQueryClient
 	Close() error
 }
@@ -91,6 +92,7 @@ func newApp(ctx context.Context, cfg config.Config) (*controlApp, error) {
 		Packager:     packager.NewDefaultPackager(),
 		ResourceSync: runtimeClient,
 		Executor:     runtimeClient,
+		Telemetry:    runtimeClient,
 		Sessions:     runtimeClient,
 	})
 	if err != nil {

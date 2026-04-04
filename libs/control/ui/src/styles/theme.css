@@ -80,6 +80,29 @@ a {
   background: transparent;
 }
 
+.control-scroll-strong {
+  scrollbar-gutter: stable both-edges;
+  scrollbar-width: auto;
+  scrollbar-color: rgba(0, 240, 255, 0.35) rgba(0, 240, 255, 0.08);
+  overscroll-behavior: contain;
+}
+
+.control-scroll-strong::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+
+.control-scroll-strong::-webkit-scrollbar-thumb {
+  background: rgba(0, 240, 255, 0.30);
+  border-radius: 999px;
+  border: 2px solid rgba(12, 16, 36, 0.85);
+}
+
+.control-scroll-strong::-webkit-scrollbar-track {
+  background: rgba(0, 240, 255, 0.06);
+  border-radius: 999px;
+}
+
 /* ── Chat Markdown ── */
 .chat-markdown {
   font-size: 14px;
@@ -439,6 +462,18 @@ body {
 /* Spin */
 .arco-spin-icon {
   color: var(--control-primary) !important;
+}
+
+.telemetry-page-spin,
+.telemetry-page-spin > .arco-spin-children,
+.telemetry-page-spin > .arco-spin-container,
+.telemetry-page-spin > .arco-spin-container > .arco-spin-children {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
 }
 
 /* List */

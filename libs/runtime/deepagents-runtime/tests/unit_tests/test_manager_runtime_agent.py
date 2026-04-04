@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
+from deepagents_runtime.agent import RuntimeAgent
 from deepagents_runtime import events as runtime_events
 from deepagents_runtime.manager.manager import AgentManager
 from deepagents_runtime.spec import (
@@ -22,6 +23,7 @@ from deepagents_runtime.spec import (
     RunConfig,
     RuntimeEventType,
 )
+from deepagents_runtime.telemetry import TelemetryEvent
 
 
 class FakeRegistry:
@@ -170,6 +172,41 @@ def test_define_agent_installs_without_compiling_and_invalidates_runtime() -> No
         shutil.rmtree(base_dir, ignore_errors=True)
 
 
+def test_build_model_extra_kwargs_parses_serialized_extra_params() -> None:
+    """RuntimeAgent should coerce serialized model extra params into native types."""
+
+    base_dir = _make_base_dir()
+    registry = FakeRegistry(base_dir)
+    spec = AgentSpec(
+        name="demo-agent",
+        description="demo",
+        model="openai:gpt-5.4",
+        model_config={
+            "provider": "openai",
+            "model": "gpt-5.4",
+            "extra_params": {
+                "reasoning_effort": "xhigh",
+                "use_responses_api": "true",
+                "store": "false",
+                "include": '["reasoning.encrypted_content"]',
+                "max_tokens": "4096",
+            },
+        },
+    )
+
+    try:
+        agent = RuntimeAgent(spec=spec, reg=registry)  # type: ignore[arg-type]
+        kwargs = agent.build_model_extra_kwargs()
+
+        assert kwargs["reasoning_effort"] == "xhigh"
+        assert kwargs["use_responses_api"] is True
+        assert kwargs["store"] is False
+        assert kwargs["include"] == ["reasoning.encrypted_content"]
+        assert kwargs["max_tokens"] == 4096
+    finally:
+        shutil.rmtree(base_dir, ignore_errors=True)
+
+
 def test_assemble_agent_safe_recompile_releases_old_runtime_first() -> None:
     """assemble_agent should release old runtime and compile the latest stored spec."""
 
@@ -266,6 +303,72 @@ def test_invoke_passes_message_thread_id_and_run_id() -> None:
         updated_at = datetime.fromisoformat(captured["config"]["metadata"]["updated_at"])
         assert updated_at.tzinfo == UTC
         assert captured["last_invoked"] is not None
+    finally:
+        shutil.rmtree(base_dir, ignore_errors=True)
+
+
+def test_invoke_telemetry_passes_message_thread_id_and_run_id() -> None:
+    """invoke_telemetry should forward the user input and identifiers unchanged."""
+
+    base_dir = _make_base_dir()
+    registry = FakeRegistry(base_dir)
+    manager = AgentManager(registry=registry)
+    captured: dict[str, Any] = {}
+
+    try:
+        with patch("deepagents_runtime.manager.manager.get_checkpointer", _fake_checkpointer):
+            async def scenario() -> list[TelemetryEvent]:
+                await manager.define_agent(_build_spec())
+                agent = await manager.agent_pool.get("demo-agent")  # type: ignore[union-attr]
+                agent._graph = object()
+
+                async def fake_atelemetry(
+                        *,
+                        context: Any = None,
+                        message: str,
+                        config: dict[str, Any],
+                        hitl_handler: Any = None,
+                ) -> AsyncIterator[TelemetryEvent]:
+                    del context, hitl_handler
+                    captured["message"] = message
+                    captured["config"] = config
+                    yield TelemetryEvent(
+                        stream_mode="lifecycle",
+                        event_type="run_started",
+                        run_id="run-telemetry-1",
+                        agent_name="demo-agent",
+                    )
+                    yield TelemetryEvent(
+                        stream_mode="lifecycle",
+                        event_type="run_ended",
+                        run_id="run-telemetry-1",
+                        agent_name="demo-agent",
+                    )
+
+                with patch.object(agent, "atelemetry", fake_atelemetry):
+                    return [
+                        event
+                        async for event in manager.invoke_telemetry(
+                            "demo-agent",
+                            RunConfig(
+                                input="hello telemetry",
+                                thread_id="thread-telemetry-1",
+                                run_id="run-telemetry-1",
+                            ),
+                        )
+                    ]
+
+            emitted = asyncio.run(scenario())
+
+        assert [event.event_type for event in emitted] == [
+            "run_started",
+            "run_ended",
+        ]
+        assert captured["message"] == "hello telemetry"
+        assert captured["config"]["configurable"] == {
+            "thread_id": "thread-telemetry-1",
+            "run_id": "run-telemetry-1",
+        }
     finally:
         shutil.rmtree(base_dir, ignore_errors=True)
 

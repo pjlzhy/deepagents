@@ -2,11 +2,13 @@ import { httpClient } from '@/shared/api/httpClient';
 import { postSSE, type SSEHandlers } from '@/shared/api/sseClient';
 import type {
   AgentSpecDTO,
+  AgentGraphDTO,
   AgentSpecListDTO,
   AgentSpecUpsertRequestDTO,
   CancelRunRequestDTO,
   HealthResponse,
   HTTPAgentEventDTO,
+  HTTPTelemetryEventDTO,
   ListArtifactsResponseDTO,
   MCPConfigListDTO,
   MCPConfigDTO,
@@ -151,6 +153,12 @@ export const controlClient = {
     get(agentName: string) {
       return httpClient.get<AgentSpecDTO>(`/api/v1/agents/${encodeURIComponent(agentName)}`);
     },
+    getGraph(agentName: string, xrayDepth = 2) {
+      return httpClient.get<AgentGraphDTO>(
+        `/api/v1/agents/${encodeURIComponent(agentName)}/graph`,
+        { xray_depth: xrayDepth },
+      );
+    },
     ensureRunnable(agentName: string) {
       return httpClient.post<Record<string, never>, void>(
         `/api/v1/agents/${encodeURIComponent(agentName)}/ensure_runnable`,
@@ -250,6 +258,17 @@ export const controlClient = {
     ) {
       return postSSE<RunStreamRequestDTO, HTTPAgentEventDTO | { session_id?: string } | { error?: string }>(
         `/api/v1/agents/${encodeURIComponent(agentName)}/runs/stream`,
+        request,
+        handlers,
+      );
+    },
+    streamTelemetry(
+      agentName: string,
+      request: RunStreamRequestDTO,
+      handlers: SSEHandlers<HTTPTelemetryEventDTO | { session_id?: string } | { error?: string }>,
+    ) {
+      return postSSE<RunStreamRequestDTO, HTTPTelemetryEventDTO | { session_id?: string } | { error?: string }>(
+        `/api/v1/agents/${encodeURIComponent(agentName)}/telemetry/stream`,
         request,
         handlers,
       );

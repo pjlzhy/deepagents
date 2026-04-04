@@ -11,11 +11,14 @@ from google.protobuf import struct_pb2
 from deepagents_runtime import events
 from deepagents_runtime.entry.server import (
     AgentExecutorServicer,
+    AgentTelemetryServicer,
+    ResourceSyncServicer,
     _HITLDecisionCoordinator,
     _InvalidHITLDecisionError,
     _translate_hitl_decisions,
 )
 from deepagents_runtime.generated import runtime_pb2 as pb2
+from deepagents_runtime.telemetry import TelemetryEvent, telemetry_from_runtime_event
 
 
 class _FakeContext:
@@ -98,6 +101,65 @@ class _FakeManager:
             agent_name=name,
             stats={},
         )
+
+
+class _FakeTelemetryManager:
+    """Manager stub that emits a small telemetry stream."""
+
+    async def invoke_telemetry(
+        self,
+        *,
+        name: str,
+        run_config: Any,
+        hitl_handler: Any = None,
+        cancel_event: Any = None,
+        cancel_reason: str = "",
+        cancel_reason_getter: Any = None,
+    ):
+        del hitl_handler, cancel_event, cancel_reason, cancel_reason_getter
+
+        yield telemetry_from_runtime_event(
+            events.run_start(
+                run_id=run_config.run_id,
+                agent_name=name,
+                thread_id=run_config.thread_id,
+            )
+        )
+        yield TelemetryEvent(
+            stream_mode="messages",
+            event_type="reasoning",
+            payload={
+                "summary": [{"type": "summary_text", "text": "thinking..."}],
+            },
+            ns=("task:research",),
+            metadata={"langgraph_node": "planner"},
+            run_id=run_config.run_id,
+            agent_name=name,
+        )
+        yield telemetry_from_runtime_event(
+            events.run_end(
+                run_id=run_config.run_id,
+                agent_name=name,
+                stats={},
+            )
+        )
+
+
+class _FakeGraphManager:
+    """Manager stub that returns a JSON-like drawable graph."""
+
+    async def get_agent_graph(
+        self,
+        name: str,
+        *,
+        xray_depth: int = 0,
+    ) -> dict[str, Any]:
+        return {
+            "agent": name,
+            "xray_depth": xray_depth,
+            "nodes": [{"id": "model"}],
+            "edges": [],
+        }
 
 
 def test_translate_hitl_decisions_maps_approve_and_reject() -> None:
@@ -321,5 +383,66 @@ def test_run_emits_invalid_hitl_decision_error_event() -> None:
             emitted[-1].error.message
             == "decision count mismatch for interrupt interrupt-1: expected 1, got 0"
         )
+
+    asyncio.run(scenario())
+
+
+def test_run_telemetry_emits_structured_telemetry_events() -> None:
+    """RunTelemetry should stream protobuf telemetry events end-to-end."""
+
+    async def scenario() -> None:
+        manager = _FakeTelemetryManager()
+        servicer = AgentTelemetryServicer(manager)
+        request_iterator = _MessageIterator([])
+        context = _FakeContext(
+            pb2.ClientMessage(
+                run_request=pb2.RunRequest(
+                    agent_name="demo-agent",
+                    message="hello",
+                    thread_id="thread-1",
+                )
+            )
+        )
+
+        emitted: list[pb2.TelemetryEvent] = []
+        async for event in servicer.RunTelemetry(request_iterator, context):
+            emitted.append(event)
+
+        assert [event.event_type for event in emitted] == [
+            "run_started",
+            "reasoning",
+            "run_ended",
+        ]
+        assert emitted[0].HasField("public_event")
+        assert emitted[0].public_event.run_started.thread_id == "thread-1"
+        assert list(emitted[1].ns) == ["task:research"]
+        assert emitted[1].stream_mode == "messages"
+        assert emitted[1].metadata.fields["langgraph_node"].string_value == "planner"
+        assert (
+            emitted[1]
+            .payload.struct_value.fields["summary"]
+            .list_value.values[0]
+            .struct_value.fields["text"]
+            .string_value
+            == "thinking..."
+        )
+
+    asyncio.run(scenario())
+
+
+def test_resource_sync_get_agent_graph_returns_json_like_payload() -> None:
+    """GetAgentGraph should return the drawable graph as a protobuf Value."""
+
+    async def scenario() -> None:
+        servicer = ResourceSyncServicer(_FakeGraphManager())
+        response = await servicer.GetAgentGraph(
+            pb2.GetAgentGraphRequest(agent_name="demo-agent", xray_depth=2),
+            None,  # type: ignore[arg-type]
+        )
+
+        payload = response.graph.struct_value.fields
+        assert payload["agent"].string_value == "demo-agent"
+        assert payload["xray_depth"].number_value == 2
+        assert payload["nodes"].list_value.values[0].struct_value.fields["id"].string_value == "model"
 
     asyncio.run(scenario())

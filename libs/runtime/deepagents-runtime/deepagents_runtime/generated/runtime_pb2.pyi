@@ -258,6 +258,28 @@ class ErrorOccurred(_message.Message):
     error_type: str
     def __init__(self, message: _Optional[str] = ..., error_type: _Optional[str] = ...) -> None: ...
 
+class TelemetryEvent(_message.Message):
+    __slots__ = ("run_id", "agent_name", "timestamp", "ns", "stream_mode", "event_type", "metadata", "payload", "public_event")
+    RUN_ID_FIELD_NUMBER: _ClassVar[int]
+    AGENT_NAME_FIELD_NUMBER: _ClassVar[int]
+    TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
+    NS_FIELD_NUMBER: _ClassVar[int]
+    STREAM_MODE_FIELD_NUMBER: _ClassVar[int]
+    EVENT_TYPE_FIELD_NUMBER: _ClassVar[int]
+    METADATA_FIELD_NUMBER: _ClassVar[int]
+    PAYLOAD_FIELD_NUMBER: _ClassVar[int]
+    PUBLIC_EVENT_FIELD_NUMBER: _ClassVar[int]
+    run_id: str
+    agent_name: str
+    timestamp: _timestamp_pb2.Timestamp
+    ns: _containers.RepeatedScalarFieldContainer[str]
+    stream_mode: str
+    event_type: str
+    metadata: _struct_pb2.Struct
+    payload: _struct_pb2.Value
+    public_event: AgentEvent
+    def __init__(self, run_id: _Optional[str] = ..., agent_name: _Optional[str] = ..., timestamp: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., ns: _Optional[_Iterable[str]] = ..., stream_mode: _Optional[str] = ..., event_type: _Optional[str] = ..., metadata: _Optional[_Union[_struct_pb2.Struct, _Mapping]] = ..., payload: _Optional[_Union[_struct_pb2.Value, _Mapping]] = ..., public_event: _Optional[_Union[AgentEvent, _Mapping]] = ...) -> None: ...
+
 class SyncSkillRequest(_message.Message):
     __slots__ = ("name", "content", "description", "tags", "files")
     NAME_FIELD_NUMBER: _ClassVar[int]
@@ -539,6 +561,20 @@ class AssembleResponse(_message.Message):
     message: str
     status: str
     def __init__(self, ok: bool = ..., message: _Optional[str] = ..., status: _Optional[str] = ...) -> None: ...
+
+class GetAgentGraphRequest(_message.Message):
+    __slots__ = ("agent_name", "xray_depth")
+    AGENT_NAME_FIELD_NUMBER: _ClassVar[int]
+    XRAY_DEPTH_FIELD_NUMBER: _ClassVar[int]
+    agent_name: str
+    xray_depth: int
+    def __init__(self, agent_name: _Optional[str] = ..., xray_depth: _Optional[int] = ...) -> None: ...
+
+class GetAgentGraphResponse(_message.Message):
+    __slots__ = ("graph",)
+    GRAPH_FIELD_NUMBER: _ClassVar[int]
+    graph: _struct_pb2.Value
+    def __init__(self, graph: _Optional[_Union[_struct_pb2.Value, _Mapping]] = ...) -> None: ...
 
 class UploadWorkspaceFile(_message.Message):
     __slots__ = ("path", "content")

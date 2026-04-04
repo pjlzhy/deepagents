@@ -1,9 +1,10 @@
 """Data Plane gRPC server.
 
-Implements three gRPC services defined in runtime.proto:
-  - AgentExecutor:  bidirectional streaming for agent execution + HITL
-  - ResourceSync:   unary RPCs for pushing resources from control plane
-  - SessionQuery:   unary RPCs for runtime session inspection
+Implements gRPC services defined in runtime.proto:
+  - AgentExecutor:   bidirectional streaming for agent execution + HITL
+  - AgentTelemetry:  bidirectional streaming for telemetry-grade execution
+  - ResourceSync:    unary RPCs for pushing resources from control plane
+  - SessionQuery:    unary RPCs for runtime session inspection
 
 This is the data plane's only external interface. The control plane
 connects here to sync resources, assemble agents, invoke runs, and query
@@ -27,9 +28,12 @@ from google.protobuf.json_format import MessageToDict
 from google.protobuf import struct_pb2, timestamp_pb2
 from grpc import aio as grpc_aio
 
+from deepagents_runtime import events
 from deepagents_runtime.converters import (
+    python_to_proto_value,
     runtime_event_to_agent_event,
     sync_agent_spec_request_to_agent_spec,
+    telemetry_event_to_proto,
 )
 from deepagents_runtime.generated import runtime_pb2 as pb2
 from deepagents_runtime.generated import runtime_pb2_grpc
@@ -43,6 +47,7 @@ from deepagents_runtime.sessions import (
     get_thread_artifacts,
     list_sessions,
 )
+from deepagents_runtime.telemetry import telemetry_from_runtime_event
 from deepagents_runtime.spec import AgentStatus, RunConfig
 
 logger = logging.getLogger(__name__)
@@ -360,6 +365,124 @@ class AgentExecutorServicer(runtime_pb2_grpc.AgentExecutorServicer):
             await _cancel_background_task(producer_task)
 
 
+class AgentTelemetryServicer(runtime_pb2_grpc.AgentTelemetryServicer):
+    """Implements the AgentTelemetry gRPC service."""
+
+    def __init__(self, manager: AgentManager) -> None:
+        super().__init__()
+        self._manager = manager
+
+    async def RunTelemetry(
+        self,
+        request_iterator: grpc_aio.StreamStreamCall,
+        context: grpc.aio.ServicerContext,
+    ):
+        """Handle a bidirectional RunTelemetry RPC."""
+
+        try:
+            first_msg: pb2.ClientMessage = await context.read()
+        except grpc_aio.AioRpcError:
+            yield _telemetry_error_event("", "", "Empty stream: no RunRequest received")
+            return
+
+        if not first_msg or not first_msg.HasField("run_request"):
+            yield _telemetry_error_event("", "", "First message must be a RunRequest")
+            return
+
+        run_request = first_msg.run_request
+        agent_name = run_request.agent_name
+        message = run_request.message
+        thread_id = run_request.thread_id or generate_thread_id()
+        run_id = uuid.uuid4().hex[:12]
+        timeout_seconds = _resolve_run_timeout_seconds(run_request, context)
+
+        logger.info(
+            "Telemetry run started: agent=%s run=%s thread=%s",
+            agent_name, run_id, thread_id,
+        )
+
+        hitl_coordinator = _HITLDecisionCoordinator()
+        cancel_event = asyncio.Event()
+        cancel_reason = "Run canceled by client"
+        event_queue: asyncio.Queue[pb2.TelemetryEvent | None] = asyncio.Queue()
+
+        async def hitl_handler(request: dict[str, Any]) -> list[dict[str, Any]]:
+            decision = await hitl_coordinator.wait_for_decision(request)
+            return _translate_hitl_decisions(decision)
+
+        async def read_client_messages() -> None:
+            nonlocal cancel_reason
+            try:
+                async for msg in request_iterator:
+                    msg: pb2.ClientMessage
+                    if msg.HasField("hitl_decision"):
+                        await hitl_coordinator.submit(msg.hitl_decision)
+                        if hitl_coordinator.transport_error.done():
+                            return
+                    elif msg.HasField("cancel"):
+                        cancel_reason = msg.cancel.reason or "Run canceled by client"
+                        cancel_event.set()
+                        logger.info("Cancel requested for telemetry run %s", run_id)
+                        break
+            except Exception:
+                logger.debug("Client telemetry stream closed for run %s", run_id)
+
+        async def produce_telemetry_events() -> None:
+            try:
+                async for event in self._manager.invoke_telemetry(
+                    name=agent_name,
+                    run_config=RunConfig(
+                        input=message,
+                        thread_id=thread_id,
+                        run_id=run_id,
+                        timeout_seconds=timeout_seconds,
+                    ),
+                    hitl_handler=hitl_handler,
+                    cancel_event=cancel_event,
+                    cancel_reason=cancel_reason,
+                    cancel_reason_getter=lambda: cancel_reason,
+                ):
+                    await event_queue.put(telemetry_event_to_proto(event))
+            except KeyError as e:
+                await event_queue.put(
+                    _telemetry_error_event(run_id, agent_name, str(e), "not_found")
+                )
+            except _InvalidHITLDecisionError as e:
+                await hitl_coordinator._set_transport_error(str(e))
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.exception("Error in RunTelemetry for agent %s", agent_name)
+                await event_queue.put(_telemetry_error_event(run_id, agent_name, str(e)))
+            finally:
+                await event_queue.put(None)
+
+        reader_task = asyncio.create_task(read_client_messages())
+        producer_task = asyncio.create_task(produce_telemetry_events())
+
+        try:
+            while True:
+                source, payload = await _wait_for_telemetry_signal(
+                    event_queue=event_queue,
+                    transport_error=hitl_coordinator.transport_error,
+                )
+                if source == "transport_error":
+                    await _cancel_background_task(producer_task)
+                    yield _telemetry_error_event(
+                        run_id,
+                        agent_name,
+                        str(payload),
+                        _INVALID_HITL_DECISION_ERROR,
+                    )
+                    return
+                if payload is None:
+                    return
+                yield payload
+        finally:
+            await _cancel_background_task(reader_task)
+            await _cancel_background_task(producer_task)
+
+
 class ResourceSyncServicer(runtime_pb2_grpc.ResourceSyncServicer):
     """Implements the ResourceSync gRPC service.
 
@@ -453,6 +576,45 @@ class ResourceSyncServicer(runtime_pb2_grpc.ResourceSyncServicer):
             return pb2.AssembleResponse(
                 ok=False, message=str(e), status="error"
             )
+
+    async def GetAgentGraph(
+        self,
+        request: pb2.GetAgentGraphRequest,
+        context: grpc.aio.ServicerContext,
+    ) -> pb2.GetAgentGraphResponse:
+        """Return the drawable graph representation for one compiled agent."""
+
+        agent_name = request.agent_name.strip()
+        if not agent_name:
+            await _abort_invalid_argument(context, "agent_name is required")
+            return pb2.GetAgentGraphResponse()
+        if request.xray_depth < 0:
+            await _abort_invalid_argument(context, "xray_depth cannot be negative")
+            return pb2.GetAgentGraphResponse()
+
+        try:
+            graph = await self._manager.get_agent_graph(
+                agent_name,
+                xray_depth=request.xray_depth,
+            )
+        except KeyError as exc:
+            await context.abort(grpc.StatusCode.NOT_FOUND, str(exc))
+            return pb2.GetAgentGraphResponse()
+        except ValueError as exc:
+            await _abort_invalid_argument(context, str(exc))
+            return pb2.GetAgentGraphResponse()
+        except RuntimeError as exc:
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
+            return pb2.GetAgentGraphResponse()
+
+        payload = python_to_proto_value(graph)
+        if payload is None:
+            await context.abort(
+                grpc.StatusCode.INTERNAL,
+                f"agent graph for '{agent_name}' is not JSON-like",
+            )
+            return pb2.GetAgentGraphResponse()
+        return pb2.GetAgentGraphResponse(graph=payload)
 
     async def UploadWorkspaceFiles(
         self,
@@ -945,6 +1107,39 @@ async def _wait_for_run_signal(
     return "transport_error", transport_error.result()
 
 
+async def _wait_for_telemetry_signal(
+    *,
+    event_queue: asyncio.Queue[pb2.TelemetryEvent | None],
+    transport_error: asyncio.Future[_InvalidHITLDecisionError],
+) -> tuple[str, pb2.TelemetryEvent | _InvalidHITLDecisionError | None]:
+    """Wait for the next telemetry event or a transport-layer HITL failure."""
+
+    if not event_queue.empty():
+        return "event", event_queue.get_nowait()
+    if transport_error.done():
+        return "transport_error", transport_error.result()
+
+    queue_task = asyncio.create_task(event_queue.get())
+    done, pending = await asyncio.wait(
+        {queue_task, transport_error},
+        return_when=asyncio.FIRST_COMPLETED,
+    )
+    if queue_task in done:
+        for waiter in pending:
+            if isinstance(waiter, asyncio.Task):
+                waiter.cancel()
+        for waiter in pending:
+            if isinstance(waiter, asyncio.Task):
+                with suppress(asyncio.CancelledError):
+                    await waiter
+        return "event", queue_task.result()
+
+    queue_task.cancel()
+    with suppress(asyncio.CancelledError):
+        await queue_task
+    return "transport_error", transport_error.result()
+
+
 async def _cancel_background_task(task: asyncio.Task[Any]) -> None:
     """Cancel one background task and swallow cooperative cancellation noise."""
 
@@ -967,6 +1162,26 @@ def _error_event(
         message, run_id=run_id, agent_name=agent_name, error_type=error_type
     )
     return runtime_event_to_agent_event(evt)
+
+
+def _telemetry_error_event(
+    run_id: str,
+    agent_name: str,
+    message: str,
+    error_type: str = "",
+) -> pb2.TelemetryEvent:
+    """Create an error TelemetryEvent protobuf."""
+
+    return telemetry_event_to_proto(
+        telemetry_from_runtime_event(
+            events.error_event(
+                message,
+                run_id=run_id,
+                agent_name=agent_name,
+                error_type=error_type,
+            )
+        )
+    )
 
 
 async def _abort_invalid_argument(
@@ -1139,6 +1354,7 @@ async def serve(port: int = 50051) -> None:
 
     # Create servicers
     executor_servicer = AgentExecutorServicer(manager)
+    telemetry_servicer = AgentTelemetryServicer(manager)
     resource_servicer = ResourceSyncServicer(manager)
     session_servicer = SessionQueryServicer(manager)
 
@@ -1146,6 +1362,9 @@ async def serve(port: int = 50051) -> None:
     server = grpc_aio.server()
     runtime_pb2_grpc.add_AgentExecutorServicer_to_server(
         executor_servicer, server
+    )
+    runtime_pb2_grpc.add_AgentTelemetryServicer_to_server(
+        telemetry_servicer, server
     )
     runtime_pb2_grpc.add_ResourceSyncServicer_to_server(
         resource_servicer, server
@@ -1161,7 +1380,7 @@ async def serve(port: int = 50051) -> None:
     await server.start()
 
     logger.info(
-        "Data plane ready: AgentExecutor + ResourceSync + SessionQuery on port %d",
+        "Data plane ready: AgentExecutor + AgentTelemetry + ResourceSync + SessionQuery on port %d",
         port,
     )
 

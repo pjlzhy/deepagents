@@ -130,6 +130,122 @@ class AgentExecutor(object):
             _registered_method=True)
 
 
+class AgentTelemetryStub(object):
+    """-----------------------------------------------------------------------------
+    Service 1B: AgentTelemetry
+
+    Bidirectional streaming RPC for telemetry-grade agent execution.
+    Client = Control Plane / monitoring consumer
+    Server = Data Plane
+
+    Reuses the same control-plane request stream as `AgentExecutor.Run`, but
+    emits a richer telemetry event stream that preserves LangGraph stream
+    structure such as `ns`, `stream_mode`, `debug`, and `custom`.
+    -----------------------------------------------------------------------------
+
+    """
+
+    def __init__(self, channel):
+        """Constructor.
+
+        Args:
+            channel: A grpc.Channel.
+        """
+        self.RunTelemetry = channel.stream_stream(
+                '/deepagents.runtime.v1.AgentTelemetry/RunTelemetry',
+                request_serializer=runtime__pb2.ClientMessage.SerializeToString,
+                response_deserializer=runtime__pb2.TelemetryEvent.FromString,
+                _registered_method=True)
+
+
+class AgentTelemetryServicer(object):
+    """-----------------------------------------------------------------------------
+    Service 1B: AgentTelemetry
+
+    Bidirectional streaming RPC for telemetry-grade agent execution.
+    Client = Control Plane / monitoring consumer
+    Server = Data Plane
+
+    Reuses the same control-plane request stream as `AgentExecutor.Run`, but
+    emits a richer telemetry event stream that preserves LangGraph stream
+    structure such as `ns`, `stream_mode`, `debug`, and `custom`.
+    -----------------------------------------------------------------------------
+
+    """
+
+    def RunTelemetry(self, request_iterator, context):
+        """Run an agent and stream structured telemetry events.
+
+        Protocol:
+        1. Client sends RunRequest as the first ClientMessage
+        2. Server streams TelemetryEvents
+        3. If HITL is triggered, server emits interrupt telemetry and pauses
+        4. Client sends HITLDecision, server resumes
+        5. Client may send CancelRequest at any time
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+
+def add_AgentTelemetryServicer_to_server(servicer, server):
+    rpc_method_handlers = {
+            'RunTelemetry': grpc.stream_stream_rpc_method_handler(
+                    servicer.RunTelemetry,
+                    request_deserializer=runtime__pb2.ClientMessage.FromString,
+                    response_serializer=runtime__pb2.TelemetryEvent.SerializeToString,
+            ),
+    }
+    generic_handler = grpc.method_handlers_generic_handler(
+            'deepagents.runtime.v1.AgentTelemetry', rpc_method_handlers)
+    server.add_generic_rpc_handlers((generic_handler,))
+    server.add_registered_method_handlers('deepagents.runtime.v1.AgentTelemetry', rpc_method_handlers)
+
+
+ # This class is part of an EXPERIMENTAL API.
+class AgentTelemetry(object):
+    """-----------------------------------------------------------------------------
+    Service 1B: AgentTelemetry
+
+    Bidirectional streaming RPC for telemetry-grade agent execution.
+    Client = Control Plane / monitoring consumer
+    Server = Data Plane
+
+    Reuses the same control-plane request stream as `AgentExecutor.Run`, but
+    emits a richer telemetry event stream that preserves LangGraph stream
+    structure such as `ns`, `stream_mode`, `debug`, and `custom`.
+    -----------------------------------------------------------------------------
+
+    """
+
+    @staticmethod
+    def RunTelemetry(request_iterator,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.stream_stream(
+            request_iterator,
+            target,
+            '/deepagents.runtime.v1.AgentTelemetry/RunTelemetry',
+            runtime__pb2.ClientMessage.SerializeToString,
+            runtime__pb2.TelemetryEvent.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+
 class ResourceSyncStub(object):
     """-----------------------------------------------------------------------------
     Service 2: ResourceSync
@@ -167,6 +283,11 @@ class ResourceSyncStub(object):
                 '/deepagents.runtime.v1.ResourceSync/Assemble',
                 request_serializer=runtime__pb2.AssembleRequest.SerializeToString,
                 response_deserializer=runtime__pb2.AssembleResponse.FromString,
+                _registered_method=True)
+        self.GetAgentGraph = channel.unary_unary(
+                '/deepagents.runtime.v1.ResourceSync/GetAgentGraph',
+                request_serializer=runtime__pb2.GetAgentGraphRequest.SerializeToString,
+                response_deserializer=runtime__pb2.GetAgentGraphResponse.FromString,
                 _registered_method=True)
         self.UploadWorkspaceFiles = channel.unary_unary(
                 '/deepagents.runtime.v1.ResourceSync/UploadWorkspaceFiles',
@@ -236,6 +357,13 @@ class ResourceSyncServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetAgentGraph(self, request, context):
+        """Return a JSON-serializable drawable graph representation for one agent.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def UploadWorkspaceFiles(self, request, context):
         """Upload files into one thread workspace.
         """
@@ -293,6 +421,11 @@ def add_ResourceSyncServicer_to_server(servicer, server):
                     servicer.Assemble,
                     request_deserializer=runtime__pb2.AssembleRequest.FromString,
                     response_serializer=runtime__pb2.AssembleResponse.SerializeToString,
+            ),
+            'GetAgentGraph': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetAgentGraph,
+                    request_deserializer=runtime__pb2.GetAgentGraphRequest.FromString,
+                    response_serializer=runtime__pb2.GetAgentGraphResponse.SerializeToString,
             ),
             'UploadWorkspaceFiles': grpc.unary_unary_rpc_method_handler(
                     servicer.UploadWorkspaceFiles,
@@ -437,6 +570,33 @@ class ResourceSync(object):
             '/deepagents.runtime.v1.ResourceSync/Assemble',
             runtime__pb2.AssembleRequest.SerializeToString,
             runtime__pb2.AssembleResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetAgentGraph(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/deepagents.runtime.v1.ResourceSync/GetAgentGraph',
+            runtime__pb2.GetAgentGraphRequest.SerializeToString,
+            runtime__pb2.GetAgentGraphResponse.FromString,
             options,
             channel_credentials,
             insecure,

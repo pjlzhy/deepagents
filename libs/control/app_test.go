@@ -65,7 +65,15 @@ func (*stubBootstrapRuntimeClient) Health(context.Context) (runtimeclient.Health
 	return runtimeclient.HealthResponse{Ready: true, Status: "ok"}, nil
 }
 
+func (*stubBootstrapRuntimeClient) GetAgentGraph(context.Context, string, int32) ([]byte, error) {
+	return []byte(`{"nodes":[],"edges":[]}`), nil
+}
+
 func (*stubBootstrapRuntimeClient) OpenRun(context.Context, domain.RunRequest) (runtimeclient.RunStream, error) {
+	return nil, errors.New("not implemented in bootstrap test")
+}
+
+func (*stubBootstrapRuntimeClient) OpenRunTelemetry(context.Context, domain.RunRequest) (runtimeclient.TelemetryStream, error) {
 	return nil, errors.New("not implemented in bootstrap test")
 }
 

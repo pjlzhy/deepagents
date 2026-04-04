@@ -100,10 +100,12 @@ func (h *HTTPHandler) registerRoutes() {
 	h.serveMux.HandleFunc("GET /api/v1/agents/{name}", h.handleGetAgentSpec)
 	h.serveMux.HandleFunc("DELETE /api/v1/agents/{name}", h.handleDeleteAgentSpec)
 	h.serveMux.HandleFunc("POST /api/v1/agents/{agent}/ensure_runnable", h.handleEnsureRunnable)
+	h.serveMux.HandleFunc("GET /api/v1/agents/{agent}/graph", h.handleGetAgentGraph)
 	h.serveMux.HandleFunc("POST /api/v1/agents/{agent}/workspace/files", h.handleUploadWorkspaceFiles)
 	h.serveMux.HandleFunc("POST /api/v1/agents/{agent}/workspace/files/download", h.handleDownloadWorkspaceFiles)
 	h.serveMux.HandleFunc("GET /api/v1/agents/{agent}/workspace/files", h.handleListWorkspaceFiles)
 	h.serveMux.HandleFunc("POST /api/v1/agents/{agent}/runs/stream", h.handleRunStream)
+	h.serveMux.HandleFunc("POST /api/v1/agents/{agent}/telemetry/stream", h.handleTelemetryStream)
 	h.serveMux.HandleFunc("GET /api/v1/sessions", h.handleListSessions)
 	h.serveMux.HandleFunc("GET /api/v1/sessions/latest", h.handleGetLatestSession)
 	h.serveMux.HandleFunc("GET /api/v1/sessions/{thread_id}", h.handleGetSession)
@@ -193,6 +195,63 @@ func (h *HTTPHandler) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (h *HTTPHandler) handleTelemetryStream(w http.ResponseWriter, r *http.Request) {
+	agentName := strings.TrimSpace(r.PathValue("agent"))
+
+	req, err := decodeRunStreamRequest(r)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+	req.AgentName = agentName
+
+	telemetryStream, err := h.service.RunAgentTelemetry(r.Context(), req)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	downstream, err := newSSERunDownstream(w)
+	if err != nil {
+		_ = telemetryStream.Close()
+		writeJSONError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	sessionID, err := newRunSessionID()
+	if err != nil {
+		_ = telemetryStream.Close()
+		writeJSONError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	h.runSessions.Store(sessionID, downstream)
+	defer func() {
+		h.runSessions.Delete(sessionID)
+		downstream.Close()
+	}()
+
+	prepareSSEHeaders(w, sessionID)
+	if err := downstream.SendEnvelope(
+		r.Context(),
+		"run_session",
+		map[string]string{"session_id": sessionID},
+	); err != nil {
+		return
+	}
+
+	proxy := streamproxy.NewDefaultTelemetryProxy()
+	if err := proxy.ProxyTelemetry(r.Context(), telemetryStream, downstream); err != nil &&
+		!errors.Is(err, context.Canceled) &&
+		!errors.Is(err, context.DeadlineExceeded) {
+		_ = downstream.SendEnvelope(
+			r.Context(),
+			"transport_error",
+			errorResponse{Error: err.Error()},
+		)
+	}
+}
+
 func (h *HTTPHandler) handleHealth(w http.ResponseWriter, r *http.Request) {
 	resp, err := h.service.Health(r.Context())
 	if err != nil {
@@ -210,6 +269,31 @@ func (h *HTTPHandler) handleEnsureRunnable(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
+}
+
+func (h *HTTPHandler) handleGetAgentGraph(w http.ResponseWriter, r *http.Request) {
+	agentName := strings.TrimSpace(r.PathValue("agent"))
+	xrayDepth := int32(0)
+	if raw := strings.TrimSpace(r.URL.Query().Get("xray_depth")); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, errors.New("xray_depth must be an integer"))
+			return
+		}
+		if value < 0 {
+			writeJSONError(w, http.StatusBadRequest, errors.New("xray_depth must be non-negative"))
+			return
+		}
+		xrayDepth = int32(value)
+	}
+
+	graph, err := h.service.GetAgentGraph(r.Context(), agentName, xrayDepth)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	writeRawJSON(w, http.StatusOK, graph)
 }
 
 func (h *HTTPHandler) handleUploadWorkspaceFiles(w http.ResponseWriter, r *http.Request) {
@@ -913,6 +997,10 @@ func (d *sseRunDownstream) SendEvent(ctx context.Context, event runtimeclient.Ag
 	return d.SendEnvelope(ctx, string(event.Type), newHTTPAgentEvent(event))
 }
 
+func (d *sseRunDownstream) SendTelemetryEvent(ctx context.Context, event runtimeclient.TelemetryEvent) error {
+	return d.SendEnvelope(ctx, event.EventType, newHTTPTelemetryEvent(event))
+}
+
 func (d *sseRunDownstream) SendEnvelope(ctx context.Context, eventName string, value any) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -1079,6 +1167,18 @@ type httpAgentEvent struct {
 	Payload        json.RawMessage     `json:"payload,omitempty"`
 	ActionRequests []httpActionRequest `json:"action_requests,omitempty"`
 	ReviewConfigs  []httpReviewConfig  `json:"review_configs,omitempty"`
+}
+
+type httpTelemetryEvent struct {
+	RunID       string          `json:"run_id,omitempty"`
+	AgentName   string          `json:"agent_name,omitempty"`
+	Timestamp   string          `json:"timestamp,omitempty"`
+	Namespace   []string        `json:"namespace,omitempty"`
+	StreamMode  string          `json:"stream_mode,omitempty"`
+	EventType   string          `json:"event_type,omitempty"`
+	Metadata    json.RawMessage `json:"metadata,omitempty"`
+	Payload     json.RawMessage `json:"payload,omitempty"`
+	PublicEvent *httpAgentEvent `json:"public_event,omitempty"`
 }
 
 type httpActionRequest struct {
@@ -1936,6 +2036,12 @@ func writeJSON(w http.ResponseWriter, statusCode int, value any) {
 	_ = json.NewEncoder(w).Encode(value)
 }
 
+func writeRawJSON(w http.ResponseWriter, statusCode int, payload []byte) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	_, _ = w.Write(payload)
+}
+
 func writeJSONError(w http.ResponseWriter, statusCode int, err error) {
 	writeJSON(w, statusCode, errorResponse{Error: err.Error()})
 }
@@ -2001,6 +2107,26 @@ func newHTTPAgentEvent(event runtimeclient.AgentEvent) httpAgentEvent {
 	}
 	if !event.Timestamp.IsZero() {
 		response.Timestamp = event.Timestamp.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")
+	}
+	return response
+}
+
+func newHTTPTelemetryEvent(event runtimeclient.TelemetryEvent) httpTelemetryEvent {
+	response := httpTelemetryEvent{
+		RunID:      event.RunID,
+		AgentName:  event.AgentName,
+		Namespace:  event.Namespace,
+		StreamMode: event.StreamMode,
+		EventType:  event.EventType,
+		Metadata:   event.Metadata,
+		Payload:    event.Payload,
+	}
+	if !event.Timestamp.IsZero() {
+		response.Timestamp = event.Timestamp.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")
+	}
+	if event.PublicEvent != nil {
+		publicEvent := newHTTPAgentEvent(*event.PublicEvent)
+		response.PublicEvent = &publicEvent
 	}
 	return response
 }

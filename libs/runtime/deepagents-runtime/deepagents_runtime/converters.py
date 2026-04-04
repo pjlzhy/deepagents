@@ -24,6 +24,7 @@ from deepagents_runtime.spec import (
     SkillSpec,
     SubagentMetadata,
 )
+from deepagents_runtime.telemetry import TelemetryEvent
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -135,6 +136,33 @@ def runtime_event_to_agent_event(event: RuntimeEvent) -> pb2.AgentEvent:
         raise ValueError(msg)
 
     return pb2.AgentEvent(**kwargs)
+
+
+def telemetry_event_to_proto(event: TelemetryEvent) -> pb2.TelemetryEvent:
+    """Convert a telemetry event into a protobuf `TelemetryEvent`."""
+
+    kwargs: dict[str, Any] = {
+        "run_id": event.run_id,
+        "agent_name": event.agent_name,
+        "timestamp": _float_timestamp_to_proto(event.timestamp),
+        "ns": list(event.ns),
+        "stream_mode": event.stream_mode,
+        "event_type": event.event_type,
+    }
+    if event.metadata:
+        kwargs["metadata"] = _dict_to_struct(event.metadata)
+    payload = _python_to_value(event.payload)
+    if payload is not None:
+        kwargs["payload"] = payload
+    if event.public_event is not None:
+        kwargs["public_event"] = runtime_event_to_agent_event(event.public_event)
+    return pb2.TelemetryEvent(**kwargs)
+
+
+def python_to_proto_value(value: Any) -> struct_pb2.Value | None:
+    """Convert a JSON-like Python value to a protobuf Value."""
+
+    return _python_to_value(value)
 
 
 # ══════════════════════════════════════════════════════════════════

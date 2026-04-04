@@ -24,6 +24,7 @@ type Dependencies struct {
 	Registry     registrypkg.Registry
 	ResourceSync runtimeclient.ResourceSyncClient
 	Executor     runtimeclient.AgentExecutorClient
+	Telemetry    runtimeclient.AgentTelemetryClient
 	Sessions     runtimeclient.SessionQueryClient
 }
 
@@ -34,6 +35,7 @@ type Service struct {
 	registry     registrypkg.Registry
 	resourceSync runtimeclient.ResourceSyncClient
 	executor     runtimeclient.AgentExecutorClient
+	telemetry    runtimeclient.AgentTelemetryClient
 	sessions     runtimeclient.SessionQueryClient
 }
 
@@ -48,6 +50,8 @@ func NewService(deps Dependencies) (*Service, error) {
 		return nil, errors.New("resource sync client must not be nil")
 	case deps.Executor == nil:
 		return nil, errors.New("executor client must not be nil")
+	case deps.Telemetry == nil:
+		return nil, errors.New("telemetry client must not be nil")
 	case deps.Sessions == nil:
 		return nil, errors.New("session query client must not be nil")
 	}
@@ -58,6 +62,7 @@ func NewService(deps Dependencies) (*Service, error) {
 		registry:     deps.Registry,
 		resourceSync: deps.ResourceSync,
 		executor:     deps.Executor,
+		telemetry:    deps.Telemetry,
 		sessions:     deps.Sessions,
 	}, nil
 }
@@ -134,6 +139,32 @@ func (s *Service) RunAgent(
 	stream, err := s.executor.OpenRun(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("open run stream for agent %q: %w", agentName, err)
+	}
+	return stream, nil
+}
+
+// RunAgentTelemetry opens one telemetry-grade run stream.
+func (s *Service) RunAgentTelemetry(
+	ctx context.Context,
+	req domain.RunRequest,
+) (runtimeclient.TelemetryStream, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	agentName := strings.TrimSpace(req.AgentName)
+	if agentName == "" {
+		return nil, ErrEmptyAgentName
+	}
+	req.AgentName = agentName
+
+	if err := s.ensureRunnable(ctx, agentName); err != nil {
+		return nil, fmt.Errorf("ensure runnable agent %q: %w", agentName, err)
+	}
+
+	stream, err := s.telemetry.OpenRunTelemetry(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("open run telemetry stream for agent %q: %w", agentName, err)
 	}
 	return stream, nil
 }
@@ -247,6 +278,35 @@ func (s *Service) Health(ctx context.Context) (runtimeclient.HealthResponse, err
 		return runtimeclient.HealthResponse{}, fmt.Errorf("query runtime health: %w", err)
 	}
 	return resp, nil
+}
+
+// GetAgentGraph ensures the agent is runnable, then returns its drawable graph.
+func (s *Service) GetAgentGraph(
+	ctx context.Context,
+	agentName string,
+	xrayDepth int32,
+) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	trimmedAgentName := strings.TrimSpace(agentName)
+	if trimmedAgentName == "" {
+		return nil, ErrEmptyAgentName
+	}
+	if xrayDepth < 0 {
+		return nil, fmt.Errorf("xray depth must be non-negative")
+	}
+
+	if err := s.ensureRunnable(ctx, trimmedAgentName); err != nil {
+		return nil, fmt.Errorf("ensure runnable agent %q: %w", trimmedAgentName, err)
+	}
+
+	graph, err := s.resourceSync.GetAgentGraph(ctx, trimmedAgentName, xrayDepth)
+	if err != nil {
+		return nil, fmt.Errorf("get agent graph %q: %w", trimmedAgentName, err)
+	}
+	return graph, nil
 }
 
 // ListSessions queries recent runtime sessions, optionally filtered by agent.

@@ -19,7 +19,11 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from grpc import aio as grpc_aio
 
 from deepagents_runtime import sessions as runtime_sessions
-from deepagents_runtime.entry.server import AgentExecutorServicer, ResourceSyncServicer
+from deepagents_runtime.entry.server import (
+    AgentExecutorServicer,
+    AgentTelemetryServicer,
+    ResourceSyncServicer,
+)
 from deepagents_runtime.generated import runtime_pb2 as pb2
 from deepagents_runtime.generated import runtime_pb2_grpc
 from deepagents_runtime.manager.manager import AgentManager
@@ -96,6 +100,81 @@ class StructuredToolGraph:
                 ),
                 {"langgraph_node": "model"},
             ),
+        }
+
+
+class TelemetryGraph:
+    """Fake graph that emits messages, updates, debug, and custom telemetry."""
+
+    def __init__(self) -> None:
+        self.stream_modes: list[list[str]] = []
+
+    async def astream(
+        self,
+        stream_input: Any,
+        *,
+        config: dict[str, Any],
+        context: Any = None,
+        stream_mode: list[str],
+        subgraphs: bool,
+        version: str,
+    ) -> AsyncIterator[dict[str, Any]]:
+        del stream_input, config, context, subgraphs, version
+        self.stream_modes.append(list(stream_mode))
+
+        yield {
+            "type": "messages",
+            "ns": (),
+            "data": (
+                AIMessageChunk(content="root answer"),
+                {"langgraph_node": "model", "langgraph_step": 1},
+            ),
+        }
+        yield {
+            "type": "messages",
+            "ns": ("task:research",),
+            "data": (
+                AIMessageChunk(
+                    content=[
+                        {
+                            "type": "reasoning",
+                            "summary": [
+                                {"type": "summary_text", "text": "subagent thought"}
+                            ],
+                            "id": "rs_sub_1",
+                        }
+                    ]
+                ),
+                {"langgraph_node": "researcher", "langgraph_step": 2},
+            ),
+        }
+        yield {
+            "type": "updates",
+            "ns": ("task:research",),
+            "data": {
+                "planner": {"todos": [{"content": "inspect files"}]},
+                "__metadata__": {"langgraph_node": "planner"},
+            },
+        }
+        yield {
+            "type": "debug",
+            "ns": ("task:research",),
+            "data": {
+                "step": 2,
+                "timestamp": "2026-04-03T00:00:00+00:00",
+                "type": "task",
+                "payload": {
+                    "id": "task-1",
+                    "name": "research",
+                    "input": {"goal": "inspect files"},
+                    "triggers": ["messages"],
+                },
+            },
+        }
+        yield {
+            "type": "custom",
+            "ns": ("task:research",),
+            "data": {"phase": "search", "progress": 0.5},
         }
         yield {
             "type": "messages",
@@ -328,6 +407,45 @@ async def _grpc_runtime_server(
     try:
         yield (
             runtime_pb2_grpc.AgentExecutorStub(channel),
+            runtime_pb2_grpc.ResourceSyncStub(channel),
+        )
+    finally:
+        await channel.close()
+        await server.stop(grace=0)
+        await manager.shutdown()
+
+
+@asynccontextmanager
+async def _grpc_runtime_server_with_telemetry(
+    manager: AgentManager,
+) -> AsyncIterator[tuple[Any, Any, Any]]:
+    """Start an in-process gRPC runtime server with the telemetry service enabled."""
+
+    await manager.setup()
+
+    server = grpc_aio.server()
+    runtime_pb2_grpc.add_AgentExecutorServicer_to_server(
+        AgentExecutorServicer(manager),
+        server,
+    )
+    runtime_pb2_grpc.add_AgentTelemetryServicer_to_server(
+        AgentTelemetryServicer(manager),
+        server,
+    )
+    runtime_pb2_grpc.add_ResourceSyncServicer_to_server(
+        ResourceSyncServicer(manager),
+        server,
+    )
+
+    port = server.add_insecure_port("127.0.0.1:0")
+    await server.start()
+
+    channel = grpc_aio.insecure_channel(f"127.0.0.1:{port}")
+    await channel.channel_ready()
+    try:
+        yield (
+            runtime_pb2_grpc.AgentExecutorStub(channel),
+            runtime_pb2_grpc.AgentTelemetryStub(channel),
             runtime_pb2_grpc.ResourceSyncStub(channel),
         )
     finally:
@@ -792,5 +910,70 @@ def test_grpc_run_stream_preserves_structured_tool_payloads_in_process() -> None
         payload = events[3].tool_result.payload.struct_value.fields
         assert payload["stdout"].string_value == "ok"
         assert payload["files"].list_value.values[0].string_value == "/tmp/a.txt"
+    finally:
+        _cleanup_base_dir(base_dir)
+
+
+def test_grpc_run_telemetry_preserves_debug_custom_reasoning_and_namespace() -> None:
+    """AgentTelemetry.RunTelemetry should preserve rich LangGraph stream structure."""
+
+    base_dir = _make_base_dir()
+    registry = Registry(base_dir=base_dir)
+    manager = AgentManager(registry=registry)
+    graph = TelemetryGraph()
+
+    try:
+        with _patch_runtime_dependencies(graph=graph):
+            async def scenario() -> list[Any]:
+                async with _grpc_runtime_server_with_telemetry(
+                    manager
+                ) as (_, telemetry_stub, resource_stub):
+                    await resource_stub.SyncAgentSpec(
+                        _build_sync_agent_spec_request(name="grpc-telemetry-agent")
+                    )
+                    await resource_stub.Assemble(
+                        pb2.AssembleRequest(agent_name="grpc-telemetry-agent")
+                    )
+
+                    call = telemetry_stub.RunTelemetry()
+                    await call.write(
+                        pb2.ClientMessage(
+                            run_request=pb2.RunRequest(
+                                agent_name="grpc-telemetry-agent",
+                                message="hello telemetry",
+                                thread_id="thread-grpc-telemetry-1",
+                            )
+                        )
+                    )
+                    await call.done_writing()
+                    return [event async for event in call]
+
+            events = asyncio.run(scenario())
+
+        assert graph.stream_modes == [["messages", "updates", "debug", "custom"]]
+        event_types = [event.event_type for event in events]
+        assert "run_started" in event_types
+        assert "text" in event_types
+        assert "reasoning" in event_types
+        assert "state_update" in event_types
+        assert "task" in event_types
+        assert "custom" in event_types
+        assert "text_done" in event_types
+        assert "run_ended" in event_types
+
+        reasoning_event = next(event for event in events if event.event_type == "reasoning")
+        assert list(reasoning_event.ns) == ["task:research"]
+        assert reasoning_event.metadata.fields["langgraph_node"].string_value == "researcher"
+        assert reasoning_event.payload.struct_value.fields["summary"].list_value.values[0].struct_value.fields["text"].string_value == "subagent thought"
+        assert reasoning_event.HasField("public_event") is False
+
+        debug_event = next(event for event in events if event.event_type == "task")
+        assert list(debug_event.ns) == ["task:research"]
+        assert debug_event.stream_mode == "debug"
+        assert debug_event.metadata.fields["step"].number_value == 2
+
+        custom_event = next(event for event in events if event.event_type == "custom")
+        assert custom_event.payload.struct_value.fields["phase"].string_value == "search"
+        assert custom_event.payload.struct_value.fields["progress"].number_value == 0.5
     finally:
         _cleanup_base_dir(base_dir)

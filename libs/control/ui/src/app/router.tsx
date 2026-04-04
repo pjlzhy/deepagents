@@ -8,6 +8,7 @@ import SandboxesPage from '@/pages/registry/SandboxesPage';
 import AgentsPage from '@/pages/registry/AgentsPage';
 import AgentBuilderPage from '@/pages/registry/AgentBuilderPage';
 import ChatWorkspacePage from '@/pages/chat';
+import TelemetryPage from '@/pages/telemetry';
 
 function StretchPage(props: { children: ReactNode }) {
   return <div className='flex min-h-0 flex-1 flex-col overflow-hidden'>{props.children}</div>;
@@ -48,6 +49,22 @@ export default function AppRouter() {
         element={
           <StretchPage>
             <ChatWorkspacePage />
+          </StretchPage>
+        }
+      />
+      <Route
+        path='/telemetry'
+        element={
+          <StretchPage>
+            <TelemetryPage />
+          </StretchPage>
+        }
+      />
+      <Route
+        path='/telemetry/:agentName'
+        element={
+          <StretchPage>
+            <TelemetryPage />
           </StretchPage>
         }
       />

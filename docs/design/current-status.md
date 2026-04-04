@@ -105,13 +105,14 @@
 
 ## 5. 当前在途事项
 
-当前这轮主闭环已经完成协议和文档收口。仍需留意的只是工程交付层面的尾项：
+当前这轮主闭环已经完成协议和文档收口。仍需留意的事项如下：
 
 - 当前 working tree 仍需正式入库
 - backlog 优先级仍需在“部署验证 / multi-target / UI”之间排定
 - UI 文档本轮未纳入同步范围
+- telemetry / 监控 southbound 扩展已进入设计阶段，见 [runtime-agent-telemetry-design.md](./runtime-agent-telemetry-design.md)
 
-这一阶段的重点已经不再是补协议，而是决定下一轮 backlog 的推进顺序。
+这一阶段的重点已经不再是补当前交互主链协议，而是决定下一轮 backlog 的推进顺序，并为监控扩展预留稳定边界。
 
 ## 6. 建议的下一步顺序
 

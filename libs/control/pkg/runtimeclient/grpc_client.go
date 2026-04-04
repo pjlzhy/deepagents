@@ -2,6 +2,7 @@ package runtimeclient
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -15,9 +16,10 @@ import (
 )
 
 var (
-	_ ResourceSyncClient  = (*GRPCClient)(nil)
-	_ AgentExecutorClient = (*GRPCClient)(nil)
-	_ SessionQueryClient  = (*GRPCClient)(nil)
+	_ ResourceSyncClient   = (*GRPCClient)(nil)
+	_ AgentExecutorClient  = (*GRPCClient)(nil)
+	_ AgentTelemetryClient = (*GRPCClient)(nil)
+	_ SessionQueryClient   = (*GRPCClient)(nil)
 )
 
 // GRPCClient is the southbound runtime client backed by protobuf gRPC stubs.
@@ -25,6 +27,7 @@ type GRPCClient struct {
 	conn         *grpc.ClientConn
 	resourceSync runtimev1.ResourceSyncClient
 	executor     runtimev1.AgentExecutorClient
+	telemetry    runtimev1.AgentTelemetryClient
 	sessions     runtimev1.SessionQueryClient
 }
 
@@ -64,6 +67,7 @@ func NewGRPCClientFromConn(conn *grpc.ClientConn) (*GRPCClient, error) {
 		conn:         conn,
 		resourceSync: runtimev1.NewResourceSyncClient(conn),
 		executor:     runtimev1.NewAgentExecutorClient(conn),
+		telemetry:    runtimev1.NewAgentTelemetryClient(conn),
 		sessions:     runtimev1.NewSessionQueryClient(conn),
 	}, nil
 }
@@ -114,6 +118,22 @@ func (c *GRPCClient) Assemble(
 		Message: response.GetMessage(),
 		Status:  response.GetStatus(),
 	}, nil
+}
+
+// GetAgentGraph returns a JSON-serializable drawable graph representation.
+func (c *GRPCClient) GetAgentGraph(
+	ctx context.Context,
+	agentName string,
+	xrayDepth int32,
+) (json.RawMessage, error) {
+	response, err := c.resourceSync.GetAgentGraph(ctx, &runtimev1.GetAgentGraphRequest{
+		AgentName: agentName,
+		XrayDepth: xrayDepth,
+	})
+	if err != nil {
+		return nil, normalizeRPCError("get agent graph", err)
+	}
+	return valueToRawJSON(response.GetGraph()), nil
 }
 
 // UploadWorkspaceFiles stages files into one runtime thread workspace.
@@ -225,6 +245,27 @@ func (c *GRPCClient) OpenRun(ctx context.Context, req domain.RunRequest) (RunStr
 	}
 
 	return newGRPCRunStream(stream), nil
+}
+
+// OpenRunTelemetry opens one southbound telemetry stream and sends the initial request.
+func (c *GRPCClient) OpenRunTelemetry(
+	ctx context.Context,
+	req domain.RunRequest,
+) (TelemetryStream, error) {
+	stream, err := c.telemetry.RunTelemetry(ctx)
+	if err != nil {
+		return nil, normalizeRPCError("open run telemetry stream", err)
+	}
+
+	if err := stream.Send(&runtimev1.ClientMessage{
+		Payload: &runtimev1.ClientMessage_RunRequest{
+			RunRequest: runRequestToProto(req),
+		},
+	}); err != nil {
+		return nil, normalizeRPCError("send initial telemetry run request", err)
+	}
+
+	return newGRPCTelemetryStream(stream), nil
 }
 
 // ListSessions lists recent sessions from the data plane.

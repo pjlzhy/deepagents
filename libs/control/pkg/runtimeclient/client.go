@@ -95,9 +95,30 @@ type AgentEvent struct {
 	ReviewConfigs []ReviewConfig
 }
 
+// TelemetryEvent captures one telemetry-grade runtime event.
+type TelemetryEvent struct {
+	RunID       string
+	AgentName   string
+	Timestamp   time.Time
+	Namespace   []string
+	StreamMode  string
+	EventType   string
+	Metadata    json.RawMessage
+	Payload     json.RawMessage
+	PublicEvent *AgentEvent
+}
+
 // RunStream 表示一条已建立的 southbound 运行流。
 type RunStream interface {
 	Events() <-chan AgentEvent
+	SendHITLDecision(ctx context.Context, interruptID string, decisions []ToolDecision) error
+	SendCancel(ctx context.Context, reason string) error
+	Close() error
+}
+
+// TelemetryStream represents one telemetry-grade southbound run stream.
+type TelemetryStream interface {
+	Events() <-chan TelemetryEvent
 	SendHITLDecision(ctx context.Context, interruptID string, decisions []ToolDecision) error
 	SendCancel(ctx context.Context, reason string) error
 	Close() error
@@ -107,6 +128,7 @@ type RunStream interface {
 type ResourceSyncClient interface {
 	SyncAgentSpec(ctx context.Context, spec domain.RuntimeAgentSpec) (SyncResponse, error)
 	Assemble(ctx context.Context, agentName string) (AssembleResponse, error)
+	GetAgentGraph(ctx context.Context, agentName string, xrayDepth int32) (json.RawMessage, error)
 	UploadWorkspaceFiles(ctx context.Context, req domain.WorkspaceUploadRequest) (domain.WorkspaceUploadResponse, error)
 	DownloadWorkspaceFiles(ctx context.Context, req domain.WorkspaceDownloadRequest) (domain.WorkspaceDownloadResponse, error)
 	ListWorkspaceFiles(ctx context.Context, req domain.WorkspaceListRequest) (domain.WorkspaceListResponse, error)
@@ -117,6 +139,11 @@ type ResourceSyncClient interface {
 // AgentExecutorClient 封装 southbound Run 双向流。
 type AgentExecutorClient interface {
 	OpenRun(ctx context.Context, req domain.RunRequest) (RunStream, error)
+}
+
+// AgentTelemetryClient wraps the southbound telemetry run stream.
+type AgentTelemetryClient interface {
+	OpenRunTelemetry(ctx context.Context, req domain.RunRequest) (TelemetryStream, error)
 }
 
 // SessionQueryClient 封装 session 相关 southbound 查询。

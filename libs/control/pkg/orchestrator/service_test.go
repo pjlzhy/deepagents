@@ -5,6 +5,7 @@ import (
 	registrypkg "agentctl/pkg/registry"
 	"agentctl/pkg/runtimeclient"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -305,6 +306,10 @@ type fakeResourceSyncClient struct {
 	syncErr        error
 	assembleResp   runtimeclient.AssembleResponse
 	assembleErr    error
+	graphResp      json.RawMessage
+	graphErr       error
+	graphAgentName string
+	graphXrayDepth int32
 	uploadResp     domain.WorkspaceUploadResponse
 	uploadErr      error
 	downloadResp   domain.WorkspaceDownloadResponse
@@ -378,9 +383,23 @@ func (f *fakeResourceSyncClient) Health(context.Context) (runtimeclient.HealthRe
 	return f.healthResp, f.healthErr
 }
 
+func (f *fakeResourceSyncClient) GetAgentGraph(
+	_ context.Context,
+	agentName string,
+	xrayDepth int32,
+) (json.RawMessage, error) {
+	f.graphAgentName = agentName
+	f.graphXrayDepth = xrayDepth
+	return f.graphResp, f.graphErr
+}
+
 type fakeExecutorClient struct{}
 
 func (fakeExecutorClient) OpenRun(context.Context, domain.RunRequest) (runtimeclient.RunStream, error) {
+	return nil, errors.New("unused in constructor tests")
+}
+
+func (fakeExecutorClient) OpenRunTelemetry(context.Context, domain.RunRequest) (runtimeclient.TelemetryStream, error) {
 	return nil, errors.New("unused in constructor tests")
 }
 
@@ -408,12 +427,40 @@ func (*stubRunStream) Close() error {
 	return nil
 }
 
+type stubTelemetryStream struct {
+	events chan runtimeclient.TelemetryEvent
+}
+
+func newStubTelemetryStream() *stubTelemetryStream {
+	return &stubTelemetryStream{events: make(chan runtimeclient.TelemetryEvent)}
+}
+
+func (s *stubTelemetryStream) Events() <-chan runtimeclient.TelemetryEvent {
+	return s.events
+}
+
+func (*stubTelemetryStream) SendHITLDecision(context.Context, string, []runtimeclient.ToolDecision) error {
+	return nil
+}
+
+func (*stubTelemetryStream) SendCancel(context.Context, string) error {
+	return nil
+}
+
+func (*stubTelemetryStream) Close() error {
+	return nil
+}
+
 type stubExecutorClient struct {
-	stream  runtimeclient.RunStream
-	err     error
-	gotReq  domain.RunRequest
-	calls   int
-	callLog *[]string
+	stream          runtimeclient.RunStream
+	err             error
+	gotReq          domain.RunRequest
+	calls           int
+	callLog         *[]string
+	telemetryStream runtimeclient.TelemetryStream
+	telemetryErr    error
+	gotTelemetryReq domain.RunRequest
+	telemetryCalls  int
 }
 
 func (s *stubExecutorClient) OpenRun(
@@ -426,6 +473,18 @@ func (s *stubExecutorClient) OpenRun(
 	s.gotReq = req
 	s.calls++
 	return s.stream, s.err
+}
+
+func (s *stubExecutorClient) OpenRunTelemetry(
+	_ context.Context,
+	req domain.RunRequest,
+) (runtimeclient.TelemetryStream, error) {
+	if s.callLog != nil {
+		*s.callLog = append(*s.callLog, "open_run_telemetry")
+	}
+	s.gotTelemetryReq = req
+	s.telemetryCalls++
+	return s.telemetryStream, s.telemetryErr
 }
 
 type fakeSessionQueryClient struct{}
@@ -605,6 +664,7 @@ func TestNewServiceAcceptsCompleteDependencies(t *testing.T) {
 		Packager:     &fakePackager{},
 		ResourceSync: &fakeResourceSyncClient{},
 		Executor:     fakeExecutorClient{},
+		Telemetry:    fakeExecutorClient{},
 		Sessions:     fakeSessionQueryClient{},
 	})
 	if err != nil {
@@ -638,6 +698,7 @@ func TestEnsureRunnableSyncsAndAssemblesAgent(t *testing.T) {
 		Packager:     packager,
 		ResourceSync: resourceSync,
 		Executor:     fakeExecutorClient{},
+		Telemetry:    fakeExecutorClient{},
 		Sessions:     fakeSessionQueryClient{},
 	})
 	if err != nil {
@@ -683,8 +744,9 @@ func TestEnsureRunnableReturnsSyncFailure(t *testing.T) {
 				Message: "validation failed",
 			},
 		},
-		Executor: fakeExecutorClient{},
-		Sessions: fakeSessionQueryClient{},
+		Executor:  fakeExecutorClient{},
+		Telemetry: fakeExecutorClient{},
+		Sessions:  fakeSessionQueryClient{},
 	})
 	if err != nil {
 		t.Fatalf("new service: %v", err)
@@ -711,8 +773,9 @@ func TestEnsureRunnableReturnsAssembleFailure(t *testing.T) {
 				Status:  "degraded",
 			},
 		},
-		Executor: fakeExecutorClient{},
-		Sessions: fakeSessionQueryClient{},
+		Executor:  fakeExecutorClient{},
+		Telemetry: fakeExecutorClient{},
+		Sessions:  fakeSessionQueryClient{},
 	})
 	if err != nil {
 		t.Fatalf("new service: %v", err)
@@ -749,6 +812,7 @@ func TestRunAgentEnsuresRunnableBeforeOpeningStream(t *testing.T) {
 		Packager:     packager,
 		ResourceSync: resourceSync,
 		Executor:     executor,
+		Telemetry:    executor,
 		Sessions:     fakeSessionQueryClient{},
 	})
 	if err != nil {
@@ -774,6 +838,119 @@ func TestRunAgentEnsuresRunnableBeforeOpeningStream(t *testing.T) {
 	}
 
 	wantOrder := []string{"resolve", "package", "sync", "assemble", "open_run"}
+	if len(callLog) != len(wantOrder) {
+		t.Fatalf("unexpected call count: %#v", callLog)
+	}
+	for index, want := range wantOrder {
+		if callLog[index] != want {
+			t.Fatalf("unexpected call order: %#v", callLog)
+		}
+	}
+}
+
+func TestRunAgentTelemetryEnsuresRunnableBeforeOpeningStream(t *testing.T) {
+	callLog := []string{}
+	resolver := &fakeResolver{
+		result:  testResolvedAgentInput("demo-agent"),
+		callLog: &callLog,
+	}
+	packager := &fakePackager{
+		result:  testRuntimeAgentSpec("demo-agent"),
+		callLog: &callLog,
+	}
+	resourceSync := &fakeResourceSyncClient{
+		syncResp:     runtimeclient.SyncResponse{OK: true},
+		assembleResp: runtimeclient.AssembleResponse{OK: true, Status: "compiled"},
+		callLog:      &callLog,
+	}
+	wantStream := newStubTelemetryStream()
+	executor := &stubExecutorClient{
+		telemetryStream: wantStream,
+		callLog:         &callLog,
+	}
+
+	service, err := NewService(Dependencies{
+		Resolver:     resolver,
+		Packager:     packager,
+		ResourceSync: resourceSync,
+		Executor:     executor,
+		Telemetry:    executor,
+		Sessions:     fakeSessionQueryClient{},
+	})
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	stream, err := service.RunAgentTelemetry(context.Background(), domain.RunRequest{
+		AgentName: " demo-agent ",
+		Message:   "hello telemetry",
+		ThreadID:  "thread-telemetry-1",
+	})
+	if err != nil {
+		t.Fatalf("RunAgentTelemetry: %v", err)
+	}
+	if stream != wantStream {
+		t.Fatalf("unexpected telemetry stream: %#v", stream)
+	}
+	if executor.gotTelemetryReq.AgentName != "demo-agent" ||
+		executor.gotTelemetryReq.Message != "hello telemetry" ||
+		executor.gotTelemetryReq.ThreadID != "thread-telemetry-1" {
+		t.Fatalf("unexpected telemetry run request: %#v", executor.gotTelemetryReq)
+	}
+
+	wantOrder := []string{"resolve", "package", "sync", "assemble", "open_run_telemetry"}
+	if len(callLog) != len(wantOrder) {
+		t.Fatalf("unexpected call count: %#v", callLog)
+	}
+	for index, want := range wantOrder {
+		if callLog[index] != want {
+			t.Fatalf("unexpected call order: %#v", callLog)
+		}
+	}
+}
+
+func TestGetAgentGraphEnsuresRunnableBeforeDelegating(t *testing.T) {
+	callLog := []string{}
+	resolver := &fakeResolver{
+		result:  testResolvedAgentInput("demo-agent"),
+		callLog: &callLog,
+	}
+	packager := &fakePackager{
+		result:  testRuntimeAgentSpec("demo-agent"),
+		callLog: &callLog,
+	}
+	resourceSync := &fakeResourceSyncClient{
+		syncResp:     runtimeclient.SyncResponse{OK: true},
+		assembleResp: runtimeclient.AssembleResponse{OK: true, Status: "compiled"},
+		graphResp:    []byte(`{"nodes":[{"id":"model"}],"edges":[]}`),
+		callLog:      &callLog,
+	}
+	executor := &stubExecutorClient{}
+
+	service, err := NewService(Dependencies{
+		Resolver:     resolver,
+		Packager:     packager,
+		ResourceSync: resourceSync,
+		Executor:     executor,
+		Telemetry:    executor,
+		Sessions:     fakeSessionQueryClient{},
+	})
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	graph, err := service.GetAgentGraph(context.Background(), " demo-agent ", 2)
+	if err != nil {
+		t.Fatalf("GetAgentGraph: %v", err)
+	}
+	if string(graph) != `{"nodes":[{"id":"model"}],"edges":[]}` {
+		t.Fatalf("unexpected graph response: %s", string(graph))
+	}
+	if resourceSync.graphAgentName != "demo-agent" || resourceSync.graphXrayDepth != 2 {
+		t.Fatalf("unexpected graph request: agent=%q depth=%d", resourceSync.graphAgentName, resourceSync.graphXrayDepth)
+	}
+
+	wantOrder := []string{"resolve", "package", "sync", "assemble"}
 	if len(callLog) != len(wantOrder) {
 		t.Fatalf("unexpected call count: %#v", callLog)
 	}
@@ -811,6 +988,7 @@ func TestUploadWorkspaceFilesEnsuresRunnableBeforeDelegating(t *testing.T) {
 		Packager:     packager,
 		ResourceSync: resourceSync,
 		Executor:     fakeExecutorClient{},
+		Telemetry:    fakeExecutorClient{},
 		Sessions:     fakeSessionQueryClient{},
 	})
 	if err != nil {
@@ -875,6 +1053,7 @@ func TestDownloadWorkspaceFilesEnsuresRunnableBeforeDelegating(t *testing.T) {
 		Packager:     packager,
 		ResourceSync: resourceSync,
 		Executor:     fakeExecutorClient{},
+		Telemetry:    fakeExecutorClient{},
 		Sessions:     fakeSessionQueryClient{},
 	})
 	if err != nil {
@@ -937,6 +1116,7 @@ func TestListWorkspaceFilesEnsuresRunnableBeforeDelegating(t *testing.T) {
 		Packager:     packager,
 		ResourceSync: resourceSync,
 		Executor:     fakeExecutorClient{},
+		Telemetry:    fakeExecutorClient{},
 		Sessions:     fakeSessionQueryClient{},
 	})
 	if err != nil {
@@ -978,6 +1158,7 @@ func TestRunAgentReturnsEmptyAgentError(t *testing.T) {
 		Packager:     &fakePackager{},
 		ResourceSync: &fakeResourceSyncClient{},
 		Executor:     &stubExecutorClient{},
+		Telemetry:    &stubExecutorClient{},
 		Sessions:     fakeSessionQueryClient{},
 	})
 	if err != nil {
@@ -1000,6 +1181,7 @@ func TestRunAgentShortCircuitsWhenEnsureRunnableFails(t *testing.T) {
 		Packager:     &fakePackager{},
 		ResourceSync: &fakeResourceSyncClient{},
 		Executor:     executor,
+		Telemetry:    executor,
 		Sessions:     fakeSessionQueryClient{},
 	})
 	if err != nil {
@@ -1030,8 +1212,9 @@ func TestRunAgentWrapsOpenRunError(t *testing.T) {
 			syncResp:     runtimeclient.SyncResponse{OK: true},
 			assembleResp: runtimeclient.AssembleResponse{OK: true},
 		},
-		Executor: executor,
-		Sessions: fakeSessionQueryClient{},
+		Executor:  executor,
+		Telemetry: executor,
+		Sessions:  fakeSessionQueryClient{},
 	})
 	if err != nil {
 		t.Fatalf("new service: %v", err)
@@ -1051,6 +1234,7 @@ func TestHealthDelegatesToResourceSync(t *testing.T) {
 		Packager:     &fakePackager{},
 		ResourceSync: &fakeResourceSyncClient{healthResp: runtimeclient.HealthResponse{Ready: true, Status: "ok"}},
 		Executor:     fakeExecutorClient{},
+		Telemetry:    fakeExecutorClient{},
 		Sessions:     fakeSessionQueryClient{},
 	})
 	if err != nil {
@@ -1074,6 +1258,7 @@ func TestResourceCRUDDelegatesToRegistry(t *testing.T) {
 		Packager:     &fakePackager{},
 		ResourceSync: &fakeResourceSyncClient{},
 		Executor:     fakeExecutorClient{},
+		Telemetry:    fakeExecutorClient{},
 		Sessions:     fakeSessionQueryClient{},
 	})
 	if err != nil {
@@ -1179,6 +1364,7 @@ func TestResourcePageRejectsPageNumberWithoutPageSize(t *testing.T) {
 		Packager:     &fakePackager{},
 		ResourceSync: &fakeResourceSyncClient{},
 		Executor:     fakeExecutorClient{},
+		Telemetry:    fakeExecutorClient{},
 		Sessions:     fakeSessionQueryClient{},
 	})
 	if err != nil {
@@ -1201,6 +1387,7 @@ func TestListSessionsDelegatesToSessionClient(t *testing.T) {
 		Packager:     &fakePackager{},
 		ResourceSync: &fakeResourceSyncClient{},
 		Executor:     fakeExecutorClient{},
+		Telemetry:    fakeExecutorClient{},
 		Sessions:     sessionsClient,
 	})
 	if err != nil {
@@ -1230,6 +1417,7 @@ func TestGetSessionDelegatesToSessionClient(t *testing.T) {
 		Packager:     &fakePackager{},
 		ResourceSync: &fakeResourceSyncClient{},
 		Executor:     fakeExecutorClient{},
+		Telemetry:    fakeExecutorClient{},
 		Sessions:     sessionsClient,
 	})
 	if err != nil {
@@ -1276,6 +1464,7 @@ func TestGetSessionMessagePageDelegatesToSessionClient(t *testing.T) {
 		Packager:     &fakePackager{},
 		ResourceSync: &fakeResourceSyncClient{},
 		Executor:     fakeExecutorClient{},
+		Telemetry:    fakeExecutorClient{},
 		Sessions:     sessionsClient,
 	})
 	if err != nil {
@@ -1304,6 +1493,7 @@ func TestGetSessionMessagesDelegatesToSessionClient(t *testing.T) {
 		Packager:     &fakePackager{},
 		ResourceSync: &fakeResourceSyncClient{},
 		Executor:     fakeExecutorClient{},
+		Telemetry:    fakeExecutorClient{},
 		Sessions:     sessionsClient,
 	})
 	if err != nil {
@@ -1343,6 +1533,7 @@ func TestGetLatestSessionDelegatesToSessionClient(t *testing.T) {
 		Packager:     &fakePackager{},
 		ResourceSync: &fakeResourceSyncClient{},
 		Executor:     fakeExecutorClient{},
+		Telemetry:    fakeExecutorClient{},
 		Sessions:     sessionsClient,
 	})
 	if err != nil {
@@ -1368,6 +1559,7 @@ func TestDeleteSessionDelegatesToSessionClient(t *testing.T) {
 		Packager:     &fakePackager{},
 		ResourceSync: &fakeResourceSyncClient{},
 		Executor:     fakeExecutorClient{},
+		Telemetry:    fakeExecutorClient{},
 		Sessions:     sessionsClient,
 	})
 	if err != nil {

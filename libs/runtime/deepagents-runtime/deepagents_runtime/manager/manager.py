@@ -34,6 +34,7 @@ from deepagents_runtime.spec import (
     RunConfig,
     validate_agent_spec,
 )
+from deepagents_runtime.telemetry import TelemetryEvent, telemetry_from_runtime_event
 
 logger = logging.getLogger(__name__)
 
@@ -410,6 +411,114 @@ class AgentManager:
         finally:
             await self._cancel_run_producer(producer)
 
+    async def invoke_telemetry(
+            self,
+            name: str,
+            run_config: RunConfig,
+            *,
+            hitl_handler: HITLHandler | None = None,
+            cancel_event: asyncio.Event | None = None,
+            cancel_reason: str = "Run canceled by client",
+            cancel_reason_getter: Callable[[], str] | None = None,
+    ) -> AsyncIterator[TelemetryEvent]:
+        """Run an already compiled agent and stream telemetry events."""
+
+        await self.setup()
+        agent = await self._get_or_create_agent(name)
+        if not agent.has_runtime():
+            msg = f"Agent '{name}' has not been assembled"
+            raise RuntimeError(msg)
+
+        run_id = run_config.run_id or uuid.uuid4().hex[:12]
+        thread_id = run_config.thread_id or generate_thread_id()
+        configurable: dict[str, Any] = {
+            "thread_id": thread_id,
+            "run_id": run_id,
+        }
+        config: dict[str, Any] = {
+            "configurable": configurable,
+            "metadata": {
+                "agent_name": name,
+                "updated_at": datetime.now(UTC).isoformat(),
+            },
+        }
+        timeout_seconds = run_config.timeout_seconds
+        if timeout_seconds is not None and timeout_seconds < 0:
+            msg = "run timeout_seconds cannot be negative"
+            raise ValueError(msg)
+
+        agent.last_invoked = datetime.now(UTC)
+        if timeout_seconds == 0:
+            yield self._telemetry_timeout_event(
+                agent_name=name,
+                run_id=run_id,
+                timeout_seconds=timeout_seconds,
+            )
+            return
+
+        queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
+        producer = asyncio.create_task(
+            self._produce_telemetry_events(
+                agent=agent,
+                message=run_config.input,
+                config=config,
+                hitl_handler=hitl_handler,
+                queue=queue,
+            )
+        )
+        deadline = (
+            None
+            if timeout_seconds is None
+            else time.monotonic() + timeout_seconds
+        )
+
+        try:
+            while True:
+                source, item = await self._wait_for_run_signal(
+                    queue=queue,
+                    cancel_event=cancel_event,
+                    deadline=deadline,
+                )
+                if source == "timeout":
+                    await self._cancel_run_producer(producer)
+                    yield self._telemetry_timeout_event(
+                        agent_name=name,
+                        run_id=run_id,
+                        timeout_seconds=timeout_seconds,
+                    )
+                    return
+                if source == "cancel":
+                    await self._cancel_run_producer(producer)
+                    reason = (
+                        cancel_reason_getter()
+                        if cancel_reason_getter is not None
+                        else cancel_reason
+                    )
+                    yield telemetry_from_runtime_event(
+                        events.run_canceled(
+                            reason,
+                            run_id=run_id,
+                            agent_name=name,
+                        )
+                    )
+                    return
+
+                kind, payload = item
+                if kind == "event":
+                    yield payload
+                    continue
+                if kind == "error":
+                    yield self._telemetry_error_event_from_exception(
+                        agent_name=name,
+                        run_id=run_id,
+                        exc=payload,
+                    )
+                    return
+                if kind == "done":
+                    return
+        finally:
+            await self._cancel_run_producer(producer)
+
     async def _produce_run_events(
             self,
             *,
@@ -422,6 +531,30 @@ class AgentManager:
         """Drain `RuntimeAgent.astream()` into a queue for lifecycle control."""
         try:
             async for event in agent.astream(
+                    context=None,
+                    message=message,
+                    config=config,
+                    hitl_handler=hitl_handler,
+            ):
+                queue.put_nowait(("event", event))
+        except Exception as exc:
+            queue.put_nowait(("error", exc))
+        finally:
+            queue.put_nowait(("done", None))
+
+    async def _produce_telemetry_events(
+            self,
+            *,
+            agent: RuntimeAgent,
+            message: str,
+            config: dict[str, Any],
+            hitl_handler: HITLHandler | None,
+            queue: asyncio.Queue[tuple[str, Any]],
+    ) -> None:
+        """Drain `RuntimeAgent.atelemetry()` into a queue for lifecycle control."""
+
+        try:
+            async for event in agent.atelemetry(
                     context=None,
                     message=message,
                     config=config,
@@ -523,6 +656,40 @@ class AgentManager:
             error_type=error_type,
         )
 
+    def _telemetry_timeout_event(
+            self,
+            *,
+            agent_name: str,
+            run_id: str,
+            timeout_seconds: float | None,
+    ) -> TelemetryEvent:
+        """Create the terminal timeout telemetry event for a run."""
+
+        return telemetry_from_runtime_event(
+            self._timeout_event(
+                agent_name=agent_name,
+                run_id=run_id,
+                timeout_seconds=timeout_seconds,
+            )
+        )
+
+    def _telemetry_error_event_from_exception(
+            self,
+            *,
+            agent_name: str,
+            run_id: str,
+            exc: Exception,
+    ) -> TelemetryEvent:
+        """Convert an execution exception into the telemetry transport."""
+
+        return telemetry_from_runtime_event(
+            self._error_event_from_exception(
+                agent_name=agent_name,
+                run_id=run_id,
+                exc=exc,
+            )
+        )
+
 
     async def list_agents(self) -> list[AgentMeta]:
         """List all installed agents with live runtime status overlays."""
@@ -545,6 +712,21 @@ class AgentManager:
             )
             for meta in installed
         ]
+
+    async def get_agent_graph(
+            self,
+            name: str,
+            *,
+            xray_depth: int = 0,
+    ) -> dict[str, Any]:
+        """Return the drawable graph representation for one compiled agent."""
+
+        await self.setup()
+        agent = await self._get_or_create_agent(name)
+        if not agent.has_runtime():
+            msg = f"Agent '{name}' has not been assembled"
+            raise RuntimeError(msg)
+        return agent.get_graph_json(xray_depth=xray_depth)
 
     async def get_agent_status(self, name: str) -> AgentStatus:
         """Get current status of an agent."""
