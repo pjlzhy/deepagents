@@ -226,14 +226,14 @@ func TestHTTPHandlerStreamsRunEventsOverSSE(t *testing.T) {
 		t.Fatal("expected run session header")
 	}
 	bodyText := string(body)
-	if !strings.Contains(bodyText, "event: run_session") ||
+	if !strings.Contains(bodyText, "event:run_session") ||
 		!strings.Contains(bodyText, `"session_id":"`+sessionID+`"`) {
 		t.Fatalf("expected run session event, got %s", bodyText)
 	}
-	if !strings.Contains(bodyText, "event: run_started") ||
-		!strings.Contains(bodyText, "event: text_delta") ||
-		!strings.Contains(bodyText, "event: tool_call_start") ||
-		!strings.Contains(bodyText, "event: run_ended") {
+	if !strings.Contains(bodyText, "event:run_started") ||
+		!strings.Contains(bodyText, "event:text_delta") ||
+		!strings.Contains(bodyText, "event:tool_call_start") ||
+		!strings.Contains(bodyText, "event:run_ended") {
 		t.Fatalf("expected run events in body, got %s", bodyText)
 	}
 	if !strings.Contains(bodyText, `"agent_name":"assistant"`) ||
@@ -339,13 +339,13 @@ func TestHTTPHandlerStreamsTelemetryEventsOverSSE(t *testing.T) {
 		t.Fatal("expected telemetry run session header")
 	}
 	bodyText := string(body)
-	if !strings.Contains(bodyText, "event: run_session") ||
+	if !strings.Contains(bodyText, "event:run_session") ||
 		!strings.Contains(bodyText, `"session_id":"`+sessionID+`"`) {
 		t.Fatalf("expected telemetry run session event, got %s", bodyText)
 	}
-	if !strings.Contains(bodyText, "event: run_started") ||
-		!strings.Contains(bodyText, "event: reasoning") ||
-		!strings.Contains(bodyText, "event: task") {
+	if !strings.Contains(bodyText, "event:run_started") ||
+		!strings.Contains(bodyText, "event:reasoning") ||
+		!strings.Contains(bodyText, "event:task") {
 		t.Fatalf("expected telemetry events in body, got %s", bodyText)
 	}
 	if !strings.Contains(bodyText, `"stream_mode":"messages"`) ||
@@ -885,7 +885,7 @@ func TestHTTPHandlerReturnsTransportErrorEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read response body: %v", err)
 	}
-	if !strings.Contains(string(body), "event: transport_error") ||
+	if !strings.Contains(string(body), "event:transport_error") ||
 		!strings.Contains(string(body), `"error":"forward cancel request: cancel failed"`) {
 		t.Fatalf("expected transport_error event, got %s", string(body))
 	}

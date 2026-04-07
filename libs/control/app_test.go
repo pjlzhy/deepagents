@@ -7,6 +7,7 @@ import (
 	"agentctl/pkg/runtimeclient"
 	"agentctl/pkg/store"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -65,8 +66,8 @@ func (*stubBootstrapRuntimeClient) Health(context.Context) (runtimeclient.Health
 	return runtimeclient.HealthResponse{Ready: true, Status: "ok"}, nil
 }
 
-func (*stubBootstrapRuntimeClient) GetAgentGraph(context.Context, string, int32) ([]byte, error) {
-	return []byte(`{"nodes":[],"edges":[]}`), nil
+func (*stubBootstrapRuntimeClient) GetAgentGraph(context.Context, string, int32) (json.RawMessage, error) {
+	return json.RawMessage(`{"nodes":[],"edges":[]}`), nil
 }
 
 func (*stubBootstrapRuntimeClient) OpenRun(context.Context, domain.RunRequest) (runtimeclient.RunStream, error) {

@@ -15,9 +15,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/gin-contrib/sse"
+	"github.com/gin-gonic/gin"
 	"io"
 	"mime/multipart"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -38,7 +41,7 @@ type HTTPHandler struct {
 	service     AgentService
 	newProxy    func() streamproxy.Proxy
 	runSessions *runSessionRegistry
-	serveMux    *http.ServeMux
+	engine      *gin.Engine
 }
 
 // NewHTTPHandler creates a new HTTP/SSE northbound handler.
@@ -54,12 +57,15 @@ func NewHTTPHandler(
 			return streamproxy.NewDefaultProxy(nil)
 		}
 	}
+	if gin.Mode() == gin.DebugMode && strings.TrimSpace(os.Getenv(gin.EnvGinMode)) == "" {
+		gin.SetMode(gin.ReleaseMode)
+	}
 
 	handler := &HTTPHandler{
 		service:     service,
 		newProxy:    proxyFactory,
 		runSessions: newRunSessionRegistry(),
-		serveMux:    http.NewServeMux(),
+		engine:      gin.New(),
 	}
 	handler.registerRoutes()
 	return handler, nil
@@ -67,946 +73,26 @@ func NewHTTPHandler(
 
 // Handler returns the underlying HTTP handler.
 func (h *HTTPHandler) Handler() http.Handler {
-	return h.serveMux
+	return h.engine
 }
 
 // ServeHTTP dispatches one northbound HTTP request.
 func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	h.serveMux.ServeHTTP(w, r)
+	h.engine.ServeHTTP(w, r)
 }
 
 func (h *HTTPHandler) registerRoutes() {
-	h.serveMux.HandleFunc("GET /api/v1/health", h.handleHealth)
-	h.serveMux.HandleFunc("GET /api/v1/models", h.handleListModelConfigs)
-	h.serveMux.HandleFunc("PUT /api/v1/models/{name}", h.handleUpsertModelConfig)
-	h.serveMux.HandleFunc("GET /api/v1/models/{name}", h.handleGetModelConfig)
-	h.serveMux.HandleFunc("DELETE /api/v1/models/{name}", h.handleDeleteModelConfig)
-	h.serveMux.HandleFunc("GET /api/v1/skills", h.handleListSkills)
-	h.serveMux.HandleFunc("POST /api/v1/skills/package", h.handleCreateSkillPackage)
-	h.serveMux.HandleFunc("PUT /api/v1/skills/{name}", h.handleUpsertSkill)
-	h.serveMux.HandleFunc("GET /api/v1/skills/{name}", h.handleGetSkill)
-	h.serveMux.HandleFunc("PUT /api/v1/skills/{name}/package", h.handleReplaceSkillPackage)
-	h.serveMux.HandleFunc("GET /api/v1/skills/{name}/package", h.handleDownloadSkillPackage)
-	h.serveMux.HandleFunc("DELETE /api/v1/skills/{name}", h.handleDeleteSkill)
-	h.serveMux.HandleFunc("GET /api/v1/mcps", h.handleListMCPConfigs)
-	h.serveMux.HandleFunc("PUT /api/v1/mcps/{name}", h.handleUpsertMCPConfig)
-	h.serveMux.HandleFunc("GET /api/v1/mcps/{name}", h.handleGetMCPConfig)
-	h.serveMux.HandleFunc("DELETE /api/v1/mcps/{name}", h.handleDeleteMCPConfig)
-	h.serveMux.HandleFunc("GET /api/v1/sandboxes", h.handleListSandboxConfigs)
-	h.serveMux.HandleFunc("PUT /api/v1/sandboxes/{name}", h.handleUpsertSandboxConfig)
-	h.serveMux.HandleFunc("GET /api/v1/sandboxes/{name}", h.handleGetSandboxConfig)
-	h.serveMux.HandleFunc("DELETE /api/v1/sandboxes/{name}", h.handleDeleteSandboxConfig)
-	h.serveMux.HandleFunc("GET /api/v1/agents", h.handleListAgentSpecs)
-	h.serveMux.HandleFunc("PUT /api/v1/agents/{name}", h.handleUpsertAgentSpec)
-	h.serveMux.HandleFunc("GET /api/v1/agents/{name}", h.handleGetAgentSpec)
-	h.serveMux.HandleFunc("DELETE /api/v1/agents/{name}", h.handleDeleteAgentSpec)
-	h.serveMux.HandleFunc("POST /api/v1/agents/{agent}/ensure_runnable", h.handleEnsureRunnable)
-	h.serveMux.HandleFunc("GET /api/v1/agents/{agent}/graph", h.handleGetAgentGraph)
-	h.serveMux.HandleFunc("POST /api/v1/agents/{agent}/workspace/files", h.handleUploadWorkspaceFiles)
-	h.serveMux.HandleFunc("POST /api/v1/agents/{agent}/workspace/files/download", h.handleDownloadWorkspaceFiles)
-	h.serveMux.HandleFunc("GET /api/v1/agents/{agent}/workspace/files", h.handleListWorkspaceFiles)
-	h.serveMux.HandleFunc("POST /api/v1/agents/{agent}/runs/stream", h.handleRunStream)
-	h.serveMux.HandleFunc("POST /api/v1/agents/{agent}/telemetry/stream", h.handleTelemetryStream)
-	h.serveMux.HandleFunc("GET /api/v1/telemetry/runs", h.handleListTelemetryRuns)
-	h.serveMux.HandleFunc("GET /api/v1/telemetry/runs/{run_id}", h.handleGetTelemetryRun)
-	h.serveMux.HandleFunc("GET /api/v1/telemetry/runs/{run_id}/steps", h.handleListTelemetrySteps)
-	h.serveMux.HandleFunc("GET /api/v1/telemetry/runs/{run_id}/events", h.handleListTelemetryEvents)
-	h.serveMux.HandleFunc("GET /api/v1/sessions", h.handleListSessions)
-	h.serveMux.HandleFunc("GET /api/v1/sessions/latest", h.handleGetLatestSession)
-	h.serveMux.HandleFunc("GET /api/v1/sessions/{thread_id}", h.handleGetSession)
-	h.serveMux.HandleFunc(
-		"GET /api/v1/sessions/{thread_id}/message_page",
-		h.handleGetSessionMessagePage,
-	)
-	h.serveMux.HandleFunc(
-		"GET /api/v1/sessions/{thread_id}/messages",
-		h.handleGetSessionMessages,
-	)
-	h.serveMux.HandleFunc("DELETE /api/v1/sessions/{thread_id}", h.handleDeleteSession)
-	h.serveMux.HandleFunc("GET /api/v1/sessions/{thread_id}/artifacts", h.handleListThreadArtifacts)
-	h.serveMux.HandleFunc(
-		"POST /api/v1/run_sessions/{session_id}/cancel",
-		h.handleRunCancel,
-	)
-	h.serveMux.HandleFunc(
-		"POST /api/v1/run_sessions/{session_id}/hitl_decisions",
-		h.handleRunHITLDecisions,
-	)
-}
-
-func (h *HTTPHandler) handleRunStream(w http.ResponseWriter, r *http.Request) {
-	agentName := strings.TrimSpace(r.PathValue("agent"))
-
-	req, err := decodeRunStreamRequest(r)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-	req.AgentName = agentName
-
-	runStream, err := h.service.RunAgent(r.Context(), req)
-	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, err)
-		return
-	}
-
-	downstream, err := newSSERunDownstream(w)
-	if err != nil {
-		_ = runStream.Close()
-		writeJSONError(w, http.StatusInternalServerError, err)
-		return
-	}
-
-	sessionID, err := newRunSessionID()
-	if err != nil {
-		_ = runStream.Close()
-		writeJSONError(w, http.StatusInternalServerError, err)
-		return
-	}
-
-	h.runSessions.Store(sessionID, downstream)
-	defer func() {
-		h.runSessions.Delete(sessionID)
-		downstream.Close()
-	}()
-
-	prepareSSEHeaders(w, sessionID)
-	if err := downstream.SendEnvelope(
-		r.Context(),
-		"run_session",
-		map[string]string{"session_id": sessionID},
-	); err != nil {
-		return
-	}
-
-	proxy := h.newProxy()
-	if proxy == nil {
-		_ = downstream.SendEnvelope(
-			r.Context(),
-			"transport_error",
-			errorResponse{Error: "run proxy is not configured"},
-		)
-		return
-	}
-
-	if err := proxy.Proxy(r.Context(), runStream, downstream); err != nil &&
-		!errors.Is(err, context.Canceled) &&
-		!errors.Is(err, context.DeadlineExceeded) {
-		_ = downstream.SendEnvelope(
-			r.Context(),
-			"transport_error",
-			errorResponse{Error: err.Error()},
-		)
-	}
-}
-
-func (h *HTTPHandler) handleTelemetryStream(w http.ResponseWriter, r *http.Request) {
-	agentName := strings.TrimSpace(r.PathValue("agent"))
-
-	req, err := decodeRunStreamRequest(r)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-	req.AgentName = agentName
-
-	telemetryStream, err := h.service.RunAgentTelemetry(r.Context(), req)
-	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, err)
-		return
-	}
-
-	downstream, err := newSSERunDownstream(w)
-	if err != nil {
-		_ = telemetryStream.Close()
-		writeJSONError(w, http.StatusInternalServerError, err)
-		return
-	}
-
-	sessionID, err := newRunSessionID()
-	if err != nil {
-		_ = telemetryStream.Close()
-		writeJSONError(w, http.StatusInternalServerError, err)
-		return
-	}
-
-	h.runSessions.Store(sessionID, downstream)
-	defer func() {
-		h.runSessions.Delete(sessionID)
-		downstream.Close()
-	}()
-
-	prepareSSEHeaders(w, sessionID)
-	if err := downstream.SendEnvelope(
-		r.Context(),
-		"run_session",
-		map[string]string{"session_id": sessionID},
-	); err != nil {
-		return
-	}
-
-	recordingDownstream := &recordingTelemetryDownstream{
-		downstream: downstream,
-		recorder:   h.service,
-	}
-
-	proxy := streamproxy.NewDefaultTelemetryProxy()
-	if err := proxy.ProxyTelemetry(r.Context(), telemetryStream, recordingDownstream); err != nil &&
-		!errors.Is(err, context.Canceled) &&
-		!errors.Is(err, context.DeadlineExceeded) {
-		_ = downstream.SendEnvelope(
-			r.Context(),
-			"transport_error",
-			errorResponse{Error: err.Error()},
-		)
-	}
-}
-
-func (h *HTTPHandler) handleListTelemetryRuns(w http.ResponseWriter, r *http.Request) {
-	query, err := decodeResourcePageQuery(r)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-
-	page, err := h.service.ListTelemetryRuns(r.Context(), query)
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-
-	items := make([]telemetryRunResponse, 0, len(page.Items))
-	for _, item := range page.Items {
-		items = append(items, newHTTPTelemetryRunResponse(item))
-	}
-
-	writeJSON(w, http.StatusOK, telemetryRunsListResponse{
-		Runs:         items,
-		pageResponse: newHTTPPageResponse(page.PageMetadata),
-	})
-}
-
-func (h *HTTPHandler) handleGetTelemetryRun(w http.ResponseWriter, r *http.Request) {
-	runID := strings.TrimSpace(r.PathValue("run_id"))
-	run, err := h.service.GetTelemetryRun(r.Context(), runID)
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, newHTTPTelemetryRunResponse(run))
-}
-
-func (h *HTTPHandler) handleListTelemetryEvents(w http.ResponseWriter, r *http.Request) {
-	runID := strings.TrimSpace(r.PathValue("run_id"))
-	query, err := decodeResourcePageQuery(r)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-
-	page, err := h.service.ListTelemetryEvents(r.Context(), runID, query)
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-
-	items := make([]httpTelemetryEvent, 0, len(page.Items))
-	for _, item := range page.Items {
-		items = append(items, newHTTPTelemetryEventRecord(item))
-	}
-
-	writeJSON(w, http.StatusOK, telemetryEventsListResponse{
-		Events:       items,
-		pageResponse: newHTTPPageResponse(page.PageMetadata),
-	})
-}
-
-func (h *HTTPHandler) handleListTelemetrySteps(w http.ResponseWriter, r *http.Request) {
-	runID := strings.TrimSpace(r.PathValue("run_id"))
-	steps, err := h.service.ListTelemetrySteps(r.Context(), runID)
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-
-	items := make([]telemetryStepResponse, 0, len(steps))
-	for _, item := range steps {
-		items = append(items, newHTTPTelemetryStepResponse(item))
-	}
-
-	writeJSON(w, http.StatusOK, telemetryStepsListResponse{Steps: items})
-}
-
-func (h *HTTPHandler) handleHealth(w http.ResponseWriter, r *http.Request) {
-	resp, err := h.service.Health(r.Context())
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, newHTTPHealthResponse(resp))
-}
-
-func (h *HTTPHandler) handleEnsureRunnable(w http.ResponseWriter, r *http.Request) {
-	agentName := strings.TrimSpace(r.PathValue("agent"))
-
-	if err := h.service.EnsureRunnable(r.Context(), agentName); err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusAccepted)
-}
-
-func (h *HTTPHandler) handleGetAgentGraph(w http.ResponseWriter, r *http.Request) {
-	agentName := strings.TrimSpace(r.PathValue("agent"))
-	xrayDepth := int32(0)
-	if raw := strings.TrimSpace(r.URL.Query().Get("xray_depth")); raw != "" {
-		value, err := strconv.Atoi(raw)
-		if err != nil {
-			writeJSONError(w, http.StatusBadRequest, errors.New("xray_depth must be an integer"))
-			return
-		}
-		if value < 0 {
-			writeJSONError(w, http.StatusBadRequest, errors.New("xray_depth must be non-negative"))
-			return
-		}
-		xrayDepth = int32(value)
-	}
-
-	graph, err := h.service.GetAgentGraph(r.Context(), agentName, xrayDepth)
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-
-	writeRawJSON(w, http.StatusOK, graph)
-}
-
-func (h *HTTPHandler) handleUploadWorkspaceFiles(w http.ResponseWriter, r *http.Request) {
-	agentName := strings.TrimSpace(r.PathValue("agent"))
-	request, err := decodeWorkspaceUploadRequest(r)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-	request.AgentName = agentName
-
-	response, err := h.service.UploadWorkspaceFiles(r.Context(), request)
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusCreated, newHTTPWorkspaceUploadResponse(response))
-}
-
-func (h *HTTPHandler) handleDownloadWorkspaceFiles(w http.ResponseWriter, r *http.Request) {
-	agentName := strings.TrimSpace(r.PathValue("agent"))
-	body, err := decodeJSON[struct {
-		ThreadID string   `json:"thread_id"`
-		Paths    []string `json:"paths"`
-	}](r, false)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-	if len(body.Paths) == 0 {
-		writeJSONError(w, http.StatusBadRequest, errors.New("paths must not be empty"))
-		return
-	}
-	if strings.TrimSpace(body.ThreadID) == "" {
-		writeJSONError(w, http.StatusBadRequest, errors.New("thread_id must not be empty"))
-		return
-	}
-
-	response, err := h.service.DownloadWorkspaceFiles(r.Context(), domain.WorkspaceDownloadRequest{
-		AgentName: agentName,
-		ThreadID:  strings.TrimSpace(body.ThreadID),
-		Paths:     body.Paths,
-	})
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, newHTTPWorkspaceDownloadResponse(response))
-}
-
-func (h *HTTPHandler) handleListWorkspaceFiles(w http.ResponseWriter, r *http.Request) {
-	agentName := strings.TrimSpace(r.PathValue("agent"))
-	threadID := strings.TrimSpace(r.URL.Query().Get("thread_id"))
-	if threadID == "" {
-		writeJSONError(w, http.StatusBadRequest, errors.New("thread_id query parameter is required"))
-		return
-	}
-	path := strings.TrimSpace(r.URL.Query().Get("path"))
-	if path == "" {
-		path = "."
-	}
-
-	response, err := h.service.ListWorkspaceFiles(r.Context(), domain.WorkspaceListRequest{
-		AgentName: agentName,
-		ThreadID:  threadID,
-		Path:      path,
-	})
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, newHTTPWorkspaceListResponse(response))
-}
-
-func (h *HTTPHandler) handleListSessions(w http.ResponseWriter, r *http.Request) {
-	query, err := decodeListSessionsQuery(r)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-
-	sessions, nextPageToken, err := h.service.ListSessions(
-		r.Context(),
-		query.AgentName,
-		query.PageSize,
-		query.PageToken,
-	)
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-
-	writeJSON(w, http.StatusOK, sessionListResponse{
-		Sessions:      newHTTPSessionSummaryResponses(sessions),
-		NextPageToken: nextPageToken,
-	})
-}
-
-func (h *HTTPHandler) handleGetLatestSession(w http.ResponseWriter, r *http.Request) {
-	query := decodeLatestSessionQuery(r)
-	session, err := h.service.GetLatestSession(r.Context(), query.AgentName)
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, newHTTPSessionSummaryResponse(session))
-}
-
-func (h *HTTPHandler) handleGetSession(w http.ResponseWriter, r *http.Request) {
-	locator, err := decodeSessionLocator(r)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-
-	session, err := h.service.GetSession(r.Context(), locator)
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, newHTTPSessionSummaryResponse(session))
-}
-
-func (h *HTTPHandler) handleGetSessionMessagePage(w http.ResponseWriter, r *http.Request) {
-	query, err := decodeSessionMessagePageQuery(r)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-
-	page, err := h.service.GetSessionMessagePage(r.Context(), query)
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, newHTTPSessionMessagePageResponse(page))
-}
-
-func (h *HTTPHandler) handleGetSessionMessages(w http.ResponseWriter, r *http.Request) {
-	query, err := decodeSessionMessagesQuery(r)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-
-	messages, nextPageToken, err := h.service.GetSessionMessages(r.Context(), query)
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-
-	writeJSON(w, http.StatusOK, sessionMessagesResponse{
-		Messages:      newHTTPSessionMessageResponses(messages),
-		NextPageToken: nextPageToken,
-	})
-}
-
-func (h *HTTPHandler) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
-	locator, err := decodeSessionLocator(r)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-
-	if err := h.service.DeleteSession(r.Context(), locator); err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (h *HTTPHandler) handleListThreadArtifacts(w http.ResponseWriter, r *http.Request) {
-	threadID := strings.TrimSpace(r.PathValue("thread_id"))
-	if threadID == "" {
-		writeJSONError(w, http.StatusBadRequest, errors.New("thread_id is required"))
-		return
-	}
-	agentName := strings.TrimSpace(r.URL.Query().Get("agent_name"))
-
-	response, err := h.service.ListThreadArtifacts(r.Context(), domain.ListArtifactsRequest{
-		ThreadID:  threadID,
-		AgentName: agentName,
-	})
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, newHTTPListArtifactsResponse(response))
-}
-
-func (h *HTTPHandler) handleListModelConfigs(w http.ResponseWriter, r *http.Request) {
-	query, err := decodeResourcePageQuery(r)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-
-	page, err := h.service.ListModelConfigsPage(r.Context(), query)
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, modelConfigsListResponse{
-		Models:       newHTTPModelConfigResponses(page.Items),
-		pageResponse: newHTTPPageResponse(page.PageMetadata),
-	})
-}
-
-func (h *HTTPHandler) handleUpsertModelConfig(w http.ResponseWriter, r *http.Request) {
-	config, err := decodeModelConfigRequest(r)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-	stored, err := h.service.UpsertModelConfig(r.Context(), config)
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, newHTTPModelConfigResponse(stored))
-}
-
-func (h *HTTPHandler) handleGetModelConfig(w http.ResponseWriter, r *http.Request) {
-	name, err := decodeResourceName(r, "name")
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-	config, err := h.service.GetModelConfig(r.Context(), name)
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, newHTTPModelConfigResponse(config))
-}
-
-func (h *HTTPHandler) handleDeleteModelConfig(w http.ResponseWriter, r *http.Request) {
-	name, err := decodeResourceName(r, "name")
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-	if err := h.service.DeleteModelConfig(r.Context(), name); err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (h *HTTPHandler) handleListSkills(w http.ResponseWriter, r *http.Request) {
-	query, err := decodeResourcePageQuery(r)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-
-	page, err := h.service.ListSkillsPage(r.Context(), query)
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, skillsListResponse{
-		Skills:       newHTTPSkillSummaryResponses(page.Items),
-		pageResponse: newHTTPPageResponse(page.PageMetadata),
-	})
-}
-
-func (h *HTTPHandler) handleCreateSkillPackage(w http.ResponseWriter, r *http.Request) {
-	upload, err := decodeSkillPackageUploadRequest(r)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-
-	snapshot, err := skillpackage.ParseZip(upload.Content, skillpackage.ParseOptions{
-		Status: upload.Status,
-	})
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-
-	if _, err := h.service.GetSkill(r.Context(), snapshot.Skill.Name); err == nil {
-		writeJSONError(w, http.StatusConflict, fmt.Errorf("skill %q already exists", snapshot.Skill.Name))
-		return
-	} else if !errors.Is(err, registrypkg.ErrNotFound) {
-		writeServiceError(w, err)
-		return
-	}
-
-	stored, err := h.service.UpsertSkill(r.Context(), snapshot.Skill)
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusCreated, newHTTPSkillDetailResponse(stored))
-}
-
-func (h *HTTPHandler) handleUpsertSkill(w http.ResponseWriter, r *http.Request) {
-	skill, err := decodeSkillRequest(r)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-	stored, err := h.service.UpsertSkill(r.Context(), skill)
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, newHTTPSkillResponse(stored))
-}
-
-func (h *HTTPHandler) handleGetSkill(w http.ResponseWriter, r *http.Request) {
-	name, err := decodeResourceName(r, "name")
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-	skill, err := h.service.GetSkill(r.Context(), name)
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, newHTTPSkillDetailResponse(skill))
-}
-
-func (h *HTTPHandler) handleReplaceSkillPackage(w http.ResponseWriter, r *http.Request) {
-	name, err := decodeResourceName(r, "name")
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-
-	current, err := h.service.GetSkill(r.Context(), name)
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-
-	upload, err := decodeSkillPackageUploadRequest(r)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-	status := upload.Status
-	if status == "" {
-		status = current.Status
-	}
-
-	snapshot, err := skillpackage.ParseZip(upload.Content, skillpackage.ParseOptions{
-		ExpectedName: name,
-		Status:       status,
-	})
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-
-	stored, err := h.service.UpsertSkill(r.Context(), snapshot.Skill)
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, newHTTPSkillDetailResponse(stored))
-}
-
-func (h *HTTPHandler) handleDownloadSkillPackage(w http.ResponseWriter, r *http.Request) {
-	name, err := decodeResourceName(r, "name")
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-
-	skill, err := h.service.GetSkill(r.Context(), name)
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-
-	archive, err := skillpackage.BuildZip(skill)
-	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, err)
-		return
-	}
-
-	filename := fmt.Sprintf("%s.zip", skill.Name)
-	w.Header().Set("Content-Type", "application/zip")
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
-	w.Header().Set("Content-Length", strconv.Itoa(len(archive)))
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(archive)
-}
-
-func (h *HTTPHandler) handleDeleteSkill(w http.ResponseWriter, r *http.Request) {
-	name, err := decodeResourceName(r, "name")
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-	if err := h.service.DeleteSkill(r.Context(), name); err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (h *HTTPHandler) handleListMCPConfigs(w http.ResponseWriter, r *http.Request) {
-	query, err := decodeResourcePageQuery(r)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-
-	page, err := h.service.ListMCPConfigsPage(r.Context(), query)
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, mcpConfigsListResponse{
-		MCPs:         newHTTPMCPConfigResponses(page.Items),
-		pageResponse: newHTTPPageResponse(page.PageMetadata),
-	})
-}
-
-func (h *HTTPHandler) handleUpsertMCPConfig(w http.ResponseWriter, r *http.Request) {
-	config, err := decodeMCPConfigRequest(r)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-	stored, err := h.service.UpsertMCPConfig(r.Context(), config)
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, newHTTPMCPConfigResponse(stored))
-}
-
-func (h *HTTPHandler) handleGetMCPConfig(w http.ResponseWriter, r *http.Request) {
-	name, err := decodeResourceName(r, "name")
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-	config, err := h.service.GetMCPConfig(r.Context(), name)
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, newHTTPMCPConfigResponse(config))
-}
-
-func (h *HTTPHandler) handleDeleteMCPConfig(w http.ResponseWriter, r *http.Request) {
-	name, err := decodeResourceName(r, "name")
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-	if err := h.service.DeleteMCPConfig(r.Context(), name); err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (h *HTTPHandler) handleListSandboxConfigs(w http.ResponseWriter, r *http.Request) {
-	query, err := decodeResourcePageQuery(r)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-
-	page, err := h.service.ListSandboxConfigsPage(r.Context(), query)
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, sandboxConfigsListResponse{
-		Sandboxes:    newHTTPSandboxConfigResponses(page.Items),
-		pageResponse: newHTTPPageResponse(page.PageMetadata),
-	})
-}
-
-func (h *HTTPHandler) handleUpsertSandboxConfig(w http.ResponseWriter, r *http.Request) {
-	config, err := decodeSandboxConfigRequest(r)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-	stored, err := h.service.UpsertSandboxConfig(r.Context(), config)
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, newHTTPSandboxConfigResponse(stored))
-}
-
-func (h *HTTPHandler) handleGetSandboxConfig(w http.ResponseWriter, r *http.Request) {
-	name, err := decodeResourceName(r, "name")
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-	config, err := h.service.GetSandboxConfig(r.Context(), name)
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, newHTTPSandboxConfigResponse(config))
-}
-
-func (h *HTTPHandler) handleDeleteSandboxConfig(w http.ResponseWriter, r *http.Request) {
-	name, err := decodeResourceName(r, "name")
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-	if err := h.service.DeleteSandboxConfig(r.Context(), name); err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (h *HTTPHandler) handleListAgentSpecs(w http.ResponseWriter, r *http.Request) {
-	query, err := decodeResourcePageQuery(r)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-
-	page, err := h.service.ListAgentSpecsPage(r.Context(), query)
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, agentSpecsListResponse{
-		Agents:       newHTTPAgentSpecResponses(page.Items),
-		pageResponse: newHTTPPageResponse(page.PageMetadata),
-	})
-}
-
-func (h *HTTPHandler) handleUpsertAgentSpec(w http.ResponseWriter, r *http.Request) {
-	spec, err := decodeAgentSpecRequest(r)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-	stored, err := h.service.UpsertAgentSpec(r.Context(), spec)
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, newHTTPAgentSpecResponse(stored))
-}
-
-func (h *HTTPHandler) handleGetAgentSpec(w http.ResponseWriter, r *http.Request) {
-	name, err := decodeResourceName(r, "name")
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-	spec, err := h.service.GetAgentSpec(r.Context(), name)
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, newHTTPAgentSpecResponse(spec))
-}
-
-func (h *HTTPHandler) handleDeleteAgentSpec(w http.ResponseWriter, r *http.Request) {
-	name, err := decodeResourceName(r, "name")
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-	if err := h.service.DeleteAgentSpec(r.Context(), name); err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (h *HTTPHandler) handleRunCancel(w http.ResponseWriter, r *http.Request) {
-	sessionID := strings.TrimSpace(r.PathValue("session_id"))
-	request, err := decodeCancelRequest(r)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-
-	session, err := h.runSessions.Load(sessionID)
-	if err != nil {
-		writeJSONError(w, http.StatusNotFound, err)
-		return
-	}
-	if err := session.EnqueueCancel(streamproxy.CancelSignal{Reason: request.Reason}); err != nil {
-		writeSessionControlError(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusAccepted)
-}
-
-func (h *HTTPHandler) handleRunHITLDecisions(w http.ResponseWriter, r *http.Request) {
-	sessionID := strings.TrimSpace(r.PathValue("session_id"))
-	request, err := decodeHITLDecisionRequest(r)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err)
-		return
-	}
-
-	session, err := h.runSessions.Load(sessionID)
-	if err != nil {
-		writeJSONError(w, http.StatusNotFound, err)
-		return
-	}
-	if err := session.EnqueueDecision(streamproxy.DecisionEnvelope{
-		InterruptID: request.InterruptID,
-		Decisions:   request.Decisions,
-	}); err != nil {
-		writeSessionControlError(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusAccepted)
+	api := h.engine.Group("/api/v1")
+
+	h.registerLifecycleRoutes(api)
+	h.registerRunRoutes(api)
+	h.registerTelemetryRoutes(api)
+	h.registerSessionRoutes(api)
+	h.registerResourceRoutes(api)
 }
 
 func prepareSSEHeaders(w http.ResponseWriter, sessionID string) {
-	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Content-Type", sse.ContentType)
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
@@ -1100,19 +186,14 @@ func (d *sseRunDownstream) SendEnvelope(ctx context.Context, eventName string, v
 		return err
 	}
 
-	payload, err := json.Marshal(value)
-	if err != nil {
-		return fmt.Errorf("marshal sse payload: %w", err)
-	}
-
 	d.writeMu.Lock()
 	defer d.writeMu.Unlock()
 
-	if _, err := fmt.Fprintf(d.writer, "event: %s\n", eventName); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(d.writer, "data: %s\n\n", payload); err != nil {
-		return err
+	if err := sse.Encode(d.writer, sse.Event{
+		Event: eventName,
+		Data:  value,
+	}); err != nil {
+		return fmt.Errorf("encode sse payload: %w", err)
 	}
 	d.flusher.Flush()
 	return nil
@@ -1774,20 +855,20 @@ func decodeHITLDecisionRequest(r *http.Request) (decodedHITLDecisionRequest, err
 	}, nil
 }
 
-func decodeSessionMessagePageQuery(r *http.Request) (domain.SessionMessageQuery, error) {
-	locator, err := decodeSessionLocator(r)
+func decodeSessionMessagePageQuery(c *gin.Context) (domain.SessionMessageQuery, error) {
+	locator, err := decodeSessionLocator(c)
 	if err != nil {
 		return domain.SessionMessageQuery{}, err
 	}
-	mode, err := parseSessionHistoryMode(r.URL.Query().Get("mode"))
+	mode, err := parseSessionHistoryMode(c.Query("mode"))
 	if err != nil {
 		return domain.SessionMessageQuery{}, err
 	}
-	pageSize, err := parsePageSize(r, "page_size")
+	pageSize, err := parsePageSize(c.Request, "page_size")
 	if err != nil {
 		return domain.SessionMessageQuery{}, err
 	}
-	includeRaw, err := parseOptionalBool(r, "include_raw")
+	includeRaw, err := parseOptionalBool(c.Request, "include_raw")
 	if err != nil {
 		return domain.SessionMessageQuery{}, err
 	}
@@ -1795,42 +876,42 @@ func decodeSessionMessagePageQuery(r *http.Request) (domain.SessionMessageQuery,
 	return domain.SessionMessageQuery{
 		AgentName:    locator.AgentName,
 		ThreadID:     locator.ThreadID,
-		CheckpointID: strings.TrimSpace(r.URL.Query().Get("checkpoint_id")),
+		CheckpointID: strings.TrimSpace(c.Query("checkpoint_id")),
 		Mode:         mode,
 		PageSize:     pageSize,
-		PageToken:    strings.TrimSpace(r.URL.Query().Get("page_token")),
+		PageToken:    strings.TrimSpace(c.Query("page_token")),
 		IncludeRaw:   includeRaw,
 	}, nil
 }
 
-func decodeListSessionsQuery(r *http.Request) (listSessionsQuery, error) {
-	pageSize, err := parsePageSize(r, "page_size")
+func decodeListSessionsQuery(c *gin.Context) (listSessionsQuery, error) {
+	pageSize, err := parsePageSize(c.Request, "page_size")
 	if err != nil {
 		return listSessionsQuery{}, err
 	}
 	return listSessionsQuery{
-		AgentName: strings.TrimSpace(r.URL.Query().Get("agent_name")),
+		AgentName: strings.TrimSpace(c.Query("agent_name")),
 		PageSize:  pageSize,
-		PageToken: strings.TrimSpace(r.URL.Query().Get("page_token")),
+		PageToken: strings.TrimSpace(c.Query("page_token")),
 	}, nil
 }
 
-func decodeLatestSessionQuery(r *http.Request) latestSessionQuery {
+func decodeLatestSessionQuery(c *gin.Context) latestSessionQuery {
 	return latestSessionQuery{
-		AgentName: strings.TrimSpace(r.URL.Query().Get("agent_name")),
+		AgentName: strings.TrimSpace(c.Query("agent_name")),
 	}
 }
 
-func decodeSessionMessagesQuery(r *http.Request) (domain.SessionMessageQuery, error) {
-	locator, err := decodeSessionLocator(r)
+func decodeSessionMessagesQuery(c *gin.Context) (domain.SessionMessageQuery, error) {
+	locator, err := decodeSessionLocator(c)
 	if err != nil {
 		return domain.SessionMessageQuery{}, err
 	}
-	mode, err := parseSessionHistoryMode(r.URL.Query().Get("mode"))
+	mode, err := parseSessionHistoryMode(c.Query("mode"))
 	if err != nil {
 		return domain.SessionMessageQuery{}, err
 	}
-	pageSize, err := parsePageSize(r, "page_size")
+	pageSize, err := parsePageSize(c.Request, "page_size")
 	if err != nil {
 		return domain.SessionMessageQuery{}, err
 	}
@@ -1839,17 +920,17 @@ func decodeSessionMessagesQuery(r *http.Request) (domain.SessionMessageQuery, er
 		ThreadID:  locator.ThreadID,
 		Mode:      mode,
 		PageSize:  pageSize,
-		PageToken: strings.TrimSpace(r.URL.Query().Get("page_token")),
+		PageToken: strings.TrimSpace(c.Query("page_token")),
 	}, nil
 }
 
-func decodeSessionLocator(r *http.Request) (domain.SessionLocator, error) {
-	agentName := strings.TrimSpace(r.URL.Query().Get("agent_name"))
+func decodeSessionLocator(c *gin.Context) (domain.SessionLocator, error) {
+	agentName := strings.TrimSpace(c.Query("agent_name"))
 	if agentName == "" {
 		return domain.SessionLocator{}, errors.New("agent_name must not be empty")
 	}
 
-	threadID := strings.TrimSpace(r.PathValue("thread_id"))
+	threadID := strings.TrimSpace(c.Param("thread_id"))
 	if threadID == "" {
 		return domain.SessionLocator{}, errors.New("thread_id must not be empty")
 	}
@@ -1875,12 +956,12 @@ func decodeResourcePageQuery(r *http.Request) (domain.PageQuery, error) {
 	}, nil
 }
 
-func decodeModelConfigRequest(r *http.Request) (domain.ModelConfig, error) {
-	name, err := decodeResourceName(r, "name")
+func decodeModelConfigRequest(c *gin.Context) (domain.ModelConfig, error) {
+	name, err := decodeResourceName(c, "name")
 	if err != nil {
 		return domain.ModelConfig{}, err
 	}
-	request, err := decodeJSON[modelConfigUpsertRequest](r, false)
+	request, err := decodeJSON[modelConfigUpsertRequest](c.Request, false)
 	if err != nil {
 		return domain.ModelConfig{}, err
 	}
@@ -1904,12 +985,12 @@ func decodeModelConfigRequest(r *http.Request) (domain.ModelConfig, error) {
 	}, nil
 }
 
-func decodeSkillRequest(r *http.Request) (domain.Skill, error) {
-	name, err := decodeResourceName(r, "name")
+func decodeSkillRequest(c *gin.Context) (domain.Skill, error) {
+	name, err := decodeResourceName(c, "name")
 	if err != nil {
 		return domain.Skill{}, err
 	}
-	request, err := decodeJSON[skillUpsertRequest](r, false)
+	request, err := decodeJSON[skillUpsertRequest](c.Request, false)
 	if err != nil {
 		return domain.Skill{}, err
 	}
@@ -2027,12 +1108,12 @@ func newWorkspaceUploadFile(header *multipart.FileHeader) (domain.WorkspaceUploa
 	}, nil
 }
 
-func decodeMCPConfigRequest(r *http.Request) (domain.MCPConfig, error) {
-	name, err := decodeResourceName(r, "name")
+func decodeMCPConfigRequest(c *gin.Context) (domain.MCPConfig, error) {
+	name, err := decodeResourceName(c, "name")
 	if err != nil {
 		return domain.MCPConfig{}, err
 	}
-	request, err := decodeJSON[mcpConfigUpsertRequest](r, false)
+	request, err := decodeJSON[mcpConfigUpsertRequest](c.Request, false)
 	if err != nil {
 		return domain.MCPConfig{}, err
 	}
@@ -2052,12 +1133,12 @@ func decodeMCPConfigRequest(r *http.Request) (domain.MCPConfig, error) {
 	}, nil
 }
 
-func decodeSandboxConfigRequest(r *http.Request) (domain.SandboxConfig, error) {
-	name, err := decodeResourceName(r, "name")
+func decodeSandboxConfigRequest(c *gin.Context) (domain.SandboxConfig, error) {
+	name, err := decodeResourceName(c, "name")
 	if err != nil {
 		return domain.SandboxConfig{}, err
 	}
-	request, err := decodeJSON[sandboxConfigUpsertRequest](r, false)
+	request, err := decodeJSON[sandboxConfigUpsertRequest](c.Request, false)
 	if err != nil {
 		return domain.SandboxConfig{}, err
 	}
@@ -2078,12 +1159,12 @@ func decodeSandboxConfigRequest(r *http.Request) (domain.SandboxConfig, error) {
 	}, nil
 }
 
-func decodeAgentSpecRequest(r *http.Request) (domain.AuthoredAgentSpec, error) {
-	name, err := decodeResourceName(r, "name")
+func decodeAgentSpecRequest(c *gin.Context) (domain.AuthoredAgentSpec, error) {
+	name, err := decodeResourceName(c, "name")
 	if err != nil {
 		return domain.AuthoredAgentSpec{}, err
 	}
-	request, err := decodeJSON[agentSpecUpsertRequest](r, false)
+	request, err := decodeJSON[agentSpecUpsertRequest](c.Request, false)
 	if err != nil {
 		return domain.AuthoredAgentSpec{}, err
 	}
@@ -2118,8 +1199,8 @@ func decodeAgentSpecRequest(r *http.Request) (domain.AuthoredAgentSpec, error) {
 	}, nil
 }
 
-func decodeResourceName(r *http.Request, key string) (string, error) {
-	name := strings.TrimSpace(r.PathValue(key))
+func decodeResourceName(c *gin.Context, key string) (string, error) {
+	name := strings.TrimSpace(c.Param(key))
 	if name == "" {
 		return "", fmt.Errorf("%s must not be empty", key)
 	}
