@@ -13,6 +13,15 @@ type AgentService interface {
 	EnsureRunnable(ctx context.Context, agentName string) error
 	RunAgent(ctx context.Context, req domain.RunRequest) (runtimeclient.RunStream, error)
 	RunAgentTelemetry(ctx context.Context, req domain.RunRequest) (runtimeclient.TelemetryStream, error)
+	RecordTelemetryEvent(ctx context.Context, event runtimeclient.TelemetryEvent) error
+	ListTelemetryRuns(ctx context.Context, query domain.PageQuery) (domain.ResourcePage[domain.TelemetryRun], error)
+	GetTelemetryRun(ctx context.Context, runID string) (domain.TelemetryRun, error)
+	ListTelemetrySteps(ctx context.Context, runID string) ([]domain.TelemetryStep, error)
+	ListTelemetryEvents(
+		ctx context.Context,
+		runID string,
+		query domain.PageQuery,
+	) (domain.ResourcePage[domain.TelemetryEventRecord], error)
 	GetAgentGraph(ctx context.Context, agentName string, xrayDepth int32) ([]byte, error)
 	UploadWorkspaceFiles(ctx context.Context, req domain.WorkspaceUploadRequest) (domain.WorkspaceUploadResponse, error)
 	DownloadWorkspaceFiles(ctx context.Context, req domain.WorkspaceDownloadRequest) (domain.WorkspaceDownloadResponse, error)
@@ -84,6 +93,44 @@ func (s *Server) RunAgentTelemetry(
 	req domain.RunRequest,
 ) (runtimeclient.TelemetryStream, error) {
 	return s.service.RunAgentTelemetry(ctx, req)
+}
+
+// RecordTelemetryEvent persists one telemetry event through the backing service.
+func (s *Server) RecordTelemetryEvent(
+	ctx context.Context,
+	event runtimeclient.TelemetryEvent,
+) error {
+	return s.service.RecordTelemetryEvent(ctx, event)
+}
+
+// ListTelemetryRuns forwards one telemetry run page query to the backing service.
+func (s *Server) ListTelemetryRuns(
+	ctx context.Context,
+	query domain.PageQuery,
+) (domain.ResourcePage[domain.TelemetryRun], error) {
+	return s.service.ListTelemetryRuns(ctx, query)
+}
+
+// GetTelemetryRun forwards one telemetry run lookup to the backing service.
+func (s *Server) GetTelemetryRun(ctx context.Context, runID string) (domain.TelemetryRun, error) {
+	return s.service.GetTelemetryRun(ctx, runID)
+}
+
+// ListTelemetrySteps forwards one telemetry step projection query to the backing service.
+func (s *Server) ListTelemetrySteps(
+	ctx context.Context,
+	runID string,
+) ([]domain.TelemetryStep, error) {
+	return s.service.ListTelemetrySteps(ctx, runID)
+}
+
+// ListTelemetryEvents forwards one telemetry event page query to the backing service.
+func (s *Server) ListTelemetryEvents(
+	ctx context.Context,
+	runID string,
+	query domain.PageQuery,
+) (domain.ResourcePage[domain.TelemetryEventRecord], error) {
+	return s.service.ListTelemetryEvents(ctx, runID, query)
 }
 
 // GetAgentGraph forwards one graph query request to the backing service.

@@ -259,7 +259,7 @@ class ErrorOccurred(_message.Message):
     def __init__(self, message: _Optional[str] = ..., error_type: _Optional[str] = ...) -> None: ...
 
 class TelemetryEvent(_message.Message):
-    __slots__ = ("run_id", "agent_name", "timestamp", "ns", "stream_mode", "event_type", "metadata", "payload", "public_event")
+    __slots__ = ("run_id", "agent_name", "timestamp", "ns", "stream_mode", "event_type", "metadata", "payload", "public_event", "event_id", "attempt", "seq", "node_name", "task_id", "model_call_id", "tool_call_id", "interrupt_id", "message_id")
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
     AGENT_NAME_FIELD_NUMBER: _ClassVar[int]
     TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
@@ -269,6 +269,15 @@ class TelemetryEvent(_message.Message):
     METADATA_FIELD_NUMBER: _ClassVar[int]
     PAYLOAD_FIELD_NUMBER: _ClassVar[int]
     PUBLIC_EVENT_FIELD_NUMBER: _ClassVar[int]
+    EVENT_ID_FIELD_NUMBER: _ClassVar[int]
+    ATTEMPT_FIELD_NUMBER: _ClassVar[int]
+    SEQ_FIELD_NUMBER: _ClassVar[int]
+    NODE_NAME_FIELD_NUMBER: _ClassVar[int]
+    TASK_ID_FIELD_NUMBER: _ClassVar[int]
+    MODEL_CALL_ID_FIELD_NUMBER: _ClassVar[int]
+    TOOL_CALL_ID_FIELD_NUMBER: _ClassVar[int]
+    INTERRUPT_ID_FIELD_NUMBER: _ClassVar[int]
+    MESSAGE_ID_FIELD_NUMBER: _ClassVar[int]
     run_id: str
     agent_name: str
     timestamp: _timestamp_pb2.Timestamp
@@ -278,7 +287,16 @@ class TelemetryEvent(_message.Message):
     metadata: _struct_pb2.Struct
     payload: _struct_pb2.Value
     public_event: AgentEvent
-    def __init__(self, run_id: _Optional[str] = ..., agent_name: _Optional[str] = ..., timestamp: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., ns: _Optional[_Iterable[str]] = ..., stream_mode: _Optional[str] = ..., event_type: _Optional[str] = ..., metadata: _Optional[_Union[_struct_pb2.Struct, _Mapping]] = ..., payload: _Optional[_Union[_struct_pb2.Value, _Mapping]] = ..., public_event: _Optional[_Union[AgentEvent, _Mapping]] = ...) -> None: ...
+    event_id: str
+    attempt: int
+    seq: int
+    node_name: str
+    task_id: str
+    model_call_id: str
+    tool_call_id: str
+    interrupt_id: str
+    message_id: str
+    def __init__(self, run_id: _Optional[str] = ..., agent_name: _Optional[str] = ..., timestamp: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., ns: _Optional[_Iterable[str]] = ..., stream_mode: _Optional[str] = ..., event_type: _Optional[str] = ..., metadata: _Optional[_Union[_struct_pb2.Struct, _Mapping]] = ..., payload: _Optional[_Union[_struct_pb2.Value, _Mapping]] = ..., public_event: _Optional[_Union[AgentEvent, _Mapping]] = ..., event_id: _Optional[str] = ..., attempt: _Optional[int] = ..., seq: _Optional[int] = ..., node_name: _Optional[str] = ..., task_id: _Optional[str] = ..., model_call_id: _Optional[str] = ..., tool_call_id: _Optional[str] = ..., interrupt_id: _Optional[str] = ..., message_id: _Optional[str] = ...) -> None: ...
 
 class SyncSkillRequest(_message.Message):
     __slots__ = ("name", "content", "description", "tags", "files")

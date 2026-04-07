@@ -1,3 +1,5 @@
+import type { HTTPTelemetryStepDTO } from '@/shared/types/api';
+
 export type TelemetryEventVM = {
   id: string;
   runId?: string;
@@ -22,8 +24,11 @@ export type TraceSpanStatus = 'running' | 'completed' | 'failed' | 'interrupted'
 
 export type TraceSpanVM = {
   id: string;
+  parentStepId?: string;
+  kind: string;
   nodeName: string;
   namespace: string[];
+  depth: number;
   status: TraceSpanStatus;
   startedAt?: string;
   finishedAt?: string;
@@ -38,6 +43,7 @@ export type TraceSpanVM = {
   updates: unknown[];
   custom: unknown[];
   events: TelemetryEventVM[];
+  relatedEventIDs: string[];
   order: number;
   synthetic: boolean;
 };
@@ -152,8 +158,10 @@ function textPayload(payload: unknown): string | undefined {
 function makeSyntheticSpan(event: TelemetryEventVM, nodeName: string, order: number): TraceSpanVM {
   return {
     id: `trace-${event.id}`,
+    kind: event.streamMode === 'lifecycle' ? 'run' : 'node',
     nodeName,
     namespace: event.namespace,
+    depth: event.namespace.length,
     status: event.streamMode === 'lifecycle' ? 'running' : 'observed',
     startedAt: event.timestamp,
     triggers: [],
@@ -162,6 +170,7 @@ function makeSyntheticSpan(event: TelemetryEventVM, nodeName: string, order: num
     updates: [],
     custom: [],
     events: [],
+    relatedEventIDs: [],
     order,
     synthetic: true,
   };
@@ -225,8 +234,10 @@ export function buildTraceSpans(events: TelemetryEventVM[]): TraceSpanVM[] {
     if (event.eventType === 'task' && taskID) {
       span = {
         id: `trace-task-${taskID}`,
+        kind: 'node',
         nodeName: asString(payload?.name) ?? nodeName,
         namespace: event.namespace,
+        depth: event.namespace.length,
         status: 'running',
         startedAt: event.timestamp,
         step: traceStep(event),
@@ -239,6 +250,7 @@ export function buildTraceSpans(events: TelemetryEventVM[]): TraceSpanVM[] {
         updates: [],
         custom: [],
         events: [],
+        relatedEventIDs: [],
         order: spans.length,
         synthetic: false,
       };
@@ -265,6 +277,7 @@ export function buildTraceSpans(events: TelemetryEventVM[]): TraceSpanVM[] {
     if (!span) continue;
 
     span.events.push(event);
+    span.relatedEventIDs.push(event.id);
     span.step = span.step ?? traceStep(event);
 
     if (event.eventType === 'reasoning') {
@@ -315,4 +328,53 @@ export function buildTraceSpans(events: TelemetryEventVM[]): TraceSpanVM[] {
     }
     return left.order - right.order;
   });
+}
+
+export function buildTraceSpansFromSteps(
+  steps: HTTPTelemetryStepDTO[],
+  events: TelemetryEventVM[],
+): TraceSpanVM[] {
+  const eventByID = new Map(events.map((event) => [event.id, event]));
+
+  return [...steps]
+    .map((step, index) => {
+      const relatedEventIDs = step.related_event_ids ?? [];
+      const relatedEvents = relatedEventIDs
+        .map((eventID) => eventByID.get(eventID))
+        .filter((event): event is TelemetryEventVM => Boolean(event));
+      const start = parseDate(step.started_at);
+      const end = parseDate(step.finished_at);
+
+      return {
+        id: step.step_id ?? `telemetry-step-${index}`,
+        parentStepId: step.parent_step_id,
+        kind: step.kind ?? 'node',
+        nodeName: step.title ?? 'step',
+        namespace: step.namespace ?? [],
+        depth: step.depth ?? ((step.namespace ?? []).length),
+        status: (step.status as TraceSpanStatus | undefined) ?? 'observed',
+        startedAt: step.started_at,
+        finishedAt: step.finished_at,
+        durationMs: start !== undefined && end !== undefined && end >= start ? end - start : undefined,
+        step: step.step,
+        input: step.input,
+        output: step.output,
+        error: step.error,
+        triggers: step.triggers ?? [],
+        reasoning: step.reasoning ?? [],
+        messages: step.messages ?? [],
+        updates: step.updates ?? [],
+        custom: step.custom ?? [],
+        events: relatedEvents,
+        relatedEventIDs,
+        order: step.order ?? index,
+        synthetic: step.synthetic ?? false,
+      } satisfies TraceSpanVM;
+    })
+    .sort((left, right) => {
+      const ls = parseDate(left.startedAt) ?? Number.MAX_SAFE_INTEGER;
+      const rs = parseDate(right.startedAt) ?? Number.MAX_SAFE_INTEGER;
+      if (ls !== rs) return ls - rs;
+      return left.order - right.order;
+    });
 }

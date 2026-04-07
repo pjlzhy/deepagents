@@ -148,6 +148,15 @@ def telemetry_event_to_proto(event: TelemetryEvent) -> pb2.TelemetryEvent:
         "ns": list(event.ns),
         "stream_mode": event.stream_mode,
         "event_type": event.event_type,
+        "event_id": event.event_id,
+        "attempt": event.attempt,
+        "seq": event.seq,
+        "node_name": event.node_name,
+        "task_id": event.task_id,
+        "model_call_id": event.model_call_id,
+        "tool_call_id": event.tool_call_id,
+        "interrupt_id": event.interrupt_id,
+        "message_id": event.message_id,
     }
     if event.metadata:
         kwargs["metadata"] = _dict_to_struct(event.metadata)

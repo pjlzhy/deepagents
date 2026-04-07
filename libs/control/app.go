@@ -11,6 +11,7 @@ import (
 	"agentctl/pkg/runtimeclient"
 	"agentctl/pkg/secrets"
 	"agentctl/pkg/store"
+	"agentctl/pkg/telemetry"
 	"context"
 	"errors"
 	"fmt"
@@ -74,6 +75,11 @@ func newApp(ctx context.Context, cfg config.Config) (*controlApp, error) {
 		return closeWithStore(fmt.Errorf("create resolver: %w", err))
 	}
 
+	telemetryStore, err := telemetry.NewSQLiteStore(sqliteStore.DB())
+	if err != nil {
+		return closeWithStore(fmt.Errorf("create telemetry store: %w", err))
+	}
+
 	runtimeClient, err := newRuntimeClient(ctx, cfg.RuntimeEndpoint)
 	if err != nil {
 		return closeWithStore(fmt.Errorf("create runtime client: %w", err))
@@ -87,13 +93,14 @@ func newApp(ctx context.Context, cfg config.Config) (*controlApp, error) {
 	}
 
 	service, err := orchestrator.NewService(orchestrator.Dependencies{
-		Registry:     reg,
-		Resolver:     resolver,
-		Packager:     packager.NewDefaultPackager(),
-		ResourceSync: runtimeClient,
-		Executor:     runtimeClient,
-		Telemetry:    runtimeClient,
-		Sessions:     runtimeClient,
+		Registry:       reg,
+		Resolver:       resolver,
+		Packager:       packager.NewDefaultPackager(),
+		ResourceSync:   runtimeClient,
+		Executor:       runtimeClient,
+		Telemetry:      runtimeClient,
+		Sessions:       runtimeClient,
+		TelemetryStore: telemetryStore,
 	})
 	if err != nil {
 		_ = closeAll()

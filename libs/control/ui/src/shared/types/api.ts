@@ -357,12 +357,89 @@ export type HTTPTelemetryEventDTO = {
   run_id?: string;
   agent_name?: string;
   timestamp?: string;
+  event_id?: string;
+  attempt?: number;
+  seq?: number;
   namespace?: string[];
   stream_mode?: string;
   event_type?: string;
+  node_name?: string;
+  task_id?: string;
+  model_call_id?: string;
+  tool_call_id?: string;
+  interrupt_id?: string;
+  message_id?: string;
   metadata?: unknown;
   payload?: unknown;
   public_event?: HTTPAgentEventDTO;
+};
+
+export type HTTPTelemetryRunDTO = {
+  run_id?: string;
+  agent_name?: string;
+  thread_id?: string;
+  runtime_target?: string;
+  status?: string;
+  request_metadata?: unknown;
+  trace_context?: unknown;
+  graph_snapshot_id?: string;
+  reasoning_summary?: string;
+  node_step_count?: number;
+  model_step_count?: number;
+  tool_step_count?: number;
+  hitl_wait_count?: number;
+  error_count?: number;
+  event_count?: number;
+  started_at?: string;
+  finished_at?: string;
+  last_event_at?: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type HTTPTelemetryStepDTO = {
+  step_id?: string;
+  run_id?: string;
+  parent_step_id?: string;
+  kind?: 'run' | 'node' | 'model' | 'tool' | 'hitl' | string;
+  title?: string;
+  namespace?: string[];
+  status?: 'running' | 'completed' | 'failed' | 'interrupted' | 'observed' | string;
+  started_at?: string;
+  finished_at?: string;
+  depth?: number;
+  step?: number;
+  input?: unknown;
+  output?: unknown;
+  error?: string;
+  triggers?: string[];
+  reasoning?: string[];
+  messages?: string[];
+  updates?: unknown[];
+  custom?: unknown[];
+  related_event_ids?: string[];
+  order?: number;
+  synthetic?: boolean;
+};
+
+export type TelemetryRunsListDTO = {
+  runs: HTTPTelemetryRunDTO[];
+  page_size?: number;
+  page_number?: number;
+  total_size?: number;
+  total_pages?: number;
+};
+
+export type TelemetryEventsListDTO = {
+  events: HTTPTelemetryEventDTO[];
+  page_size?: number;
+  page_number?: number;
+  total_size?: number;
+  total_pages?: number;
+};
+
+export type TelemetryStepsListDTO = {
+  steps: HTTPTelemetryStepDTO[];
 };
 
 export type RuntimeEventType =

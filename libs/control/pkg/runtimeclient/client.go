@@ -100,9 +100,18 @@ type TelemetryEvent struct {
 	RunID       string
 	AgentName   string
 	Timestamp   time.Time
+	EventID     string
+	Attempt     int32
+	Seq         int64
 	Namespace   []string
 	StreamMode  string
 	EventType   string
+	NodeName    string
+	TaskID      string
+	ModelCallID string
+	ToolCallID  string
+	InterruptID string
+	MessageID   string
 	Metadata    json.RawMessage
 	Payload     json.RawMessage
 	PublicEvent *AgentEvent

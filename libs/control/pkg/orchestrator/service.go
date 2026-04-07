@@ -6,6 +6,7 @@ import (
 	registrypkg "agentctl/pkg/registry"
 	resolverpkg "agentctl/pkg/resolver"
 	"agentctl/pkg/runtimeclient"
+	"agentctl/pkg/telemetry"
 	"context"
 	"errors"
 	"fmt"
@@ -19,24 +20,26 @@ var (
 
 // Dependencies 描述 orchestrator 需要的核心依赖。
 type Dependencies struct {
-	Resolver     resolverpkg.Resolver
-	Packager     packager.Packager
-	Registry     registrypkg.Registry
-	ResourceSync runtimeclient.ResourceSyncClient
-	Executor     runtimeclient.AgentExecutorClient
-	Telemetry    runtimeclient.AgentTelemetryClient
-	Sessions     runtimeclient.SessionQueryClient
+	Resolver       resolverpkg.Resolver
+	Packager       packager.Packager
+	Registry       registrypkg.Registry
+	ResourceSync   runtimeclient.ResourceSyncClient
+	Executor       runtimeclient.AgentExecutorClient
+	Telemetry      runtimeclient.AgentTelemetryClient
+	Sessions       runtimeclient.SessionQueryClient
+	TelemetryStore telemetry.Store
 }
 
 // Service 是 control layer 的编排核心。
 type Service struct {
-	resolver     resolverpkg.Resolver
-	packager     packager.Packager
-	registry     registrypkg.Registry
-	resourceSync runtimeclient.ResourceSyncClient
-	executor     runtimeclient.AgentExecutorClient
-	telemetry    runtimeclient.AgentTelemetryClient
-	sessions     runtimeclient.SessionQueryClient
+	resolver       resolverpkg.Resolver
+	packager       packager.Packager
+	registry       registrypkg.Registry
+	resourceSync   runtimeclient.ResourceSyncClient
+	executor       runtimeclient.AgentExecutorClient
+	telemetry      runtimeclient.AgentTelemetryClient
+	sessions       runtimeclient.SessionQueryClient
+	telemetryStore telemetry.Store
 }
 
 // NewService 创建一个新的 orchestrator service。
@@ -55,15 +58,19 @@ func NewService(deps Dependencies) (*Service, error) {
 	case deps.Sessions == nil:
 		return nil, errors.New("session query client must not be nil")
 	}
+	if deps.TelemetryStore == nil {
+		deps.TelemetryStore = noopTelemetryStore{}
+	}
 
 	return &Service{
-		resolver:     deps.Resolver,
-		packager:     deps.Packager,
-		registry:     deps.Registry,
-		resourceSync: deps.ResourceSync,
-		executor:     deps.Executor,
-		telemetry:    deps.Telemetry,
-		sessions:     deps.Sessions,
+		resolver:       deps.Resolver,
+		packager:       deps.Packager,
+		registry:       deps.Registry,
+		resourceSync:   deps.ResourceSync,
+		executor:       deps.Executor,
+		telemetry:      deps.Telemetry,
+		sessions:       deps.Sessions,
+		telemetryStore: deps.TelemetryStore,
 	}, nil
 }
 
@@ -167,6 +174,98 @@ func (s *Service) RunAgentTelemetry(
 		return nil, fmt.Errorf("open run telemetry stream for agent %q: %w", agentName, err)
 	}
 	return stream, nil
+}
+
+// RecordTelemetryEvent persists one telemetry event into the control-side store.
+func (s *Service) RecordTelemetryEvent(
+	ctx context.Context,
+	event runtimeclient.TelemetryEvent,
+) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return s.telemetryStore.RecordEvent(ctx, event)
+}
+
+// ListTelemetryRuns returns one page of telemetry run summaries.
+func (s *Service) ListTelemetryRuns(
+	ctx context.Context,
+	query domain.PageQuery,
+) (domain.ResourcePage[domain.TelemetryRun], error) {
+	if err := ctx.Err(); err != nil {
+		return domain.ResourcePage[domain.TelemetryRun]{}, err
+	}
+	return s.telemetryStore.ListRuns(ctx, query)
+}
+
+// GetTelemetryRun returns one telemetry run summary by run ID.
+func (s *Service) GetTelemetryRun(
+	ctx context.Context,
+	runID string,
+) (domain.TelemetryRun, error) {
+	if err := ctx.Err(); err != nil {
+		return domain.TelemetryRun{}, err
+	}
+	return s.telemetryStore.GetRun(ctx, runID)
+}
+
+// ListTelemetryEvents returns one page of telemetry events for one run.
+func (s *Service) ListTelemetryEvents(
+	ctx context.Context,
+	runID string,
+	query domain.PageQuery,
+) (domain.ResourcePage[domain.TelemetryEventRecord], error) {
+	if err := ctx.Err(); err != nil {
+		return domain.ResourcePage[domain.TelemetryEventRecord]{}, err
+	}
+	return s.telemetryStore.ListEvents(ctx, runID, query)
+}
+
+// ListTelemetrySteps projects one telemetry run into product-facing trace steps.
+func (s *Service) ListTelemetrySteps(
+	ctx context.Context,
+	runID string,
+) ([]domain.TelemetryStep, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if _, err := s.telemetryStore.GetRun(ctx, runID); err != nil {
+		return nil, err
+	}
+	events, err := s.telemetryStore.LoadEvents(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	return telemetry.BuildSteps(events), nil
+}
+
+type noopTelemetryStore struct{}
+
+func (noopTelemetryStore) RecordEvent(context.Context, runtimeclient.TelemetryEvent) error {
+	return nil
+}
+
+func (noopTelemetryStore) ListRuns(
+	context.Context,
+	domain.PageQuery,
+) (domain.ResourcePage[domain.TelemetryRun], error) {
+	return domain.ResourcePage[domain.TelemetryRun]{}, nil
+}
+
+func (noopTelemetryStore) GetRun(context.Context, string) (domain.TelemetryRun, error) {
+	return domain.TelemetryRun{}, telemetry.ErrRunNotFound
+}
+
+func (noopTelemetryStore) ListEvents(
+	context.Context,
+	string,
+	domain.PageQuery,
+) (domain.ResourcePage[domain.TelemetryEventRecord], error) {
+	return domain.ResourcePage[domain.TelemetryEventRecord]{}, nil
+}
+
+func (noopTelemetryStore) LoadEvents(context.Context, string) ([]domain.TelemetryEventRecord, error) {
+	return nil, nil
 }
 
 // UploadWorkspaceFiles stages files into one agent/thread workspace before execution.

@@ -1622,7 +1622,25 @@ type TelemetryEvent struct {
 	Payload *structpb.Value `protobuf:"bytes,8,opt,name=payload,proto3" json:"payload,omitempty"`
 	// Optional compatibility projection when this telemetry event can be mapped
 	// into the existing public `AgentEvent` transport.
-	PublicEvent   *AgentEvent `protobuf:"bytes,9,opt,name=public_event,json=publicEvent,proto3" json:"public_event,omitempty"`
+	PublicEvent *AgentEvent `protobuf:"bytes,9,opt,name=public_event,json=publicEvent,proto3" json:"public_event,omitempty"`
+	// Stable telemetry event identifier within the durable event ledger.
+	EventId string `protobuf:"bytes,10,opt,name=event_id,json=eventId,proto3" json:"event_id,omitempty"`
+	// Run attempt number. The first attempt is 1.
+	Attempt int32 `protobuf:"varint,11,opt,name=attempt,proto3" json:"attempt,omitempty"`
+	// Strictly increasing event sequence within one run attempt.
+	Seq int64 `protobuf:"varint,12,opt,name=seq,proto3" json:"seq,omitempty"`
+	// Best-effort resolved node name for UI and history queries.
+	NodeName string `protobuf:"bytes,13,opt,name=node_name,json=nodeName,proto3" json:"node_name,omitempty"`
+	// Stable node task identifier when the event belongs to one debug task/task_result.
+	TaskId string `protobuf:"bytes,14,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	// Stable model call identifier when the event belongs to one model interaction.
+	ModelCallId string `protobuf:"bytes,15,opt,name=model_call_id,json=modelCallId,proto3" json:"model_call_id,omitempty"`
+	// Stable tool call identifier when the event belongs to one tool interaction.
+	ToolCallId string `protobuf:"bytes,16,opt,name=tool_call_id,json=toolCallId,proto3" json:"tool_call_id,omitempty"`
+	// Stable HITL interrupt identifier when the event belongs to one HITL wait.
+	InterruptId string `protobuf:"bytes,17,opt,name=interrupt_id,json=interruptId,proto3" json:"interrupt_id,omitempty"`
+	// Stable message identifier when the event belongs to one message block sequence.
+	MessageId     string `protobuf:"bytes,18,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1718,6 +1736,69 @@ func (x *TelemetryEvent) GetPublicEvent() *AgentEvent {
 		return x.PublicEvent
 	}
 	return nil
+}
+
+func (x *TelemetryEvent) GetEventId() string {
+	if x != nil {
+		return x.EventId
+	}
+	return ""
+}
+
+func (x *TelemetryEvent) GetAttempt() int32 {
+	if x != nil {
+		return x.Attempt
+	}
+	return 0
+}
+
+func (x *TelemetryEvent) GetSeq() int64 {
+	if x != nil {
+		return x.Seq
+	}
+	return 0
+}
+
+func (x *TelemetryEvent) GetNodeName() string {
+	if x != nil {
+		return x.NodeName
+	}
+	return ""
+}
+
+func (x *TelemetryEvent) GetTaskId() string {
+	if x != nil {
+		return x.TaskId
+	}
+	return ""
+}
+
+func (x *TelemetryEvent) GetModelCallId() string {
+	if x != nil {
+		return x.ModelCallId
+	}
+	return ""
+}
+
+func (x *TelemetryEvent) GetToolCallId() string {
+	if x != nil {
+		return x.ToolCallId
+	}
+	return ""
+}
+
+func (x *TelemetryEvent) GetInterruptId() string {
+	if x != nil {
+		return x.InterruptId
+	}
+	return ""
+}
+
+func (x *TelemetryEvent) GetMessageId() string {
+	if x != nil {
+		return x.MessageId
+	}
+	return ""
 }
 
 type SyncSkillRequest struct {
@@ -5236,7 +5317,7 @@ const file_runtime_proto_rawDesc = "" +
 	"\rErrorOccurred\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\x12\x1d\n" +
 	"\n" +
-	"error_type\x18\x02 \x01(\tR\terrorType\"\xfd\x02\n" +
+	"error_type\x18\x02 \x01(\tR\terrorType\"\x82\x05\n" +
 	"\x0eTelemetryEvent\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x1d\n" +
 	"\n" +
@@ -5249,7 +5330,19 @@ const file_runtime_proto_rawDesc = "" +
 	"event_type\x18\x06 \x01(\tR\teventType\x123\n" +
 	"\bmetadata\x18\a \x01(\v2\x17.google.protobuf.StructR\bmetadata\x120\n" +
 	"\apayload\x18\b \x01(\v2\x16.google.protobuf.ValueR\apayload\x12D\n" +
-	"\fpublic_event\x18\t \x01(\v2!.deepagents.runtime.v1.AgentEventR\vpublicEvent\"\xae\x01\n" +
+	"\fpublic_event\x18\t \x01(\v2!.deepagents.runtime.v1.AgentEventR\vpublicEvent\x12\x19\n" +
+	"\bevent_id\x18\n" +
+	" \x01(\tR\aeventId\x12\x18\n" +
+	"\aattempt\x18\v \x01(\x05R\aattempt\x12\x10\n" +
+	"\x03seq\x18\f \x01(\x03R\x03seq\x12\x1b\n" +
+	"\tnode_name\x18\r \x01(\tR\bnodeName\x12\x17\n" +
+	"\atask_id\x18\x0e \x01(\tR\x06taskId\x12\"\n" +
+	"\rmodel_call_id\x18\x0f \x01(\tR\vmodelCallId\x12 \n" +
+	"\ftool_call_id\x18\x10 \x01(\tR\n" +
+	"toolCallId\x12!\n" +
+	"\finterrupt_id\x18\x11 \x01(\tR\vinterruptId\x12\x1d\n" +
+	"\n" +
+	"message_id\x18\x12 \x01(\tR\tmessageId\"\xae\x01\n" +
 	"\x10SyncSkillRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\tR\acontent\x12 \n" +

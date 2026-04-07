@@ -3,7 +3,7 @@ import { Button, Empty, Input, Message, Select, Spin, Tag, Typography } from '@a
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import useSWR from 'swr';
-import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useDeferredValue, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { links } from '@/app/links';
 import {
@@ -14,7 +14,7 @@ import {
   type GraphFocusVM,
   type GraphNodeVM,
 } from '@/features/telemetry/graphModel';
-import { buildTraceSpans, type TelemetryEventVM, type TraceSpanVM } from '@/features/telemetry/traceModel';
+import { buildTraceSpansFromSteps, type TelemetryEventVM, type TraceSpanVM } from '@/features/telemetry/traceModel';
 import { controlClient } from '@/shared/api/controlClient';
 import type {
   HTTPTelemetryEventDTO,
@@ -541,6 +541,7 @@ export default function TelemetryPage() {
   const params = useParams<{ agentName?: string }>();
   const selectedAgentName = params.agentName;
   const streamAbortRef = useRef<AbortController | null>(null);
+  const traceStepsRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const nextEventIdRef = useRef(1);
   const paneLayoutRef = useRef<HTMLDivElement | null>(null);
   const paneDragStateRef = useRef<{
@@ -607,6 +608,14 @@ export default function TelemetryPage() {
     selectedAgentName ? ['telemetry-graph', selectedAgentName] : null,
     () => controlClient.agents.getGraph(selectedAgentName!, 2),
   );
+  const traceStepsQuery = useSWR(
+    currentRunId ? ['telemetry-steps', currentRunId] : null,
+    () => controlClient.runs.listTelemetrySteps(currentRunId!),
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+    },
+  );
   const deferredNamespaceFilter = useDeferredValue(namespaceFilter);
   const deferredSearchFilter = useDeferredValue(searchFilter);
 
@@ -619,6 +628,7 @@ export default function TelemetryPage() {
 
   useEffect(() => () => {
     streamAbortRef.current?.abort();
+    stopTraceStepsRefresh();
     stopPaneDrag();
     stopGraphPointerInteraction();
   }, []);
@@ -683,7 +693,10 @@ export default function TelemetryPage() {
     });
   }, [deferredNamespaceFilter, deferredSearchFilter, events, selectedEventTypes, selectedModes]);
 
-  const traceSpans = useMemo(() => buildTraceSpans(events), [events]);
+  const traceSpans = useMemo(
+    () => buildTraceSpansFromSteps(traceStepsQuery.data?.steps ?? [], events),
+    [events, traceStepsQuery.data?.steps],
+  );
   const graphModel = useMemo(() => buildGraphModel(graphQuery.data, traceSpans), [graphQuery.data, traceSpans]);
   const graphView = useMemo(
     () => buildVisibleGraph(graphModel, collapsedClusterPaths),
@@ -701,6 +714,7 @@ export default function TelemetryPage() {
       if (traceStatusFilter !== 'all' && span.status !== traceStatusFilter) return false;
       if (!needle) return true;
       const haystacks = [
+        span.kind,
         span.nodeName,
         traceNamespaceLabel(span),
         traceSummary(span),
@@ -1014,7 +1028,7 @@ export default function TelemetryPage() {
     window.addEventListener('pointerup', stopGraphPointerInteraction);
   }
 
-  function handleGraphWheel(event: React.WheelEvent<HTMLDivElement>): void {
+  const handleGraphWheel = useEffectEvent((event: WheelEvent): void => {
     event.preventDefault();
     const viewport = graphViewportRef.current;
     if (!viewport) return;
@@ -1023,9 +1037,23 @@ export default function TelemetryPage() {
     const anchorY = event.clientY - rect.top;
     const delta = event.deltaY < 0 ? 0.08 : -0.08;
     zoomGraphCanvas(graphCanvasTransform.scale + delta, anchorX, anchorY);
-  }
+  });
+
+  useEffect(() => {
+    if (viewMode !== 'graph') return undefined;
+    const viewport = graphViewportRef.current;
+    if (!viewport) return undefined;
+
+    const onWheel = (event: WheelEvent) => {
+      handleGraphWheel(event);
+    };
+
+    viewport.addEventListener('wheel', onWheel, { passive: false });
+    return () => viewport.removeEventListener('wheel', onWheel);
+  }, [handleGraphWheel, viewMode]);
 
   function resetRunState(nextPrompt?: string) {
+    stopTraceStepsRefresh();
     setStatus('starting');
     setRunSessionId(undefined);
     setCurrentRunId(undefined);
@@ -1038,9 +1066,54 @@ export default function TelemetryPage() {
     if (typeof nextPrompt === 'string') setPrompt(nextPrompt);
   }
 
-  function appendTelemetryEvent(payload: HTTPTelemetryEventDTO, eventName: string) {
+  function stopTraceStepsRefresh(): void {
+    if (!traceStepsRefreshTimerRef.current) return;
+    clearTimeout(traceStepsRefreshTimerRef.current);
+    traceStepsRefreshTimerRef.current = null;
+  }
+
+  function traceRefreshMode(eventType: string): 'none' | 'throttled' | 'immediate' {
+    switch (eventType) {
+      case 'run_started':
+      case 'run_ended':
+      case 'run_canceled':
+      case 'error':
+      case 'task':
+      case 'task_result':
+      case 'tool_call_start':
+      case 'tool_call_done':
+      case 'tool_result':
+      case 'interrupt':
+      case 'hitl_request':
+        return 'immediate';
+      case 'reasoning':
+      case 'text':
+      case 'text_done':
+      case 'state_update':
+      case 'custom':
+        return 'throttled';
+      default:
+        return 'none';
+    }
+  }
+
+  function scheduleTraceStepsRefresh(runId: string | undefined, immediate = false): void {
+    if (!runId || runId !== currentRunId) return;
+    if (immediate) {
+      stopTraceStepsRefresh();
+      void traceStepsQuery.mutate();
+      return;
+    }
+    if (traceStepsRefreshTimerRef.current) return;
+    traceStepsRefreshTimerRef.current = setTimeout(() => {
+      traceStepsRefreshTimerRef.current = null;
+      void traceStepsQuery.mutate();
+    }, 320);
+  }
+
+  const appendTelemetryEvent = useEffectEvent((payload: HTTPTelemetryEventDTO, eventName: string) => {
     const normalized: TelemetryEventVM = {
-      id: `telemetry-${nextEventIdRef.current++}`,
+      id: payload.event_id ?? `telemetry-${nextEventIdRef.current++}`,
       runId: payload.run_id ?? payload.public_event?.run_id,
       agentName: payload.agent_name ?? payload.public_event?.agent_name,
       timestamp: payload.timestamp ?? payload.public_event?.timestamp,
@@ -1080,7 +1153,12 @@ export default function TelemetryPage() {
       });
       setStatus('waiting_hitl');
     }
-  }
+
+    const refreshMode = traceRefreshMode(normalized.eventType);
+    if (refreshMode !== 'none') {
+      scheduleTraceStepsRefresh(normalized.runId, refreshMode === 'immediate');
+    }
+  });
 
   async function startTelemetry(): Promise<void> {
     if (!selectedAgentName) {
@@ -1167,6 +1245,7 @@ export default function TelemetryPage() {
       });
       setPendingInterrupts((prev) => prev.filter((item) => item.interruptId !== interrupt.interruptId));
       setStatus((prev) => (prev === 'waiting_hitl' ? 'streaming' : prev));
+      scheduleTraceStepsRefresh(currentRunId, true);
       Message.success(`${type} submitted`);
     } catch (error) {
       Message.error(error instanceof Error ? error.message : 'submit hitl decision failed');
@@ -1372,7 +1451,7 @@ export default function TelemetryPage() {
                 <div className='flex items-center justify-between border-b border-solid border-[var(--control-border)] px-14px py-10px'>
                   <span className='text-11px uppercase tracking-widest text-[var(--control-subtle)]'>trace</span>
                   <Typography.Text className='text-12px text-[var(--control-subtle)]'>
-                    {filteredTraceSpans.length} spans
+                    {filteredTraceSpans.length} steps
                   </Typography.Text>
                 </div>
                 <div className='border-b border-solid border-[var(--control-border)] px-12px py-10px'>
@@ -1428,7 +1507,7 @@ export default function TelemetryPage() {
                               type='button'
                               className='cursor-pointer border-none rd-12px px-12px py-10px text-left transition-all duration-200'
                               style={{
-                                marginLeft: `${span.namespace.length * 14}px`,
+                                marginLeft: `${span.depth * 14}px`,
                                 background: active ? `${accent}14` : 'rgba(16,22,48,0.76)',
                                 border: `1px solid ${active ? `${accent}55` : 'rgba(0,240,255,0.08)'}`,
                                 boxShadow: active ? `0 0 12px ${accent}20` : 'none',
@@ -1441,6 +1520,7 @@ export default function TelemetryPage() {
                                   style={{ background: accent, boxShadow: `0 0 8px ${accent}` }}
                                 />
                                 <span className='text-12px font-semibold text-[var(--control-text)]'>{span.nodeName}</span>
+                                <Tag size='small' color='purple'>{span.kind}</Tag>
                                 <Tag size='small' color='arcoblue'>{traceStatusLabel(span.status)}</Tag>
                                 {span.step !== undefined ? <Tag size='small' color='purple'>step {span.step}</Tag> : null}
                                 <span className='ml-auto text-11px text-[var(--control-subtle)]'>
@@ -1478,7 +1558,7 @@ export default function TelemetryPage() {
               <div className='flex min-h-0 h-full flex-col gap-12px overflow-hidden'>
                 <div className='control-card px-14px py-14px'>
                   <div className='mb-10px flex items-center justify-between gap-8px'>
-                    <span className='block text-11px uppercase tracking-widest text-[var(--control-subtle)]'>selected span</span>
+                    <span className='block text-11px uppercase tracking-widest text-[var(--control-subtle)]'>selected step</span>
                     {selectedTrace ? (
                       <Tag size='small' color='arcoblue'>{traceStatusLabel(selectedTrace.status)}</Tag>
                     ) : null}
@@ -1495,14 +1575,14 @@ export default function TelemetryPage() {
                       <span className='truncate text-right'>{traceDurationLabel(selectedTrace)}</span>
                     </div>
                   ) : (
-                    <Typography.Text className='text-12px text-[var(--control-subtle)]'>No span selected</Typography.Text>
+                    <Typography.Text className='text-12px text-[var(--control-subtle)]'>No step selected</Typography.Text>
                   )}
                 </div>
 
                 {selectedTrace ? (
                   <div className='control-card flex min-h-0 flex-1 flex-col overflow-hidden px-14px py-14px'>
                     <div className='mb-10px flex items-center justify-between gap-8px'>
-                      <span className='block text-11px uppercase tracking-widest text-[var(--control-subtle)]'>span details</span>
+                      <span className='block text-11px uppercase tracking-widest text-[var(--control-subtle)]'>step details</span>
                       <SegmentedTabs
                         value={traceDetailTab}
                         tabs={[
@@ -1668,7 +1748,6 @@ export default function TelemetryPage() {
                       'radial-gradient(circle at top left, rgba(0,240,255,0.05), transparent 32%), repeating-linear-gradient(0deg, transparent, transparent 43px, rgba(0,240,255,0.03) 43px, rgba(0,240,255,0.03) 44px), repeating-linear-gradient(90deg, transparent, transparent 43px, rgba(0,240,255,0.03) 43px, rgba(0,240,255,0.03) 44px)',
                   }}
                   onMouseLeave={() => setHoveredGraphNodeId(undefined)}
-                  onWheel={handleGraphWheel}
                   onPointerDown={startGraphPan}
                 >
                   {graphQuery.isLoading ? (

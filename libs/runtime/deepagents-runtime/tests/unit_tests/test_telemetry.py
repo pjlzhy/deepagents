@@ -9,6 +9,7 @@ from langchain_core.messages import AIMessageChunk, ToolMessage
 from deepagents_runtime.converters import telemetry_event_to_proto
 from deepagents_runtime.telemetry import (
     TelemetryParserState,
+    finalize_telemetry_event,
     parse_telemetry_stream_part,
     telemetry_from_runtime_event,
 )
@@ -49,6 +50,44 @@ def test_parse_telemetry_stream_part_keeps_non_root_reasoning_blocks() -> None:
     assert event.metadata["langgraph_node"] == "planner"
     assert event.payload["summary"][0]["text"] == "thinking..."
     assert event.public_event is None
+
+
+def test_parse_telemetry_stream_part_uses_one_model_call_id_per_ai_message() -> None:
+    """All non-tool blocks from one AI message should share one model call ID."""
+
+    state = TelemetryParserState(run_id="run-telemetry", agent_name="demo-agent")
+    part = {
+        "type": "messages",
+        "ns": ("task:model",),
+        "data": (
+            AIMessageChunk(
+                id="resp_model_1",
+                content=[
+                    {
+                        "type": "reasoning",
+                        "summary": [
+                            {"type": "summary_text", "text": "thinking..."}
+                        ],
+                        "id": "rs_1",
+                    },
+                    {
+                        "type": "text",
+                        "text": "hello",
+                        "id": "msg_1",
+                    },
+                ],
+            ),
+            {"langgraph_node": "model"},
+        ),
+    }
+
+    parsed = parse_telemetry_stream_part(part, state)
+
+    assert len(parsed.events) == 2
+    assert parsed.events[0].model_call_id == "resp_model_1"
+    assert parsed.events[1].model_call_id == "resp_model_1"
+    assert parsed.events[0].payload["model_call_id"] == "resp_model_1"
+    assert parsed.events[1].payload["model_call_id"] == "resp_model_1"
 
 
 def test_parse_telemetry_stream_part_emits_state_update_and_interrupt() -> None:
@@ -138,10 +177,16 @@ def test_telemetry_event_to_proto_preserves_public_event_and_namespace() -> None
         ns=("task:root",),
     )
 
-    proto = telemetry_event_to_proto(event)
+    proto = telemetry_event_to_proto(
+        finalize_telemetry_event(event, attempt=1, seq=1)
+    )
 
     assert list(proto.ns) == ["task:root"]
     assert proto.stream_mode == "lifecycle"
     assert proto.event_type == "run_started"
+    assert proto.event_id == "run-proto:1:1"
+    assert proto.attempt == 1
+    assert proto.seq == 1
+    assert proto.node_name == "run"
     assert proto.HasField("public_event")
     assert proto.public_event.run_started.thread_id == "thread-1"

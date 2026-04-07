@@ -7,6 +7,7 @@ import (
 	"agentctl/pkg/runtimeclient"
 	"agentctl/pkg/skillpackage"
 	"agentctl/pkg/streamproxy"
+	"agentctl/pkg/telemetry"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
@@ -106,6 +107,10 @@ func (h *HTTPHandler) registerRoutes() {
 	h.serveMux.HandleFunc("GET /api/v1/agents/{agent}/workspace/files", h.handleListWorkspaceFiles)
 	h.serveMux.HandleFunc("POST /api/v1/agents/{agent}/runs/stream", h.handleRunStream)
 	h.serveMux.HandleFunc("POST /api/v1/agents/{agent}/telemetry/stream", h.handleTelemetryStream)
+	h.serveMux.HandleFunc("GET /api/v1/telemetry/runs", h.handleListTelemetryRuns)
+	h.serveMux.HandleFunc("GET /api/v1/telemetry/runs/{run_id}", h.handleGetTelemetryRun)
+	h.serveMux.HandleFunc("GET /api/v1/telemetry/runs/{run_id}/steps", h.handleListTelemetrySteps)
+	h.serveMux.HandleFunc("GET /api/v1/telemetry/runs/{run_id}/events", h.handleListTelemetryEvents)
 	h.serveMux.HandleFunc("GET /api/v1/sessions", h.handleListSessions)
 	h.serveMux.HandleFunc("GET /api/v1/sessions/latest", h.handleGetLatestSession)
 	h.serveMux.HandleFunc("GET /api/v1/sessions/{thread_id}", h.handleGetSession)
@@ -240,8 +245,13 @@ func (h *HTTPHandler) handleTelemetryStream(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	recordingDownstream := &recordingTelemetryDownstream{
+		downstream: downstream,
+		recorder:   h.service,
+	}
+
 	proxy := streamproxy.NewDefaultTelemetryProxy()
-	if err := proxy.ProxyTelemetry(r.Context(), telemetryStream, downstream); err != nil &&
+	if err := proxy.ProxyTelemetry(r.Context(), telemetryStream, recordingDownstream); err != nil &&
 		!errors.Is(err, context.Canceled) &&
 		!errors.Is(err, context.DeadlineExceeded) {
 		_ = downstream.SendEnvelope(
@@ -250,6 +260,81 @@ func (h *HTTPHandler) handleTelemetryStream(w http.ResponseWriter, r *http.Reque
 			errorResponse{Error: err.Error()},
 		)
 	}
+}
+
+func (h *HTTPHandler) handleListTelemetryRuns(w http.ResponseWriter, r *http.Request) {
+	query, err := decodeResourcePageQuery(r)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	page, err := h.service.ListTelemetryRuns(r.Context(), query)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	items := make([]telemetryRunResponse, 0, len(page.Items))
+	for _, item := range page.Items {
+		items = append(items, newHTTPTelemetryRunResponse(item))
+	}
+
+	writeJSON(w, http.StatusOK, telemetryRunsListResponse{
+		Runs:         items,
+		pageResponse: newHTTPPageResponse(page.PageMetadata),
+	})
+}
+
+func (h *HTTPHandler) handleGetTelemetryRun(w http.ResponseWriter, r *http.Request) {
+	runID := strings.TrimSpace(r.PathValue("run_id"))
+	run, err := h.service.GetTelemetryRun(r.Context(), runID)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, newHTTPTelemetryRunResponse(run))
+}
+
+func (h *HTTPHandler) handleListTelemetryEvents(w http.ResponseWriter, r *http.Request) {
+	runID := strings.TrimSpace(r.PathValue("run_id"))
+	query, err := decodeResourcePageQuery(r)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	page, err := h.service.ListTelemetryEvents(r.Context(), runID, query)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	items := make([]httpTelemetryEvent, 0, len(page.Items))
+	for _, item := range page.Items {
+		items = append(items, newHTTPTelemetryEventRecord(item))
+	}
+
+	writeJSON(w, http.StatusOK, telemetryEventsListResponse{
+		Events:       items,
+		pageResponse: newHTTPPageResponse(page.PageMetadata),
+	})
+}
+
+func (h *HTTPHandler) handleListTelemetrySteps(w http.ResponseWriter, r *http.Request) {
+	runID := strings.TrimSpace(r.PathValue("run_id"))
+	steps, err := h.service.ListTelemetrySteps(r.Context(), runID)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	items := make([]telemetryStepResponse, 0, len(steps))
+	for _, item := range steps {
+		items = append(items, newHTTPTelemetryStepResponse(item))
+	}
+
+	writeJSON(w, http.StatusOK, telemetryStepsListResponse{Steps: items})
 }
 
 func (h *HTTPHandler) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -979,6 +1064,15 @@ type sseRunDownstream struct {
 	cancels   chan streamproxy.CancelSignal
 }
 
+type telemetryEventRecorder interface {
+	RecordTelemetryEvent(ctx context.Context, event runtimeclient.TelemetryEvent) error
+}
+
+type recordingTelemetryDownstream struct {
+	downstream *sseRunDownstream
+	recorder   telemetryEventRecorder
+}
+
 func newSSERunDownstream(w http.ResponseWriter) (*sseRunDownstream, error) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -1030,6 +1124,26 @@ func (d *sseRunDownstream) HITLDecisions() <-chan streamproxy.DecisionEnvelope {
 
 func (d *sseRunDownstream) CancelRequests() <-chan streamproxy.CancelSignal {
 	return d.cancels
+}
+
+func (d *recordingTelemetryDownstream) SendTelemetryEvent(
+	ctx context.Context,
+	event runtimeclient.TelemetryEvent,
+) error {
+	if d.recorder != nil {
+		if err := d.recorder.RecordTelemetryEvent(ctx, event); err != nil {
+			return err
+		}
+	}
+	return d.downstream.SendTelemetryEvent(ctx, event)
+}
+
+func (d *recordingTelemetryDownstream) HITLDecisions() <-chan streamproxy.DecisionEnvelope {
+	return d.downstream.HITLDecisions()
+}
+
+func (d *recordingTelemetryDownstream) CancelRequests() <-chan streamproxy.CancelSignal {
+	return d.downstream.CancelRequests()
 }
 
 func (d *sseRunDownstream) EnqueueDecision(decision streamproxy.DecisionEnvelope) error {
@@ -1173,12 +1287,69 @@ type httpTelemetryEvent struct {
 	RunID       string          `json:"run_id,omitempty"`
 	AgentName   string          `json:"agent_name,omitempty"`
 	Timestamp   string          `json:"timestamp,omitempty"`
+	EventID     string          `json:"event_id,omitempty"`
+	Attempt     int32           `json:"attempt,omitempty"`
+	Seq         int64           `json:"seq,omitempty"`
 	Namespace   []string        `json:"namespace,omitempty"`
 	StreamMode  string          `json:"stream_mode,omitempty"`
 	EventType   string          `json:"event_type,omitempty"`
+	NodeName    string          `json:"node_name,omitempty"`
+	TaskID      string          `json:"task_id,omitempty"`
+	ModelCallID string          `json:"model_call_id,omitempty"`
+	ToolCallID  string          `json:"tool_call_id,omitempty"`
+	InterruptID string          `json:"interrupt_id,omitempty"`
+	MessageID   string          `json:"message_id,omitempty"`
 	Metadata    json.RawMessage `json:"metadata,omitempty"`
 	Payload     json.RawMessage `json:"payload,omitempty"`
-	PublicEvent *httpAgentEvent `json:"public_event,omitempty"`
+	PublicEvent json.RawMessage `json:"public_event,omitempty"`
+}
+
+type telemetryRunResponse struct {
+	RunID            string          `json:"run_id,omitempty"`
+	AgentName        string          `json:"agent_name,omitempty"`
+	ThreadID         string          `json:"thread_id,omitempty"`
+	RuntimeTarget    string          `json:"runtime_target,omitempty"`
+	Status           string          `json:"status,omitempty"`
+	RequestMetadata  json.RawMessage `json:"request_metadata,omitempty"`
+	TraceContext     json.RawMessage `json:"trace_context,omitempty"`
+	GraphSnapshotID  string          `json:"graph_snapshot_id,omitempty"`
+	ReasoningSummary string          `json:"reasoning_summary,omitempty"`
+	NodeStepCount    int32           `json:"node_step_count,omitempty"`
+	ModelStepCount   int32           `json:"model_step_count,omitempty"`
+	ToolStepCount    int32           `json:"tool_step_count,omitempty"`
+	HitlWaitCount    int32           `json:"hitl_wait_count,omitempty"`
+	ErrorCount       int32           `json:"error_count,omitempty"`
+	EventCount       int32           `json:"event_count,omitempty"`
+	StartedAt        string          `json:"started_at,omitempty"`
+	FinishedAt       string          `json:"finished_at,omitempty"`
+	LastEventAt      string          `json:"last_event_at,omitempty"`
+	CreatedAt        string          `json:"created_at,omitempty"`
+	UpdatedAt        string          `json:"updated_at,omitempty"`
+}
+
+type telemetryStepResponse struct {
+	StepID          string            `json:"step_id,omitempty"`
+	RunID           string            `json:"run_id,omitempty"`
+	ParentStepID    string            `json:"parent_step_id,omitempty"`
+	Kind            string            `json:"kind,omitempty"`
+	Title           string            `json:"title,omitempty"`
+	Namespace       []string          `json:"namespace,omitempty"`
+	Status          string            `json:"status,omitempty"`
+	StartedAt       string            `json:"started_at,omitempty"`
+	FinishedAt      string            `json:"finished_at,omitempty"`
+	Depth           int32             `json:"depth,omitempty"`
+	Step            int32             `json:"step,omitempty"`
+	Input           json.RawMessage   `json:"input,omitempty"`
+	Output          json.RawMessage   `json:"output,omitempty"`
+	Error           string            `json:"error,omitempty"`
+	Triggers        []string          `json:"triggers,omitempty"`
+	Reasoning       []string          `json:"reasoning,omitempty"`
+	Messages        []string          `json:"messages,omitempty"`
+	Updates         []json.RawMessage `json:"updates,omitempty"`
+	Custom          []json.RawMessage `json:"custom,omitempty"`
+	RelatedEventIDs []string          `json:"related_event_ids,omitempty"`
+	Order           int32             `json:"order,omitempty"`
+	Synthetic       bool              `json:"synthetic,omitempty"`
 }
 
 type httpActionRequest struct {
@@ -1254,6 +1425,20 @@ type sessionListResponse struct {
 type sessionMessagesResponse struct {
 	Messages      []sessionMessageResponse `json:"messages"`
 	NextPageToken string                   `json:"next_page_token,omitempty"`
+}
+
+type telemetryRunsListResponse struct {
+	Runs []telemetryRunResponse `json:"runs"`
+	pageResponse
+}
+
+type telemetryStepsListResponse struct {
+	Steps []telemetryStepResponse `json:"steps"`
+}
+
+type telemetryEventsListResponse struct {
+	Events []httpTelemetryEvent `json:"events"`
+	pageResponse
 }
 
 type pageResponse struct {
@@ -2048,7 +2233,7 @@ func writeJSONError(w http.ResponseWriter, statusCode int, err error) {
 
 func writeServiceError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, registrypkg.ErrNotFound), errors.Is(err, runtimeclient.ErrNotFound):
+	case errors.Is(err, registrypkg.ErrNotFound), errors.Is(err, runtimeclient.ErrNotFound), errors.Is(err, telemetry.ErrRunNotFound):
 		writeJSONError(w, http.StatusNotFound, err)
 	case errors.Is(err, registrypkg.ErrConflict):
 		writeJSONError(w, http.StatusConflict, err)
@@ -2113,22 +2298,109 @@ func newHTTPAgentEvent(event runtimeclient.AgentEvent) httpAgentEvent {
 
 func newHTTPTelemetryEvent(event runtimeclient.TelemetryEvent) httpTelemetryEvent {
 	response := httpTelemetryEvent{
-		RunID:      event.RunID,
-		AgentName:  event.AgentName,
-		Namespace:  event.Namespace,
-		StreamMode: event.StreamMode,
-		EventType:  event.EventType,
-		Metadata:   event.Metadata,
-		Payload:    event.Payload,
+		RunID:       event.RunID,
+		AgentName:   event.AgentName,
+		EventID:     event.EventID,
+		Attempt:     event.Attempt,
+		Seq:         event.Seq,
+		Namespace:   event.Namespace,
+		StreamMode:  event.StreamMode,
+		EventType:   event.EventType,
+		NodeName:    event.NodeName,
+		TaskID:      event.TaskID,
+		ModelCallID: event.ModelCallID,
+		ToolCallID:  event.ToolCallID,
+		InterruptID: event.InterruptID,
+		MessageID:   event.MessageID,
+		Metadata:    event.Metadata,
+		Payload:     event.Payload,
 	}
 	if !event.Timestamp.IsZero() {
 		response.Timestamp = event.Timestamp.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")
 	}
 	if event.PublicEvent != nil {
-		publicEvent := newHTTPAgentEvent(*event.PublicEvent)
-		response.PublicEvent = &publicEvent
+		payload, err := json.Marshal(newHTTPAgentEvent(*event.PublicEvent))
+		if err == nil {
+			response.PublicEvent = payload
+		}
 	}
 	return response
+}
+
+func newHTTPTelemetryEventRecord(event domain.TelemetryEventRecord) httpTelemetryEvent {
+	response := httpTelemetryEvent{
+		RunID:       event.RunID,
+		AgentName:   event.AgentName,
+		Timestamp:   formatOptionalTime(event.Timestamp),
+		EventID:     event.EventID,
+		Attempt:     event.Attempt,
+		Seq:         event.Seq,
+		Namespace:   event.Namespace,
+		StreamMode:  event.StreamMode,
+		EventType:   event.EventType,
+		NodeName:    event.NodeName,
+		TaskID:      event.TaskID,
+		ModelCallID: event.ModelCallID,
+		ToolCallID:  event.ToolCallID,
+		InterruptID: event.InterruptID,
+		MessageID:   event.MessageID,
+		Metadata:    event.Metadata,
+		Payload:     event.Payload,
+		PublicEvent: event.PublicEvent,
+	}
+	return response
+}
+
+func newHTTPTelemetryRunResponse(run domain.TelemetryRun) telemetryRunResponse {
+	return telemetryRunResponse{
+		RunID:            run.RunID,
+		AgentName:        run.AgentName,
+		ThreadID:         run.ThreadID,
+		RuntimeTarget:    run.RuntimeTarget,
+		Status:           string(run.Status),
+		RequestMetadata:  run.RequestMetadata,
+		TraceContext:     run.TraceContext,
+		GraphSnapshotID:  run.GraphSnapshotID,
+		ReasoningSummary: run.ReasoningSummary,
+		NodeStepCount:    run.NodeStepCount,
+		ModelStepCount:   run.ModelStepCount,
+		ToolStepCount:    run.ToolStepCount,
+		HitlWaitCount:    run.HitlWaitCount,
+		ErrorCount:       run.ErrorCount,
+		EventCount:       run.EventCount,
+		StartedAt:        formatOptionalTime(run.StartedAt),
+		FinishedAt:       formatOptionalTime(run.FinishedAt),
+		LastEventAt:      formatOptionalTime(run.LastEventAt),
+		CreatedAt:        formatOptionalTime(run.CreatedAt),
+		UpdatedAt:        formatOptionalTime(run.UpdatedAt),
+	}
+}
+
+func newHTTPTelemetryStepResponse(step domain.TelemetryStep) telemetryStepResponse {
+	return telemetryStepResponse{
+		StepID:          step.StepID,
+		RunID:           step.RunID,
+		ParentStepID:    step.ParentStepID,
+		Kind:            string(step.Kind),
+		Title:           step.Title,
+		Namespace:       step.Namespace,
+		Status:          string(step.Status),
+		StartedAt:       formatOptionalTime(step.StartedAt),
+		FinishedAt:      formatOptionalTime(step.FinishedAt),
+		Depth:           step.Depth,
+		Step:            step.Step,
+		Input:           step.Input,
+		Output:          step.Output,
+		Error:           step.Error,
+		Triggers:        step.Triggers,
+		Reasoning:       step.Reasoning,
+		Messages:        step.Messages,
+		Updates:         step.Updates,
+		Custom:          step.Custom,
+		RelatedEventIDs: step.RelatedEventIDs,
+		Order:           step.Order,
+		Synthetic:       step.Synthetic,
+	}
 }
 
 func newHTTPHealthResponse(resp runtimeclient.HealthResponse) healthResponse {

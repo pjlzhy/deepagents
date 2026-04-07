@@ -271,8 +271,12 @@ func TestHTTPHandlerStreamsTelemetryEventsOverSSE(t *testing.T) {
 			RunID:      "run-telemetry-1",
 			AgentName:  "assistant",
 			Timestamp:  startedAt,
+			EventID:    "run-telemetry-1:1:1",
+			Attempt:    1,
+			Seq:        1,
 			StreamMode: "lifecycle",
 			EventType:  "run_started",
+			NodeName:   "run",
 			PublicEvent: &runtimeclient.AgentEvent{
 				Type:      runtimeclient.AgentEventTypeRunStarted,
 				RunID:     "run-telemetry-1",
@@ -282,22 +286,33 @@ func TestHTTPHandlerStreamsTelemetryEventsOverSSE(t *testing.T) {
 			},
 		}
 		telemetryStream.events <- runtimeclient.TelemetryEvent{
-			RunID:      "run-telemetry-1",
-			AgentName:  "assistant",
-			Timestamp:  reasoningAt,
-			Namespace:  []string{"task:research"},
-			StreamMode: "messages",
-			EventType:  "reasoning",
-			Metadata:   json.RawMessage(`{"langgraph_node":"planner"}`),
-			Payload:    json.RawMessage(`{"summary":[{"type":"summary_text","text":"thinking..."}]}`),
+			RunID:       "run-telemetry-1",
+			AgentName:   "assistant",
+			Timestamp:   reasoningAt,
+			EventID:     "run-telemetry-1:1:2",
+			Attempt:     1,
+			Seq:         2,
+			Namespace:   []string{"task:research"},
+			StreamMode:  "messages",
+			EventType:   "reasoning",
+			NodeName:    "planner",
+			ModelCallID: "msg-1",
+			MessageID:   "msg-1",
+			Metadata:    json.RawMessage(`{"langgraph_node":"planner"}`),
+			Payload:     json.RawMessage(`{"summary":[{"type":"summary_text","text":"thinking..."}]}`),
 		}
 		telemetryStream.events <- runtimeclient.TelemetryEvent{
 			RunID:      "run-telemetry-1",
 			AgentName:  "assistant",
 			Timestamp:  debugAt,
+			EventID:    "run-telemetry-1:1:3",
+			Attempt:    1,
+			Seq:        3,
 			Namespace:  []string{"task:research"},
 			StreamMode: "debug",
 			EventType:  "task",
+			NodeName:   "research",
+			TaskID:     "task-1",
 			Metadata:   json.RawMessage(`{"step":2}`),
 			Payload:    json.RawMessage(`{"id":"task-1","name":"research"}`),
 		}
@@ -346,8 +361,198 @@ func TestHTTPHandlerStreamsTelemetryEventsOverSSE(t *testing.T) {
 		service.telemetryRequest.Metadata["source"] != "test" {
 		t.Fatalf("unexpected telemetry run request: %#v", service.telemetryRequest)
 	}
+	if service.recordTelemetryEvent.EventID != "run-telemetry-1:1:3" ||
+		service.recordTelemetryEvent.TaskID != "task-1" {
+		t.Fatalf("expected telemetry event recording, got %#v", service.recordTelemetryEvent)
+	}
 	if telemetryStream.closeCalls != 1 {
 		t.Fatalf("expected telemetry upstream close once, got %d", telemetryStream.closeCalls)
+	}
+}
+
+func TestHTTPHandlerListsTelemetryRuns(t *testing.T) {
+	service := &fakeAgentService{
+		listTelemetryRunsResp: domain.ResourcePage[domain.TelemetryRun]{
+			Items: []domain.TelemetryRun{
+				{
+					RunID:       "run-1",
+					AgentName:   "assistant",
+					ThreadID:    "thread-1",
+					Status:      domain.TelemetryRunStatusRunning,
+					EventCount:  3,
+					StartedAt:   time.Unix(1710000000, 0).UTC(),
+					LastEventAt: time.Unix(1710000002, 0).UTC(),
+				},
+			},
+			PageMetadata: domain.PageMetadata{
+				PageSize:   20,
+				PageNumber: 2,
+				TotalSize:  31,
+				TotalPages: 2,
+			},
+		},
+	}
+	handler, err := NewHTTPHandler(service, nil)
+	if err != nil {
+		t.Fatalf("NewHTTPHandler: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/telemetry/runs?page_size=20&page_number=2", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected telemetry runs status: %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, `"run_id":"run-1"`) || !strings.Contains(body, `"status":"running"`) {
+		t.Fatalf("unexpected telemetry runs body: %s", body)
+	}
+	if !strings.Contains(body, `"page_size":20`) || !strings.Contains(body, `"page_number":2`) {
+		t.Fatalf("expected paging metadata, got %s", body)
+	}
+	if service.listTelemetryRunsQuery.PageSize != 20 || service.listTelemetryRunsQuery.PageNumber != 2 {
+		t.Fatalf("unexpected telemetry run query: %#v", service.listTelemetryRunsQuery)
+	}
+}
+
+func TestHTTPHandlerReturnsTelemetryRun(t *testing.T) {
+	service := &fakeAgentService{
+		getTelemetryRunResp: domain.TelemetryRun{
+			RunID:      "run-1",
+			AgentName:  "assistant",
+			ThreadID:   "thread-1",
+			Status:     domain.TelemetryRunStatusCompleted,
+			EventCount: 8,
+			StartedAt:  time.Unix(1710000000, 0).UTC(),
+			FinishedAt: time.Unix(1710000005, 0).UTC(),
+		},
+	}
+	handler, err := NewHTTPHandler(service, nil)
+	if err != nil {
+		t.Fatalf("NewHTTPHandler: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/telemetry/runs/run-1", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected telemetry run status: %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, `"run_id":"run-1"`) || !strings.Contains(body, `"status":"completed"`) {
+		t.Fatalf("unexpected telemetry run body: %s", body)
+	}
+	if service.getTelemetryRunID != "run-1" {
+		t.Fatalf("unexpected telemetry run id: %q", service.getTelemetryRunID)
+	}
+}
+
+func TestHTTPHandlerListsTelemetryEvents(t *testing.T) {
+	service := &fakeAgentService{
+		listTelemetryEventsResp: domain.ResourcePage[domain.TelemetryEventRecord]{
+			Items: []domain.TelemetryEventRecord{
+				{
+					EventID:    "run-1:1:1",
+					RunID:      "run-1",
+					AgentName:  "assistant",
+					Attempt:    1,
+					Seq:        1,
+					Timestamp:  time.Unix(1710000000, 0).UTC(),
+					StreamMode: "lifecycle",
+					EventType:  "run_started",
+					NodeName:   "run",
+				},
+				{
+					EventID:     "run-1:1:2",
+					RunID:       "run-1",
+					AgentName:   "assistant",
+					Attempt:     1,
+					Seq:         2,
+					Timestamp:   time.Unix(1710000001, 0).UTC(),
+					Namespace:   []string{"task:research"},
+					StreamMode:  "debug",
+					EventType:   "task",
+					NodeName:    "research",
+					TaskID:      "task-1",
+					PublicEvent: json.RawMessage(`{"type":"run_started","thread_id":"thread-1"}`),
+				},
+			},
+			PageMetadata: domain.PageMetadata{
+				PageSize:   50,
+				PageNumber: 1,
+				TotalSize:  2,
+				TotalPages: 1,
+			},
+		},
+	}
+	handler, err := NewHTTPHandler(service, nil)
+	if err != nil {
+		t.Fatalf("NewHTTPHandler: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/telemetry/runs/run-1/events?page_size=50&page_number=1", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected telemetry events status: %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, `"event_id":"run-1:1:1"`) || !strings.Contains(body, `"task_id":"task-1"`) {
+		t.Fatalf("unexpected telemetry events body: %s", body)
+	}
+	if !strings.Contains(body, `"namespace":["task:research"]`) {
+		t.Fatalf("expected event namespace, got %s", body)
+	}
+	if service.listTelemetryEventsRunID != "run-1" {
+		t.Fatalf("unexpected telemetry event run id: %q", service.listTelemetryEventsRunID)
+	}
+}
+
+func TestHTTPHandlerListsTelemetrySteps(t *testing.T) {
+	service := &fakeAgentService{
+		listTelemetryStepsResp: []domain.TelemetryStep{
+			{
+				StepID:          "step:node:task-1",
+				RunID:           "run-1",
+				ParentStepID:    "step:run:run-1",
+				Kind:            domain.TelemetryStepKindNode,
+				Title:           "research",
+				Namespace:       []string{"task:research"},
+				Status:          domain.TelemetryStepStatusCompleted,
+				StartedAt:       time.Unix(1710000000, 0).UTC(),
+				FinishedAt:      time.Unix(1710000002, 0).UTC(),
+				Depth:           1,
+				Step:            2,
+				Reasoning:       []string{"thinking..."},
+				Messages:        []string{"done"},
+				RelatedEventIDs: []string{"run-1:1:2", "run-1:1:3"},
+			},
+		},
+	}
+	handler, err := NewHTTPHandler(service, nil)
+	if err != nil {
+		t.Fatalf("NewHTTPHandler: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/telemetry/runs/run-1/steps", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected telemetry steps status: %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, `"step_id":"step:node:task-1"`) ||
+		!strings.Contains(body, `"kind":"node"`) ||
+		!strings.Contains(body, `"title":"research"`) ||
+		!strings.Contains(body, `"related_event_ids":["run-1:1:2","run-1:1:3"]`) {
+		t.Fatalf("unexpected telemetry steps body: %s", body)
+	}
+	if service.listTelemetryStepsRunID != "run-1" {
+		t.Fatalf("unexpected telemetry step run id: %q", service.listTelemetryStepsRunID)
 	}
 }
 

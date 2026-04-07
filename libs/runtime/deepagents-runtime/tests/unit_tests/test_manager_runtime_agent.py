@@ -364,6 +364,12 @@ def test_invoke_telemetry_passes_message_thread_id_and_run_id() -> None:
             "run_started",
             "run_ended",
         ]
+        assert [event.event_id for event in emitted] == [
+            "run-telemetry-1:1:1",
+            "run-telemetry-1:1:2",
+        ]
+        assert [event.attempt for event in emitted] == [1, 1]
+        assert [event.seq for event in emitted] == [1, 2]
         assert captured["message"] == "hello telemetry"
         assert captured["config"]["configurable"] == {
             "thread_id": "thread-telemetry-1",

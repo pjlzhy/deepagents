@@ -13,19 +13,34 @@ type fakeAgentService struct {
 	ensureRunnableErr error
 	ensureAgent       string
 
-	runStream        runtimeclient.RunStream
-	runErr           error
-	runRequest       domain.RunRequest
-	telemetryStream  runtimeclient.TelemetryStream
-	telemetryErr     error
-	telemetryRequest domain.RunRequest
-	graphResp        []byte
-	graphErr         error
-	graphAgentName   string
-	graphXrayDepth   int32
-	uploadResp       domain.WorkspaceUploadResponse
-	uploadErr        error
-	uploadReq        domain.WorkspaceUploadRequest
+	runStream                runtimeclient.RunStream
+	runErr                   error
+	runRequest               domain.RunRequest
+	telemetryStream          runtimeclient.TelemetryStream
+	telemetryErr             error
+	telemetryRequest         domain.RunRequest
+	recordTelemetryEvent     runtimeclient.TelemetryEvent
+	recordTelemetryErr       error
+	listTelemetryRunsResp    domain.ResourcePage[domain.TelemetryRun]
+	listTelemetryRunsErr     error
+	listTelemetryRunsQuery   domain.PageQuery
+	getTelemetryRunResp      domain.TelemetryRun
+	getTelemetryRunErr       error
+	getTelemetryRunID        string
+	listTelemetryStepsResp   []domain.TelemetryStep
+	listTelemetryStepsErr    error
+	listTelemetryStepsRunID  string
+	listTelemetryEventsResp  domain.ResourcePage[domain.TelemetryEventRecord]
+	listTelemetryEventsErr   error
+	listTelemetryEventsRunID string
+	listTelemetryEventsQuery domain.PageQuery
+	graphResp                []byte
+	graphErr                 error
+	graphAgentName           string
+	graphXrayDepth           int32
+	uploadResp               domain.WorkspaceUploadResponse
+	uploadErr                error
+	uploadReq                domain.WorkspaceUploadRequest
 
 	downloadResp domain.WorkspaceDownloadResponse
 	downloadErr  error
@@ -148,6 +163,45 @@ func (f *fakeAgentService) RunAgent(_ context.Context, req domain.RunRequest) (r
 func (f *fakeAgentService) RunAgentTelemetry(_ context.Context, req domain.RunRequest) (runtimeclient.TelemetryStream, error) {
 	f.telemetryRequest = req
 	return f.telemetryStream, f.telemetryErr
+}
+
+func (f *fakeAgentService) RecordTelemetryEvent(_ context.Context, event runtimeclient.TelemetryEvent) error {
+	f.recordTelemetryEvent = event
+	return f.recordTelemetryErr
+}
+
+func (f *fakeAgentService) ListTelemetryRuns(
+	_ context.Context,
+	query domain.PageQuery,
+) (domain.ResourcePage[domain.TelemetryRun], error) {
+	f.listTelemetryRunsQuery = query
+	return f.listTelemetryRunsResp, f.listTelemetryRunsErr
+}
+
+func (f *fakeAgentService) GetTelemetryRun(
+	_ context.Context,
+	runID string,
+) (domain.TelemetryRun, error) {
+	f.getTelemetryRunID = runID
+	return f.getTelemetryRunResp, f.getTelemetryRunErr
+}
+
+func (f *fakeAgentService) ListTelemetrySteps(
+	_ context.Context,
+	runID string,
+) ([]domain.TelemetryStep, error) {
+	f.listTelemetryStepsRunID = runID
+	return f.listTelemetryStepsResp, f.listTelemetryStepsErr
+}
+
+func (f *fakeAgentService) ListTelemetryEvents(
+	_ context.Context,
+	runID string,
+	query domain.PageQuery,
+) (domain.ResourcePage[domain.TelemetryEventRecord], error) {
+	f.listTelemetryEventsRunID = runID
+	f.listTelemetryEventsQuery = query
+	return f.listTelemetryEventsResp, f.listTelemetryEventsErr
 }
 
 func (f *fakeAgentService) GetAgentGraph(_ context.Context, agentName string, xrayDepth int32) ([]byte, error) {
@@ -603,6 +657,75 @@ func TestServerDelegatesSessionQueries(t *testing.T) {
 	}
 	if service.deleteLocator != (domain.SessionLocator{AgentName: "assistant", ThreadID: "thread-1"}) {
 		t.Fatalf("unexpected delete input: %#v", service)
+	}
+}
+
+func TestServerDelegatesTelemetryQueries(t *testing.T) {
+	service := &fakeAgentService{
+		listTelemetryRunsResp: domain.ResourcePage[domain.TelemetryRun]{
+			Items: []domain.TelemetryRun{{RunID: "run-1"}},
+			PageMetadata: domain.PageMetadata{
+				PageSize:   10,
+				PageNumber: 1,
+				TotalSize:  1,
+				TotalPages: 1,
+			},
+		},
+		getTelemetryRunResp: domain.TelemetryRun{RunID: "run-1"},
+		listTelemetryEventsResp: domain.ResourcePage[domain.TelemetryEventRecord]{
+			Items: []domain.TelemetryEventRecord{{EventID: "run-1:1:1"}},
+			PageMetadata: domain.PageMetadata{
+				PageSize:   20,
+				PageNumber: 2,
+				TotalSize:  1,
+				TotalPages: 1,
+			},
+		},
+	}
+	server, err := NewServer(service)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	page, err := server.ListTelemetryRuns(context.Background(), domain.PageQuery{PageSize: 10, PageNumber: 1})
+	if err != nil {
+		t.Fatalf("ListTelemetryRuns: %v", err)
+	}
+	if len(page.Items) != 1 || page.Items[0].RunID != "run-1" {
+		t.Fatalf("unexpected telemetry runs page: %#v", page)
+	}
+	if service.listTelemetryRunsQuery.PageSize != 10 || service.listTelemetryRunsQuery.PageNumber != 1 {
+		t.Fatalf("unexpected telemetry run query: %#v", service.listTelemetryRunsQuery)
+	}
+
+	run, err := server.GetTelemetryRun(context.Background(), "run-1")
+	if err != nil {
+		t.Fatalf("GetTelemetryRun: %v", err)
+	}
+	if run.RunID != "run-1" || service.getTelemetryRunID != "run-1" {
+		t.Fatalf("unexpected telemetry run lookup: run=%#v service=%#v", run, service)
+	}
+
+	service.listTelemetryStepsResp = []domain.TelemetryStep{{StepID: "step:run:run-1"}}
+	steps, err := server.ListTelemetrySteps(context.Background(), "run-1")
+	if err != nil {
+		t.Fatalf("ListTelemetrySteps: %v", err)
+	}
+	if len(steps) != 1 || steps[0].StepID != "step:run:run-1" || service.listTelemetryStepsRunID != "run-1" {
+		t.Fatalf("unexpected telemetry steps lookup: steps=%#v service=%#v", steps, service)
+	}
+
+	events, err := server.ListTelemetryEvents(context.Background(), "run-1", domain.PageQuery{PageSize: 20, PageNumber: 2})
+	if err != nil {
+		t.Fatalf("ListTelemetryEvents: %v", err)
+	}
+	if len(events.Items) != 1 || events.Items[0].EventID != "run-1:1:1" {
+		t.Fatalf("unexpected telemetry events page: %#v", events)
+	}
+	if service.listTelemetryEventsRunID != "run-1" ||
+		service.listTelemetryEventsQuery.PageSize != 20 ||
+		service.listTelemetryEventsQuery.PageNumber != 2 {
+		t.Fatalf("unexpected telemetry events query: %#v", service)
 	}
 }
 

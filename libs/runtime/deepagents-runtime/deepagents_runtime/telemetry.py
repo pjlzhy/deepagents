@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 import time
 from typing import Any
@@ -50,6 +50,15 @@ class TelemetryEvent:
     run_id: str = ""
     agent_name: str = ""
     public_event: RuntimeEvent | None = None
+    event_id: str = ""
+    attempt: int = 0
+    seq: int = 0
+    node_name: str = ""
+    task_id: str = ""
+    model_call_id: str = ""
+    tool_call_id: str = ""
+    interrupt_id: str = ""
+    message_id: str = ""
 
 
 @dataclass
@@ -89,6 +98,45 @@ def telemetry_from_runtime_event(
         run_id=event.run_id,
         agent_name=event.agent_name,
         public_event=event,
+    )
+
+
+def finalize_telemetry_event(
+    event: TelemetryEvent,
+    *,
+    attempt: int,
+    seq: int,
+) -> TelemetryEvent:
+    """Attach stable run-local identifiers and derived correlation keys."""
+
+    payload = event.payload if isinstance(event.payload, dict) else {}
+    metadata = event.metadata if isinstance(event.metadata, dict) else {}
+
+    node_name = event.node_name or _derive_node_name(event, payload, metadata)
+    task_id = event.task_id
+    if not task_id and event.event_type in {"task", "task_result"}:
+        task_id = _telemetry_string(payload.get("id"))
+    tool_call_id = event.tool_call_id or _derive_tool_call_id(event, payload)
+    interrupt_id = event.interrupt_id or _derive_interrupt_id(event, payload)
+    message_id = event.message_id or _derive_message_id(event, payload)
+    model_call_id = event.model_call_id or _derive_model_call_id(
+        event,
+        message_id,
+        tool_call_id,
+    )
+    event_id = event.event_id or f"{event.run_id}:{attempt}:{seq}"
+
+    return replace(
+        event,
+        event_id=event_id,
+        attempt=attempt,
+        seq=seq,
+        node_name=node_name,
+        task_id=task_id,
+        model_call_id=model_call_id,
+        tool_call_id=tool_call_id,
+        interrupt_id=interrupt_id,
+        message_id=message_id,
     )
 
 
@@ -185,12 +233,16 @@ def _parse_ai_message(
         if input_toks or output_toks:
             state.stats.record_request("", input_toks, output_toks)
 
+    model_call_id = _stable_model_call_id(message_obj)
+
     for block in content_blocks:
         if not isinstance(block, dict):
             continue
 
         block_type = str(block.get("type", "message_block"))
         payload = _normalize_json_like(block)
+        if isinstance(payload, dict) and model_call_id and block_type not in {"tool_call", "tool_call_chunk"}:
+            payload["model_call_id"] = model_call_id
         timestamp = time.time()
         public_event: RuntimeEvent | None = None
 
@@ -216,6 +268,7 @@ def _parse_ai_message(
                     timestamp=timestamp,
                     run_id=state.run_id,
                     agent_name=state.agent_name,
+                    model_call_id=model_call_id,
                 )
             )
             result.extend(
@@ -240,6 +293,7 @@ def _parse_ai_message(
                 run_id=state.run_id,
                 agent_name=state.agent_name,
                 public_event=public_event,
+                model_call_id=model_call_id,
             )
         )
 
@@ -601,6 +655,102 @@ def _telemetry_event_type_from_runtime_event(
         RuntimeEventType.ERROR: "error",
     }
     return mapping[event_type]
+
+
+def _derive_node_name(
+    event: TelemetryEvent,
+    payload: dict[str, Any],
+    metadata: dict[str, Any],
+) -> str:
+    if event.stream_mode == "lifecycle":
+        return "run"
+
+    metadata_node = _telemetry_string(metadata.get("langgraph_node"))
+    if metadata_node:
+        return metadata_node
+
+    payload_name = _telemetry_string(payload.get("name"))
+    if payload_name:
+        return payload_name
+
+    if event.public_event is not None:
+        tool_name = _telemetry_string(event.public_event.data.get("tool_name"))
+        if tool_name:
+            return tool_name
+
+    if event.ns:
+        raw = event.ns[-1]
+        if ":" in raw:
+            _, tail = raw.split(":", 1)
+            if tail:
+                return tail
+        if raw:
+            return raw
+
+    return "root"
+
+
+def _derive_tool_call_id(event: TelemetryEvent, payload: dict[str, Any]) -> str:
+    tool_call_id = _telemetry_string(payload.get("tool_call_id"))
+    if tool_call_id:
+        return tool_call_id
+    if event.event_type in {"tool_call", "tool_call_chunk"}:
+        block_id = _telemetry_string(payload.get("id"))
+        if block_id:
+            return block_id
+    if event.public_event is not None:
+        return _telemetry_string(event.public_event.data.get("tool_call_id"))
+    return ""
+
+
+def _derive_interrupt_id(event: TelemetryEvent, payload: dict[str, Any]) -> str:
+    interrupt_id = _telemetry_string(payload.get("interrupt_id"))
+    if interrupt_id:
+        return interrupt_id
+    if event.public_event is not None:
+        return _telemetry_string(event.public_event.data.get("interrupt_id"))
+    return ""
+
+
+def _derive_message_id(event: TelemetryEvent, payload: dict[str, Any]) -> str:
+    message_id = _telemetry_string(payload.get("message_id"))
+    if message_id:
+        return message_id
+    if event.stream_mode == "messages":
+        return _telemetry_string(payload.get("id"))
+    return ""
+
+
+def _derive_model_call_id(
+    event: TelemetryEvent,
+    message_id: str,
+    tool_call_id: str,
+) -> str:
+    if event.model_call_id:
+        return event.model_call_id
+    if tool_call_id:
+        return ""
+    if event.stream_mode != "messages":
+        return ""
+    if event.event_type in {"tool_call", "tool_call_chunk", "tool_call_start", "tool_call_done", "tool_result"}:
+        return ""
+    return message_id
+
+
+def _stable_model_call_id(message_obj: Any) -> str:
+    identifier = getattr(message_obj, "id", None)
+    if isinstance(identifier, str) and identifier.strip():
+        return identifier
+    response_metadata = getattr(message_obj, "response_metadata", None)
+    if isinstance(response_metadata, dict):
+        response_id = response_metadata.get("id")
+        if isinstance(response_id, str) and response_id.strip():
+            return response_id
+    return ""
+
+
+def _telemetry_string(value: Any) -> str:
+    return value if isinstance(value, str) else ""
 
 
 def _normalize_metadata(value: Any) -> dict[str, Any]:

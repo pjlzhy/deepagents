@@ -288,6 +288,10 @@ func (s *testRuntimeServer) RunTelemetry(
 		RunId:      "run-telemetry-1",
 		AgentName:  s.receivedTelemetryRun.GetAgentName(),
 		Timestamp:  timestamppb.New(time.Unix(200, 0)),
+		EventId:    "run-telemetry-1:1:1",
+		Attempt:    1,
+		Seq:        1,
+		NodeName:   "run",
 		StreamMode: "lifecycle",
 		EventType:  "run_started",
 		PublicEvent: &runtimev1.AgentEvent{
@@ -303,13 +307,19 @@ func (s *testRuntimeServer) RunTelemetry(
 	}
 
 	if err := stream.Send(&runtimev1.TelemetryEvent{
-		RunId:      "run-telemetry-1",
-		AgentName:  s.receivedTelemetryRun.GetAgentName(),
-		Timestamp:  timestamppb.New(time.Unix(201, 0)),
-		Ns:         []string{"task:research"},
-		StreamMode: "messages",
-		EventType:  "reasoning",
-		Metadata:   mustStructValue(map[string]any{"langgraph_node": "planner"}),
+		RunId:       "run-telemetry-1",
+		AgentName:   s.receivedTelemetryRun.GetAgentName(),
+		Timestamp:   timestamppb.New(time.Unix(201, 0)),
+		EventId:     "run-telemetry-1:1:2",
+		Attempt:     1,
+		Seq:         2,
+		NodeName:    "planner",
+		MessageId:   "msg-1",
+		ModelCallId: "msg-1",
+		Ns:          []string{"task:research"},
+		StreamMode:  "messages",
+		EventType:   "reasoning",
+		Metadata:    mustStructValue(map[string]any{"langgraph_node": "planner"}),
 		Payload: mustValueValue(map[string]any{
 			"summary": []any{
 				map[string]any{"type": "summary_text", "text": "thinking..."},
@@ -323,6 +333,11 @@ func (s *testRuntimeServer) RunTelemetry(
 		RunId:      "run-telemetry-1",
 		AgentName:  s.receivedTelemetryRun.GetAgentName(),
 		Timestamp:  timestamppb.New(time.Unix(202, 0)),
+		EventId:    "run-telemetry-1:1:3",
+		Attempt:    1,
+		Seq:        3,
+		NodeName:   "research",
+		TaskId:     "task-1",
 		Ns:         []string{"task:research"},
 		StreamMode: "debug",
 		EventType:  "task",
@@ -870,6 +885,9 @@ func TestGRPCClientRunTelemetryStream(t *testing.T) {
 	if first.StreamMode != "lifecycle" || first.EventType != "run_started" {
 		t.Fatalf("unexpected first telemetry event: %#v", first)
 	}
+	if first.EventID != "run-telemetry-1:1:1" || first.Attempt != 1 || first.Seq != 1 || first.NodeName != "run" {
+		t.Fatalf("unexpected first telemetry identifiers: %#v", first)
+	}
 	if first.PublicEvent == nil || first.PublicEvent.ThreadID != "thread-telemetry-1" {
 		t.Fatalf("unexpected first telemetry public event: %#v", first.PublicEvent)
 	}
@@ -887,6 +905,9 @@ func TestGRPCClientRunTelemetryStream(t *testing.T) {
 	if !payloadContains(t, second.Payload, "summary", []any{map[string]any{"type": "summary_text", "text": "thinking..."}}) {
 		t.Fatalf("unexpected second telemetry payload: %s", string(second.Payload))
 	}
+	if second.MessageID != "msg-1" || second.ModelCallID != "msg-1" || second.NodeName != "planner" {
+		t.Fatalf("unexpected second telemetry identifiers: %#v", second)
+	}
 
 	third := <-stream.Events()
 	if third.StreamMode != "debug" || third.EventType != "task" {
@@ -894,6 +915,9 @@ func TestGRPCClientRunTelemetryStream(t *testing.T) {
 	}
 	if !payloadContains(t, third.Metadata, "step", float64(2)) {
 		t.Fatalf("unexpected third telemetry metadata: %s", string(third.Metadata))
+	}
+	if third.TaskID != "task-1" || third.Seq != 3 {
+		t.Fatalf("unexpected third telemetry identifiers: %#v", third)
 	}
 
 	fourth := <-stream.Events()

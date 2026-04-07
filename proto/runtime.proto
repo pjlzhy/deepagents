@@ -292,6 +292,33 @@ message TelemetryEvent {
   // Optional compatibility projection when this telemetry event can be mapped
   // into the existing public `AgentEvent` transport.
   AgentEvent public_event = 9;
+
+  // Stable telemetry event identifier within the durable event ledger.
+  string event_id = 10;
+
+  // Run attempt number. The first attempt is 1.
+  int32 attempt = 11;
+
+  // Strictly increasing event sequence within one run attempt.
+  int64 seq = 12;
+
+  // Best-effort resolved node name for UI and history queries.
+  string node_name = 13;
+
+  // Stable node task identifier when the event belongs to one debug task/task_result.
+  string task_id = 14;
+
+  // Stable model call identifier when the event belongs to one model interaction.
+  string model_call_id = 15;
+
+  // Stable tool call identifier when the event belongs to one tool interaction.
+  string tool_call_id = 16;
+
+  // Stable HITL interrupt identifier when the event belongs to one HITL wait.
+  string interrupt_id = 17;
+
+  // Stable message identifier when the event belongs to one message block sequence.
+  string message_id = 18;
 }
 
 // -----------------------------------------------------------------------------

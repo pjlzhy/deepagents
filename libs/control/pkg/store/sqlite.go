@@ -109,6 +109,53 @@ CREATE TABLE IF NOT EXISTS operations (
 	created_at TEXT NOT NULL,
 	updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS telemetry_runs (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	run_id TEXT NOT NULL,
+	agent_name TEXT NOT NULL,
+	thread_id TEXT NOT NULL,
+	runtime_target TEXT NOT NULL,
+	status TEXT NOT NULL,
+	request_metadata_json TEXT NOT NULL,
+	trace_context_json TEXT NOT NULL,
+	graph_snapshot_id TEXT NOT NULL,
+	reasoning_summary TEXT NOT NULL,
+	node_step_count INTEGER NOT NULL,
+	model_step_count INTEGER NOT NULL,
+	tool_step_count INTEGER NOT NULL,
+	hitl_wait_count INTEGER NOT NULL,
+	error_count INTEGER NOT NULL,
+	event_count INTEGER NOT NULL,
+	started_at TEXT NOT NULL,
+	finished_at TEXT NOT NULL,
+	last_event_at TEXT NOT NULL,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS telemetry_events (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	event_id TEXT NOT NULL,
+	run_id TEXT NOT NULL,
+	agent_name TEXT NOT NULL,
+	attempt INTEGER NOT NULL,
+	seq INTEGER NOT NULL,
+	timestamp TEXT NOT NULL,
+	namespace_json TEXT NOT NULL,
+	stream_mode TEXT NOT NULL,
+	event_type TEXT NOT NULL,
+	node_name TEXT NOT NULL,
+	task_id TEXT NOT NULL,
+	model_call_id TEXT NOT NULL,
+	tool_call_id TEXT NOT NULL,
+	interrupt_id TEXT NOT NULL,
+	message_id TEXT NOT NULL,
+	metadata_json TEXT NOT NULL,
+	payload_json TEXT NOT NULL,
+	public_event_json TEXT NOT NULL,
+	created_at TEXT NOT NULL
+);
 `
 
 const sqliteIndexesSchema = `
@@ -127,6 +174,15 @@ CREATE INDEX IF NOT EXISTS idx_operations_agent_name ON operations(agent_name);
 CREATE INDEX IF NOT EXISTS idx_operations_target_name ON operations(target_name);
 CREATE INDEX IF NOT EXISTS idx_operations_kind ON operations(kind);
 CREATE INDEX IF NOT EXISTS idx_operations_status ON operations(status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_telemetry_runs_run_id ON telemetry_runs(run_id);
+CREATE INDEX IF NOT EXISTS idx_telemetry_runs_agent_name ON telemetry_runs(agent_name);
+CREATE INDEX IF NOT EXISTS idx_telemetry_runs_status ON telemetry_runs(status);
+CREATE INDEX IF NOT EXISTS idx_telemetry_runs_last_event_at ON telemetry_runs(last_event_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_telemetry_events_event_id ON telemetry_events(event_id);
+CREATE INDEX IF NOT EXISTS idx_telemetry_events_run_id ON telemetry_events(run_id);
+CREATE INDEX IF NOT EXISTS idx_telemetry_events_run_attempt_seq ON telemetry_events(run_id, attempt, seq);
+CREATE INDEX IF NOT EXISTS idx_telemetry_events_event_type ON telemetry_events(event_type);
+CREATE INDEX IF NOT EXISTS idx_telemetry_events_node_name ON telemetry_events(node_name);
 `
 
 // SQLite 提供 SQLite-backed store。

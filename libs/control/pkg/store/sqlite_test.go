@@ -36,6 +36,10 @@ func TestOpenSQLiteInitializesSchema(t *testing.T) {
 	assertTableSQLContains(t, ctx, db.DB(), "deployments", `id INTEGER PRIMARY KEY AUTOINCREMENT`)
 	assertTableSQLContains(t, ctx, db.DB(), "operations", `id INTEGER PRIMARY KEY AUTOINCREMENT`)
 	assertTableSQLContains(t, ctx, db.DB(), "operations", `operation_id TEXT NOT NULL`)
+	assertTableSQLContains(t, ctx, db.DB(), "telemetry_runs", `id INTEGER PRIMARY KEY AUTOINCREMENT`)
+	assertTableSQLContains(t, ctx, db.DB(), "telemetry_runs", `run_id TEXT NOT NULL`)
+	assertTableSQLContains(t, ctx, db.DB(), "telemetry_events", `id INTEGER PRIMARY KEY AUTOINCREMENT`)
+	assertTableSQLContains(t, ctx, db.DB(), "telemetry_events", `event_id TEXT NOT NULL`)
 
 	assertIndexExists(t, ctx, db.DB(), "idx_model_configs_name")
 	assertIndexExists(t, ctx, db.DB(), "idx_skills_name")
@@ -52,6 +56,15 @@ func TestOpenSQLiteInitializesSchema(t *testing.T) {
 	assertIndexExists(t, ctx, db.DB(), "idx_operations_target_name")
 	assertIndexExists(t, ctx, db.DB(), "idx_operations_kind")
 	assertIndexExists(t, ctx, db.DB(), "idx_operations_status")
+	assertIndexExists(t, ctx, db.DB(), "idx_telemetry_runs_run_id")
+	assertIndexExists(t, ctx, db.DB(), "idx_telemetry_runs_agent_name")
+	assertIndexExists(t, ctx, db.DB(), "idx_telemetry_runs_status")
+	assertIndexExists(t, ctx, db.DB(), "idx_telemetry_runs_last_event_at")
+	assertIndexExists(t, ctx, db.DB(), "idx_telemetry_events_event_id")
+	assertIndexExists(t, ctx, db.DB(), "idx_telemetry_events_run_id")
+	assertIndexExists(t, ctx, db.DB(), "idx_telemetry_events_run_attempt_seq")
+	assertIndexExists(t, ctx, db.DB(), "idx_telemetry_events_event_type")
+	assertIndexExists(t, ctx, db.DB(), "idx_telemetry_events_node_name")
 }
 
 func TestOpenSQLiteMigratesAgentSpecModelRefColumn(t *testing.T) {

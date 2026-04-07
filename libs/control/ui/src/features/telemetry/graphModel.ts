@@ -138,6 +138,7 @@ function relatedSpansForNode(node: AgentGraphNodeDTO, spans: TraceSpanVM[]): str
   const label = nodeLabel(node);
   const tail = id.split(':').at(-1);
   return spans
+    .filter((span) => span.kind === 'node')
     .filter((span) => (
       span.nodeName === id
       || span.nodeName === label

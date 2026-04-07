@@ -501,14 +501,23 @@ func telemetryEventFromProto(event *runtimev1.TelemetryEvent) TelemetryEvent {
 	}
 
 	mapped := TelemetryEvent{
-		RunID:      event.GetRunId(),
-		AgentName:  event.GetAgentName(),
-		Timestamp:  timestampFromProto(event.GetTimestamp()),
-		Namespace:  cloneStrings(event.GetNs()),
-		StreamMode: event.GetStreamMode(),
-		EventType:  event.GetEventType(),
-		Metadata:   structToRawJSON(event.GetMetadata()),
-		Payload:    valueToRawJSON(event.GetPayload()),
+		RunID:       event.GetRunId(),
+		AgentName:   event.GetAgentName(),
+		Timestamp:   timestampFromProto(event.GetTimestamp()),
+		EventID:     event.GetEventId(),
+		Attempt:     event.GetAttempt(),
+		Seq:         event.GetSeq(),
+		Namespace:   cloneStrings(event.GetNs()),
+		StreamMode:  event.GetStreamMode(),
+		EventType:   event.GetEventType(),
+		NodeName:    event.GetNodeName(),
+		TaskID:      event.GetTaskId(),
+		ModelCallID: event.GetModelCallId(),
+		ToolCallID:  event.GetToolCallId(),
+		InterruptID: event.GetInterruptId(),
+		MessageID:   event.GetMessageId(),
+		Metadata:    structToRawJSON(event.GetMetadata()),
+		Payload:     valueToRawJSON(event.GetPayload()),
 	}
 	if event.GetPublicEvent() != nil {
 		publicEvent := agentEventFromProto(event.GetPublicEvent())

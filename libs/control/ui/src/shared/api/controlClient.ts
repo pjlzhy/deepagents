@@ -9,6 +9,7 @@ import type {
   HealthResponse,
   HTTPAgentEventDTO,
   HTTPTelemetryEventDTO,
+  HTTPTelemetryRunDTO,
   ListArtifactsResponseDTO,
   MCPConfigListDTO,
   MCPConfigDTO,
@@ -29,6 +30,9 @@ import type {
   SkillListDTO,
   SkillUpsertRequestDTO,
   SubmitHitlDecisionsRequestDTO,
+  TelemetryEventsListDTO,
+  TelemetryRunsListDTO,
+  TelemetryStepsListDTO,
   WorkspaceDownloadResponseDTO,
   WorkspaceListResponseDTO,
   WorkspaceUploadResponseDTO,
@@ -271,6 +275,21 @@ export const controlClient = {
         `/api/v1/agents/${encodeURIComponent(agentName)}/telemetry/stream`,
         request,
         handlers,
+      );
+    },
+    listTelemetryRuns(params: NumberPageQuery) {
+      return httpClient.get<TelemetryRunsListDTO>('/api/v1/telemetry/runs', resourceQuery(params));
+    },
+    getTelemetryRun(runId: string) {
+      return httpClient.get<HTTPTelemetryRunDTO>(`/api/v1/telemetry/runs/${encodeURIComponent(runId)}`);
+    },
+    listTelemetrySteps(runId: string) {
+      return httpClient.get<TelemetryStepsListDTO>(`/api/v1/telemetry/runs/${encodeURIComponent(runId)}/steps`);
+    },
+    listTelemetryEvents(runId: string, params: NumberPageQuery) {
+      return httpClient.get<TelemetryEventsListDTO>(
+        `/api/v1/telemetry/runs/${encodeURIComponent(runId)}/events`,
+        resourceQuery(params),
       );
     },
     cancel(runSessionId: string, request: CancelRunRequestDTO) {

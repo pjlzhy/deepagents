@@ -34,7 +34,11 @@ from deepagents_runtime.spec import (
     RunConfig,
     validate_agent_spec,
 )
-from deepagents_runtime.telemetry import TelemetryEvent, telemetry_from_runtime_event
+from deepagents_runtime.telemetry import (
+    TelemetryEvent,
+    finalize_telemetry_event,
+    telemetry_from_runtime_event,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -365,6 +369,19 @@ class AgentManager:
             if timeout_seconds is None
             else time.monotonic() + timeout_seconds
         )
+        attempt = 1
+        seq = 0
+
+        next_event = lambda event: finalize_telemetry_event(  # noqa: E731
+            event,
+            attempt=attempt,
+            seq=_next_seq(),
+        )
+
+        def _next_seq() -> int:
+            nonlocal seq
+            seq += 1
+            return seq
 
         try:
             while True:
@@ -449,10 +466,14 @@ class AgentManager:
 
         agent.last_invoked = datetime.now(UTC)
         if timeout_seconds == 0:
-            yield self._telemetry_timeout_event(
-                agent_name=name,
-                run_id=run_id,
-                timeout_seconds=timeout_seconds,
+            yield finalize_telemetry_event(
+                self._telemetry_timeout_event(
+                    agent_name=name,
+                    run_id=run_id,
+                    timeout_seconds=timeout_seconds,
+                ),
+                attempt=1,
+                seq=1,
             )
             return
 
@@ -471,6 +492,20 @@ class AgentManager:
             if timeout_seconds is None
             else time.monotonic() + timeout_seconds
         )
+        attempt = 1
+        seq = 0
+
+        def _next_seq() -> int:
+            nonlocal seq
+            seq += 1
+            return seq
+
+        def next_event(event: TelemetryEvent) -> TelemetryEvent:
+            return finalize_telemetry_event(
+                event,
+                attempt=attempt,
+                seq=_next_seq(),
+            )
 
         try:
             while True:
@@ -481,11 +516,11 @@ class AgentManager:
                 )
                 if source == "timeout":
                     await self._cancel_run_producer(producer)
-                    yield self._telemetry_timeout_event(
+                    yield next_event(self._telemetry_timeout_event(
                         agent_name=name,
                         run_id=run_id,
                         timeout_seconds=timeout_seconds,
-                    )
+                    ))
                     return
                 if source == "cancel":
                     await self._cancel_run_producer(producer)
@@ -494,25 +529,25 @@ class AgentManager:
                         if cancel_reason_getter is not None
                         else cancel_reason
                     )
-                    yield telemetry_from_runtime_event(
+                    yield next_event(telemetry_from_runtime_event(
                         events.run_canceled(
                             reason,
                             run_id=run_id,
                             agent_name=name,
                         )
-                    )
+                    ))
                     return
 
                 kind, payload = item
                 if kind == "event":
-                    yield payload
+                    yield next_event(payload)
                     continue
                 if kind == "error":
-                    yield self._telemetry_error_event_from_exception(
+                    yield next_event(self._telemetry_error_event_from_exception(
                         agent_name=name,
                         run_id=run_id,
                         exc=payload,
-                    )
+                    ))
                     return
                 if kind == "done":
                     return
