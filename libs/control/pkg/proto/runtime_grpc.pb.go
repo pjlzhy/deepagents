@@ -29,7 +29,7 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AgentExecutor_Run_FullMethodName = "/deepagents.runtime.v1.AgentExecutor/Run"
+	AgentExecutor_Run_FullMethodName = "/agents.runtime.v1.AgentExecutor/Run"
 )
 
 // AgentExecutorClient is the client API for AgentExecutor service.
@@ -128,7 +128,7 @@ type AgentExecutor_RunServer = grpc.BidiStreamingServer[ClientMessage, AgentEven
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var AgentExecutor_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "deepagents.runtime.v1.AgentExecutor",
+	ServiceName: "agents.runtime.v1.AgentExecutor",
 	HandlerType: (*AgentExecutorServer)(nil),
 	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{
@@ -143,7 +143,7 @@ var AgentExecutor_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	AgentTelemetry_RunTelemetry_FullMethodName = "/deepagents.runtime.v1.AgentTelemetry/RunTelemetry"
+	AgentTelemetry_RunTelemetry_FullMethodName = "/agents.runtime.v1.AgentTelemetry/RunTelemetry"
 )
 
 // AgentTelemetryClient is the client API for AgentTelemetry service.
@@ -240,7 +240,7 @@ type AgentTelemetry_RunTelemetryServer = grpc.BidiStreamingServer[ClientMessage,
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var AgentTelemetry_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "deepagents.runtime.v1.AgentTelemetry",
+	ServiceName: "agents.runtime.v1.AgentTelemetry",
 	HandlerType: (*AgentTelemetryServer)(nil),
 	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{
@@ -255,16 +255,16 @@ var AgentTelemetry_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	ResourceSync_SyncSkill_FullMethodName              = "/deepagents.runtime.v1.ResourceSync/SyncSkill"
-	ResourceSync_SyncMcp_FullMethodName                = "/deepagents.runtime.v1.ResourceSync/SyncMcp"
-	ResourceSync_SyncAgentSpec_FullMethodName          = "/deepagents.runtime.v1.ResourceSync/SyncAgentSpec"
-	ResourceSync_Assemble_FullMethodName               = "/deepagents.runtime.v1.ResourceSync/Assemble"
-	ResourceSync_GetAgentGraph_FullMethodName          = "/deepagents.runtime.v1.ResourceSync/GetAgentGraph"
-	ResourceSync_UploadWorkspaceFiles_FullMethodName   = "/deepagents.runtime.v1.ResourceSync/UploadWorkspaceFiles"
-	ResourceSync_DownloadWorkspaceFiles_FullMethodName = "/deepagents.runtime.v1.ResourceSync/DownloadWorkspaceFiles"
-	ResourceSync_ListWorkspaceFiles_FullMethodName     = "/deepagents.runtime.v1.ResourceSync/ListWorkspaceFiles"
-	ResourceSync_RemoveResource_FullMethodName         = "/deepagents.runtime.v1.ResourceSync/RemoveResource"
-	ResourceSync_Health_FullMethodName                 = "/deepagents.runtime.v1.ResourceSync/Health"
+	ResourceSync_SyncSkill_FullMethodName              = "/agents.runtime.v1.ResourceSync/SyncSkill"
+	ResourceSync_SyncMcp_FullMethodName                = "/agents.runtime.v1.ResourceSync/SyncMcp"
+	ResourceSync_SyncAgentSpec_FullMethodName          = "/agents.runtime.v1.ResourceSync/SyncAgentSpec"
+	ResourceSync_Assemble_FullMethodName               = "/agents.runtime.v1.ResourceSync/Assemble"
+	ResourceSync_GetAgentGraph_FullMethodName          = "/agents.runtime.v1.ResourceSync/GetAgentGraph"
+	ResourceSync_UploadWorkspaceFiles_FullMethodName   = "/agents.runtime.v1.ResourceSync/UploadWorkspaceFiles"
+	ResourceSync_DownloadWorkspaceFiles_FullMethodName = "/agents.runtime.v1.ResourceSync/DownloadWorkspaceFiles"
+	ResourceSync_ListWorkspaceFiles_FullMethodName     = "/agents.runtime.v1.ResourceSync/ListWorkspaceFiles"
+	ResourceSync_RemoveResource_FullMethodName         = "/agents.runtime.v1.ResourceSync/RemoveResource"
+	ResourceSync_Health_FullMethodName                 = "/agents.runtime.v1.ResourceSync/Health"
 )
 
 // ResourceSyncClient is the client API for ResourceSync service.
@@ -672,7 +672,7 @@ func _ResourceSync_Health_Handler(srv interface{}, ctx context.Context, dec func
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var ResourceSync_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "deepagents.runtime.v1.ResourceSync",
+	ServiceName: "agents.runtime.v1.ResourceSync",
 	HandlerType: (*ResourceSyncServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
@@ -721,12 +721,12 @@ var ResourceSync_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	SessionQuery_ListSessions_FullMethodName        = "/deepagents.runtime.v1.SessionQuery/ListSessions"
-	SessionQuery_GetSession_FullMethodName          = "/deepagents.runtime.v1.SessionQuery/GetSession"
-	SessionQuery_GetSessionMessages_FullMethodName  = "/deepagents.runtime.v1.SessionQuery/GetSessionMessages"
-	SessionQuery_GetLatestSession_FullMethodName    = "/deepagents.runtime.v1.SessionQuery/GetLatestSession"
-	SessionQuery_DeleteSession_FullMethodName       = "/deepagents.runtime.v1.SessionQuery/DeleteSession"
-	SessionQuery_ListThreadArtifacts_FullMethodName = "/deepagents.runtime.v1.SessionQuery/ListThreadArtifacts"
+	SessionQuery_ListSessions_FullMethodName        = "/agents.runtime.v1.SessionQuery/ListSessions"
+	SessionQuery_GetSession_FullMethodName          = "/agents.runtime.v1.SessionQuery/GetSession"
+	SessionQuery_GetSessionMessages_FullMethodName  = "/agents.runtime.v1.SessionQuery/GetSessionMessages"
+	SessionQuery_GetLatestSession_FullMethodName    = "/agents.runtime.v1.SessionQuery/GetLatestSession"
+	SessionQuery_DeleteSession_FullMethodName       = "/agents.runtime.v1.SessionQuery/DeleteSession"
+	SessionQuery_ListThreadArtifacts_FullMethodName = "/agents.runtime.v1.SessionQuery/ListThreadArtifacts"
 )
 
 // SessionQueryClient is the client API for SessionQuery service.
@@ -996,7 +996,7 @@ func _SessionQuery_ListThreadArtifacts_Handler(srv interface{}, ctx context.Cont
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var SessionQuery_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "deepagents.runtime.v1.SessionQuery",
+	ServiceName: "agents.runtime.v1.SessionQuery",
 	HandlerType: (*SessionQueryServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{

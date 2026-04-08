@@ -39,7 +39,7 @@ func main() {
 	}()
 
 	log.Printf(
-		"deepagents-control listening transport=%s listen=%s storage=%s runtime_target=%s runtime_endpoint=%s",
+		"agents control listening transport=%s listen=%s storage=%s runtime_target=%s runtime_endpoint=%s",
 		cfg.NorthboundTransport,
 		cfg.ListenAddress,
 		cfg.StoragePath,

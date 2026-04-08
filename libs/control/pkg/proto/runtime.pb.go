@@ -2674,7 +2674,7 @@ func (*LocalSandboxSpec) Descriptor() ([]byte, []int) {
 type ImageReference struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Reference     string                 `protobuf:"bytes,1,opt,name=reference,proto3" json:"reference,omitempty"`
-	PullPolicy    ImagePullPolicy        `protobuf:"varint,2,opt,name=pull_policy,json=pullPolicy,proto3,enum=deepagents.runtime.v1.ImagePullPolicy" json:"pull_policy,omitempty"`
+	PullPolicy    ImagePullPolicy        `protobuf:"varint,2,opt,name=pull_policy,json=pullPolicy,proto3,enum=agents.runtime.v1.ImagePullPolicy" json:"pull_policy,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4569,7 +4569,7 @@ type GetSessionMessagesRequest struct {
 	CheckpointId  string                 `protobuf:"bytes,2,opt,name=checkpoint_id,json=checkpointId,proto3" json:"checkpoint_id,omitempty"`
 	PageSize      int32                  `protobuf:"varint,3,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
 	PageToken     string                 `protobuf:"bytes,4,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
-	RequestedMode SessionHistoryMode     `protobuf:"varint,5,opt,name=requested_mode,json=requestedMode,proto3,enum=deepagents.runtime.v1.SessionHistoryMode" json:"requested_mode,omitempty"`
+	RequestedMode SessionHistoryMode     `protobuf:"varint,5,opt,name=requested_mode,json=requestedMode,proto3,enum=agents.runtime.v1.SessionHistoryMode" json:"requested_mode,omitempty"`
 	IncludeRaw    bool                   `protobuf:"varint,6,opt,name=include_raw,json=includeRaw,proto3" json:"include_raw,omitempty"`
 	AgentName     string                 `protobuf:"bytes,7,opt,name=agent_name,json=agentName,proto3" json:"agent_name,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -4659,7 +4659,7 @@ type GetSessionMessagesResponse struct {
 	state                protoimpl.MessageState `protogen:"open.v1"`
 	ThreadId             string                 `protobuf:"bytes,1,opt,name=thread_id,json=threadId,proto3" json:"thread_id,omitempty"`
 	ResolvedCheckpointId string                 `protobuf:"bytes,2,opt,name=resolved_checkpoint_id,json=resolvedCheckpointId,proto3" json:"resolved_checkpoint_id,omitempty"`
-	ActualMode           SessionHistoryMode     `protobuf:"varint,3,opt,name=actual_mode,json=actualMode,proto3,enum=deepagents.runtime.v1.SessionHistoryMode" json:"actual_mode,omitempty"`
+	ActualMode           SessionHistoryMode     `protobuf:"varint,3,opt,name=actual_mode,json=actualMode,proto3,enum=agents.runtime.v1.SessionHistoryMode" json:"actual_mode,omitempty"`
 	TotalMessageCount    int32                  `protobuf:"varint,4,opt,name=total_message_count,json=totalMessageCount,proto3" json:"total_message_count,omitempty"`
 	Messages             []*SessionMessage      `protobuf:"bytes,5,rep,name=messages,proto3" json:"messages,omitempty"`
 	NextPageToken        string                 `protobuf:"bytes,6,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
@@ -4747,8 +4747,8 @@ type SessionSummary struct {
 	LatestCheckpointId string                 `protobuf:"bytes,4,opt,name=latest_checkpoint_id,json=latestCheckpointId,proto3" json:"latest_checkpoint_id,omitempty"`
 	MessageCount       int32                  `protobuf:"varint,5,opt,name=message_count,json=messageCount,proto3" json:"message_count,omitempty"`
 	InitialPrompt      string                 `protobuf:"bytes,6,opt,name=initial_prompt,json=initialPrompt,proto3" json:"initial_prompt,omitempty"`
-	HistoryMode        SessionHistoryMode     `protobuf:"varint,7,opt,name=history_mode,json=historyMode,proto3,enum=deepagents.runtime.v1.SessionHistoryMode" json:"history_mode,omitempty"`
-	AgentStatus        AgentRuntimeStatus     `protobuf:"varint,8,opt,name=agent_status,json=agentStatus,proto3,enum=deepagents.runtime.v1.AgentRuntimeStatus" json:"agent_status,omitempty"`
+	HistoryMode        SessionHistoryMode     `protobuf:"varint,7,opt,name=history_mode,json=historyMode,proto3,enum=agents.runtime.v1.SessionHistoryMode" json:"history_mode,omitempty"`
+	AgentStatus        AgentRuntimeStatus     `protobuf:"varint,8,opt,name=agent_status,json=agentStatus,proto3,enum=agents.runtime.v1.AgentRuntimeStatus" json:"agent_status,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -4894,7 +4894,7 @@ func (x *SessionDetail) GetCheckpointCount() int32 {
 type SessionMessage struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Index         int32                  `protobuf:"varint,1,opt,name=index,proto3" json:"index,omitempty"`
-	Role          SessionMessageRole     `protobuf:"varint,2,opt,name=role,proto3,enum=deepagents.runtime.v1.SessionMessageRole" json:"role,omitempty"`
+	Role          SessionMessageRole     `protobuf:"varint,2,opt,name=role,proto3,enum=agents.runtime.v1.SessionMessageRole" json:"role,omitempty"`
 	Text          string                 `protobuf:"bytes,3,opt,name=text,proto3" json:"text,omitempty"`
 	ToolCallId    string                 `protobuf:"bytes,4,opt,name=tool_call_id,json=toolCallId,proto3" json:"tool_call_id,omitempty"`
 	ToolName      string                 `protobuf:"bytes,5,opt,name=tool_name,json=toolName,proto3" json:"tool_name,omitempty"`
@@ -5217,55 +5217,55 @@ var File_runtime_proto protoreflect.FileDescriptor
 
 const file_runtime_proto_rawDesc = "" +
 	"\n" +
-	"\rruntime.proto\x12\x15deepagents.runtime.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xec\x01\n" +
-	"\rClientMessage\x12D\n" +
-	"\vrun_request\x18\x01 \x01(\v2!.deepagents.runtime.v1.RunRequestH\x00R\n" +
-	"runRequest\x12J\n" +
-	"\rhitl_decision\x18\x02 \x01(\v2#.deepagents.runtime.v1.HITLDecisionH\x00R\fhitlDecision\x12>\n" +
-	"\x06cancel\x18\x03 \x01(\v2$.deepagents.runtime.v1.CancelRequestH\x00R\x06cancelB\t\n" +
-	"\apayload\"\xec\x01\n" +
+	"\rruntime.proto\x12\x11agents.runtime.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe0\x01\n" +
+	"\rClientMessage\x12@\n" +
+	"\vrun_request\x18\x01 \x01(\v2\x1d.agents.runtime.v1.RunRequestH\x00R\n" +
+	"runRequest\x12F\n" +
+	"\rhitl_decision\x18\x02 \x01(\v2\x1f.agents.runtime.v1.HITLDecisionH\x00R\fhitlDecision\x12:\n" +
+	"\x06cancel\x18\x03 \x01(\v2 .agents.runtime.v1.CancelRequestH\x00R\x06cancelB\t\n" +
+	"\apayload\"\xe8\x01\n" +
 	"\n" +
 	"RunRequest\x12\x1d\n" +
 	"\n" +
 	"agent_name\x18\x01 \x01(\tR\tagentName\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12\x1b\n" +
-	"\tthread_id\x18\x03 \x01(\tR\bthreadId\x12K\n" +
-	"\bmetadata\x18\x04 \x03(\v2/.deepagents.runtime.v1.RunRequest.MetadataEntryR\bmetadata\x1a;\n" +
+	"\tthread_id\x18\x03 \x01(\tR\bthreadId\x12G\n" +
+	"\bmetadata\x18\x04 \x03(\v2+.agents.runtime.v1.RunRequest.MetadataEntryR\bmetadata\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"p\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"l\n" +
 	"\fHITLDecision\x12!\n" +
-	"\finterrupt_id\x18\x01 \x01(\tR\vinterruptId\x12=\n" +
-	"\tdecisions\x18\x02 \x03(\v2\x1f.deepagents.runtime.v1.DecisionR\tdecisions\"I\n" +
+	"\finterrupt_id\x18\x01 \x01(\tR\vinterruptId\x129\n" +
+	"\tdecisions\x18\x02 \x03(\v2\x1b.agents.runtime.v1.DecisionR\tdecisions\"I\n" +
 	"\x06Action\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12+\n" +
-	"\x04args\x18\x02 \x01(\v2\x17.google.protobuf.StructR\x04args\"\xae\x01\n" +
+	"\x04args\x18\x02 \x01(\v2\x17.google.protobuf.StructR\x04args\"\xaa\x01\n" +
 	"\bDecision\x12\x12\n" +
 	"\x04type\x18\x04 \x01(\tR\x04type\x12\x18\n" +
-	"\amessage\x18\x05 \x01(\tR\amessage\x12B\n" +
-	"\redited_action\x18\x06 \x01(\v2\x1d.deepagents.runtime.v1.ActionR\feditedActionJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03J\x04\b\x03\x10\x04R\ftool_call_idR\bapprovedR\x06reason\"'\n" +
+	"\amessage\x18\x05 \x01(\tR\amessage\x12>\n" +
+	"\redited_action\x18\x06 \x01(\v2\x19.agents.runtime.v1.ActionR\feditedActionJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03J\x04\b\x03\x10\x04R\ftool_call_idR\bapprovedR\x06reason\"'\n" +
 	"\rCancelRequest\x12\x16\n" +
-	"\x06reason\x18\x01 \x01(\tR\x06reason\"\xc3\x06\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason\"\x9b\x06\n" +
 	"\n" +
 	"AgentEvent\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x1d\n" +
 	"\n" +
 	"agent_name\x18\x02 \x01(\tR\tagentName\x128\n" +
-	"\ttimestamp\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\x12D\n" +
+	"\ttimestamp\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\x12@\n" +
 	"\vrun_started\x18\n" +
-	" \x01(\v2!.deepagents.runtime.v1.RunStartedH\x00R\n" +
-	"runStarted\x12A\n" +
+	" \x01(\v2\x1d.agents.runtime.v1.RunStartedH\x00R\n" +
+	"runStarted\x12=\n" +
 	"\n" +
-	"text_delta\x18\v \x01(\v2 .deepagents.runtime.v1.TextDeltaH\x00R\ttextDelta\x12>\n" +
-	"\ttext_done\x18\f \x01(\v2\x1f.deepagents.runtime.v1.TextDoneH\x00R\btextDone\x12N\n" +
-	"\x0ftool_call_start\x18\r \x01(\v2$.deepagents.runtime.v1.ToolCallStartH\x00R\rtoolCallStart\x12K\n" +
-	"\x0etool_call_done\x18\x0e \x01(\v2#.deepagents.runtime.v1.ToolCallDoneH\x00R\ftoolCallDone\x12D\n" +
-	"\vtool_result\x18\x0f \x01(\v2!.deepagents.runtime.v1.ToolResultH\x00R\n" +
-	"toolResult\x12G\n" +
-	"\fhitl_request\x18\x10 \x01(\v2\".deepagents.runtime.v1.HITLRequestH\x00R\vhitlRequest\x12>\n" +
-	"\trun_ended\x18\x11 \x01(\v2\x1f.deepagents.runtime.v1.RunEndedH\x00R\brunEnded\x12<\n" +
-	"\x05error\x18\x12 \x01(\v2$.deepagents.runtime.v1.ErrorOccurredH\x00R\x05error\x12G\n" +
-	"\frun_canceled\x18\x13 \x01(\v2\".deepagents.runtime.v1.RunCanceledH\x00R\vrunCanceledB\t\n" +
+	"text_delta\x18\v \x01(\v2\x1c.agents.runtime.v1.TextDeltaH\x00R\ttextDelta\x12:\n" +
+	"\ttext_done\x18\f \x01(\v2\x1b.agents.runtime.v1.TextDoneH\x00R\btextDone\x12J\n" +
+	"\x0ftool_call_start\x18\r \x01(\v2 .agents.runtime.v1.ToolCallStartH\x00R\rtoolCallStart\x12G\n" +
+	"\x0etool_call_done\x18\x0e \x01(\v2\x1f.agents.runtime.v1.ToolCallDoneH\x00R\ftoolCallDone\x12@\n" +
+	"\vtool_result\x18\x0f \x01(\v2\x1d.agents.runtime.v1.ToolResultH\x00R\n" +
+	"toolResult\x12C\n" +
+	"\fhitl_request\x18\x10 \x01(\v2\x1e.agents.runtime.v1.HITLRequestH\x00R\vhitlRequest\x12:\n" +
+	"\trun_ended\x18\x11 \x01(\v2\x1b.agents.runtime.v1.RunEndedH\x00R\brunEnded\x128\n" +
+	"\x05error\x18\x12 \x01(\v2 .agents.runtime.v1.ErrorOccurredH\x00R\x05error\x12C\n" +
+	"\frun_canceled\x18\x13 \x01(\v2\x1e.agents.runtime.v1.RunCanceledH\x00R\vrunCanceledB\t\n" +
 	"\apayload\")\n" +
 	"\n" +
 	"RunStarted\x12\x1b\n" +
@@ -5289,11 +5289,11 @@ const file_runtime_proto_rawDesc = "" +
 	"toolCallId\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\tR\acontent\x12\x19\n" +
 	"\bis_error\x18\x03 \x01(\bR\aisError\x120\n" +
-	"\apayload\x18\x04 \x01(\v2\x16.google.protobuf.ValueR\apayload\"\xcb\x01\n" +
+	"\apayload\x18\x04 \x01(\v2\x16.google.protobuf.ValueR\apayload\"\xc3\x01\n" +
 	"\vHITLRequest\x12!\n" +
-	"\finterrupt_id\x18\x01 \x01(\tR\vinterruptId\x12M\n" +
-	"\x0faction_requests\x18\x02 \x03(\v2$.deepagents.runtime.v1.ActionRequestR\x0eactionRequests\x12J\n" +
-	"\x0ereview_configs\x18\x03 \x03(\v2#.deepagents.runtime.v1.ReviewConfigR\rreviewConfigs\"\x94\x01\n" +
+	"\finterrupt_id\x18\x01 \x01(\tR\vinterruptId\x12I\n" +
+	"\x0faction_requests\x18\x02 \x03(\v2 .agents.runtime.v1.ActionRequestR\x0eactionRequests\x12F\n" +
+	"\x0ereview_configs\x18\x03 \x03(\v2\x1f.agents.runtime.v1.ReviewConfigR\rreviewConfigs\"\x94\x01\n" +
 	"\rActionRequest\x12\x12\n" +
 	"\x04name\x18\x04 \x01(\tR\x04name\x12+\n" +
 	"\x04args\x18\x03 \x01(\v2\x17.google.protobuf.StructR\x04args\x12 \n" +
@@ -5303,9 +5303,9 @@ const file_runtime_proto_rawDesc = "" +
 	"actionName\x12+\n" +
 	"\x11allowed_decisions\x18\x02 \x03(\tR\x10allowedDecisions\x128\n" +
 	"\vargs_schema\x18\x03 \x01(\v2\x17.google.protobuf.StructR\n" +
-	"argsSchema\"C\n" +
-	"\bRunEnded\x127\n" +
-	"\x05stats\x18\x01 \x01(\v2!.deepagents.runtime.v1.UsageStatsR\x05stats\"%\n" +
+	"argsSchema\"?\n" +
+	"\bRunEnded\x123\n" +
+	"\x05stats\x18\x01 \x01(\v2\x1d.agents.runtime.v1.UsageStatsR\x05stats\"%\n" +
 	"\vRunCanceled\x12\x16\n" +
 	"\x06reason\x18\x01 \x01(\tR\x06reason\"\xa5\x01\n" +
 	"\n" +
@@ -5317,7 +5317,7 @@ const file_runtime_proto_rawDesc = "" +
 	"\rErrorOccurred\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\x12\x1d\n" +
 	"\n" +
-	"error_type\x18\x02 \x01(\tR\terrorType\"\x82\x05\n" +
+	"error_type\x18\x02 \x01(\tR\terrorType\"\xfe\x04\n" +
 	"\x0eTelemetryEvent\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x1d\n" +
 	"\n" +
@@ -5329,8 +5329,8 @@ const file_runtime_proto_rawDesc = "" +
 	"\n" +
 	"event_type\x18\x06 \x01(\tR\teventType\x123\n" +
 	"\bmetadata\x18\a \x01(\v2\x17.google.protobuf.StructR\bmetadata\x120\n" +
-	"\apayload\x18\b \x01(\v2\x16.google.protobuf.ValueR\apayload\x12D\n" +
-	"\fpublic_event\x18\t \x01(\v2!.deepagents.runtime.v1.AgentEventR\vpublicEvent\x12\x19\n" +
+	"\apayload\x18\b \x01(\v2\x16.google.protobuf.ValueR\apayload\x12@\n" +
+	"\fpublic_event\x18\t \x01(\v2\x1d.agents.runtime.v1.AgentEventR\vpublicEvent\x12\x19\n" +
 	"\bevent_id\x18\n" +
 	" \x01(\tR\aeventId\x12\x18\n" +
 	"\aattempt\x18\v \x01(\x05R\aattempt\x12\x10\n" +
@@ -5342,50 +5342,50 @@ const file_runtime_proto_rawDesc = "" +
 	"toolCallId\x12!\n" +
 	"\finterrupt_id\x18\x11 \x01(\tR\vinterruptId\x12\x1d\n" +
 	"\n" +
-	"message_id\x18\x12 \x01(\tR\tmessageId\"\xae\x01\n" +
+	"message_id\x18\x12 \x01(\tR\tmessageId\"\xaa\x01\n" +
 	"\x10SyncSkillRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\tR\acontent\x12 \n" +
 	"\vdescription\x18\x03 \x01(\tR\vdescription\x12\x12\n" +
-	"\x04tags\x18\x04 \x03(\tR\x04tags\x126\n" +
-	"\x05files\x18\x05 \x03(\v2 .deepagents.runtime.v1.SkillFileR\x05files\"\xee\x01\n" +
+	"\x04tags\x18\x04 \x03(\tR\x04tags\x122\n" +
+	"\x05files\x18\x05 \x03(\v2\x1c.agents.runtime.v1.SkillFileR\x05files\"\xea\x01\n" +
 	"\x0eSyncMcpRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\acommand\x18\x02 \x01(\tR\acommand\x12\x12\n" +
-	"\x04args\x18\x03 \x03(\tR\x04args\x12@\n" +
-	"\x03env\x18\x04 \x03(\v2..deepagents.runtime.v1.SyncMcpRequest.EnvEntryR\x03env\x12 \n" +
+	"\x04args\x18\x03 \x03(\tR\x04args\x12<\n" +
+	"\x03env\x18\x04 \x03(\v2*.agents.runtime.v1.SyncMcpRequest.EnvEntryR\x03env\x12 \n" +
 	"\vdescription\x18\x05 \x01(\tR\vdescription\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x95\x05\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xf9\x04\n" +
 	"\x14SyncAgentSpecRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12 \n" +
 	"\vdescription\x18\x03 \x01(\tR\vdescription\x12\x12\n" +
 	"\x04tags\x18\x04 \x03(\tR\x04tags\x12\x14\n" +
-	"\x05model\x18\x05 \x01(\tR\x05model\x129\n" +
-	"\x06prompt\x18\x06 \x01(\v2!.deepagents.runtime.v1.PromptSpecR\x06prompt\x12;\n" +
-	"\x06skills\x18\a \x03(\v2#.deepagents.runtime.v1.SkillContentR\x06skills\x126\n" +
-	"\x05tools\x18\b \x01(\v2 .deepagents.runtime.v1.ToolsSpecR\x05tools\x12A\n" +
-	"\tsubagents\x18\t \x03(\v2#.deepagents.runtime.v1.SubagentSpecR\tsubagents\x12<\n" +
+	"\x05model\x18\x05 \x01(\tR\x05model\x125\n" +
+	"\x06prompt\x18\x06 \x01(\v2\x1d.agents.runtime.v1.PromptSpecR\x06prompt\x127\n" +
+	"\x06skills\x18\a \x03(\v2\x1f.agents.runtime.v1.SkillContentR\x06skills\x122\n" +
+	"\x05tools\x18\b \x01(\v2\x1c.agents.runtime.v1.ToolsSpecR\x05tools\x12=\n" +
+	"\tsubagents\x18\t \x03(\v2\x1f.agents.runtime.v1.SubagentSpecR\tsubagents\x128\n" +
 	"\asandbox\x18\n" +
-	" \x01(\v2\".deepagents.runtime.v1.SandboxSpecR\asandbox\x12!\n" +
-	"\finterrupt_on\x18\v \x03(\tR\vinterruptOn\x12G\n" +
-	"\vmcp_servers\x18\x0e \x03(\v2&.deepagents.runtime.v1.McpServerConfigR\n" +
-	"mcpServers\x12E\n" +
-	"\fmodel_config\x18\x10 \x01(\v2\".deepagents.runtime.v1.ModelConfigR\vmodelConfigJ\x04\b\f\x10\rJ\x04\b\r\x10\x0eR\bmeta_dirR\tworkspace\"\x9d\x02\n" +
+	" \x01(\v2\x1e.agents.runtime.v1.SandboxSpecR\asandbox\x12!\n" +
+	"\finterrupt_on\x18\v \x03(\tR\vinterruptOn\x12C\n" +
+	"\vmcp_servers\x18\x0e \x03(\v2\".agents.runtime.v1.McpServerConfigR\n" +
+	"mcpServers\x12A\n" +
+	"\fmodel_config\x18\x10 \x01(\v2\x1e.agents.runtime.v1.ModelConfigR\vmodelConfigJ\x04\b\f\x10\rJ\x04\b\r\x10\x0eR\bmeta_dirR\tworkspace\"\x95\x02\n" +
 	"\fSubagentSpec\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\x12#\n" +
 	"\rsystem_prompt\x18\x03 \x01(\tR\fsystemPrompt\x12\x14\n" +
-	"\x05model\x18\x04 \x01(\tR\x05model\x12;\n" +
-	"\x06skills\x18\a \x03(\v2#.deepagents.runtime.v1.SkillContentR\x06skills\x12E\n" +
-	"\fmodel_config\x18\b \x01(\v2\".deepagents.runtime.v1.ModelConfigR\vmodelConfigJ\x04\b\x05\x10\x06J\x04\b\x06\x10\aR\x06sourceR\x04path\"\x8e\x02\n" +
+	"\x05model\x18\x04 \x01(\tR\x05model\x127\n" +
+	"\x06skills\x18\a \x03(\v2\x1f.agents.runtime.v1.SkillContentR\x06skills\x12A\n" +
+	"\fmodel_config\x18\b \x01(\v2\x1e.agents.runtime.v1.ModelConfigR\vmodelConfigJ\x04\b\x05\x10\x06J\x04\b\x06\x10\aR\x06sourceR\x04path\"\x8a\x02\n" +
 	"\x0fMcpServerConfig\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\acommand\x18\x02 \x01(\tR\acommand\x12\x12\n" +
-	"\x04args\x18\x03 \x03(\tR\x04args\x12A\n" +
-	"\x03env\x18\x04 \x03(\v2/.deepagents.runtime.v1.McpServerConfig.EnvEntryR\x03env\x12\x1c\n" +
+	"\x04args\x18\x03 \x03(\tR\x04args\x12=\n" +
+	"\x03env\x18\x04 \x03(\v2+.agents.runtime.v1.McpServerConfig.EnvEntryR\x03env\x12\x1c\n" +
 	"\ttransport\x18\x05 \x01(\tR\ttransport\x12 \n" +
 	"\vdescription\x18\x06 \x01(\tR\vdescription\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
@@ -5394,19 +5394,19 @@ const file_runtime_proto_rawDesc = "" +
 	"\n" +
 	"PromptSpec\x12\x16\n" +
 	"\x06system\x18\x01 \x01(\tR\x06systemJ\x04\b\x02\x10\x03R\x06memory\"&\n" +
-	"\tToolsSpecJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03R\bbuiltinsR\x03mcp\"\xde\x04\n" +
+	"\tToolsSpecJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03R\bbuiltinsR\x03mcp\"\xc6\x04\n" +
 	"\vSandboxSpec\x12\x18\n" +
-	"\x05image\x18\x01 \x01(\tB\x02\x18\x01R\x05image\x12S\n" +
-	"\tresources\x18\x02 \x03(\v21.deepagents.runtime.v1.SandboxSpec.ResourcesEntryB\x02\x18\x01R\tresources\x12\x16\n" +
-	"\x04init\x18\x03 \x03(\tB\x02\x18\x01R\x04init\x12K\n" +
+	"\x05image\x18\x01 \x01(\tB\x02\x18\x01R\x05image\x12O\n" +
+	"\tresources\x18\x02 \x03(\v2-.agents.runtime.v1.SandboxSpec.ResourcesEntryB\x02\x18\x01R\tresources\x12\x16\n" +
+	"\x04init\x18\x03 \x03(\tB\x02\x18\x01R\x04init\x12G\n" +
 	"\texecution\x18\n" +
-	" \x01(\v2-.deepagents.runtime.v1.SandboxExecutionPolicyR\texecution\x126\n" +
-	"\x03env\x18\v \x03(\v2$.deepagents.runtime.v1.SandboxEnvVarR\x03env\x12%\n" +
-	"\x0esetup_commands\x18\f \x03(\tR\rsetupCommands\x12?\n" +
-	"\x05local\x18\x14 \x01(\v2'.deepagents.runtime.v1.LocalSandboxSpecH\x00R\x05local\x12B\n" +
-	"\x06docker\x18\x15 \x01(\v2(.deepagents.runtime.v1.DockerSandboxSpecH\x00R\x06docker\x12N\n" +
+	" \x01(\v2).agents.runtime.v1.SandboxExecutionPolicyR\texecution\x122\n" +
+	"\x03env\x18\v \x03(\v2 .agents.runtime.v1.SandboxEnvVarR\x03env\x12%\n" +
+	"\x0esetup_commands\x18\f \x03(\tR\rsetupCommands\x12;\n" +
+	"\x05local\x18\x14 \x01(\v2#.agents.runtime.v1.LocalSandboxSpecH\x00R\x05local\x12>\n" +
+	"\x06docker\x18\x15 \x01(\v2$.agents.runtime.v1.DockerSandboxSpecH\x00R\x06docker\x12J\n" +
 	"\n" +
-	"kubernetes\x18\x16 \x01(\v2,.deepagents.runtime.v1.KubernetesSandboxSpecH\x00R\n" +
+	"kubernetes\x18\x16 \x01(\v2(.agents.runtime.v1.KubernetesSandboxSpecH\x00R\n" +
 	"kubernetes\x1a<\n" +
 	"\x0eResourcesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
@@ -5420,26 +5420,26 @@ const file_runtime_proto_rawDesc = "" +
 	"\rSandboxEnvVar\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value\"\x12\n" +
-	"\x10LocalSandboxSpec\"w\n" +
+	"\x10LocalSandboxSpec\"s\n" +
 	"\x0eImageReference\x12\x1c\n" +
-	"\treference\x18\x01 \x01(\tR\treference\x12G\n" +
-	"\vpull_policy\x18\x02 \x01(\x0e2&.deepagents.runtime.v1.ImagePullPolicyR\n" +
-	"pullPolicy\"\x99\x01\n" +
-	"\x11DockerSandboxSpec\x12;\n" +
-	"\x05image\x18\x01 \x01(\v2%.deepagents.runtime.v1.ImageReferenceR\x05image\x12G\n" +
-	"\tresources\x18\x02 \x01(\v2).deepagents.runtime.v1.DockerResourceSpecR\tresources\"x\n" +
+	"\treference\x18\x01 \x01(\tR\treference\x12C\n" +
+	"\vpull_policy\x18\x02 \x01(\x0e2\".agents.runtime.v1.ImagePullPolicyR\n" +
+	"pullPolicy\"\x91\x01\n" +
+	"\x11DockerSandboxSpec\x127\n" +
+	"\x05image\x18\x01 \x01(\v2!.agents.runtime.v1.ImageReferenceR\x05image\x12C\n" +
+	"\tresources\x18\x02 \x01(\v2%.agents.runtime.v1.DockerResourceSpecR\tresources\"x\n" +
 	"\x12DockerResourceSpec\x12\x10\n" +
 	"\x03cpu\x18\x01 \x01(\tR\x03cpu\x12\x16\n" +
 	"\x06memory\x18\x02 \x01(\tR\x06memory\x12\x19\n" +
 	"\bshm_size\x18\x03 \x01(\tR\ashmSize\x12\x1d\n" +
 	"\n" +
-	"pids_limit\x18\x04 \x01(\x03R\tpidsLimit\"\xa9\x01\n" +
-	"\x15KubernetesSandboxSpec\x12;\n" +
-	"\x05image\x18\x01 \x01(\v2%.deepagents.runtime.v1.ImageReferenceR\x05image\x12S\n" +
-	"\tresources\x18\x02 \x01(\v25.deepagents.runtime.v1.KubernetesResourceRequirementsR\tresources\"\xd4\x02\n" +
-	"\x1eKubernetesResourceRequirements\x12_\n" +
-	"\brequests\x18\x01 \x03(\v2C.deepagents.runtime.v1.KubernetesResourceRequirements.RequestsEntryR\brequests\x12Y\n" +
-	"\x06limits\x18\x02 \x03(\v2A.deepagents.runtime.v1.KubernetesResourceRequirements.LimitsEntryR\x06limits\x1a;\n" +
+	"pids_limit\x18\x04 \x01(\x03R\tpidsLimit\"\xa1\x01\n" +
+	"\x15KubernetesSandboxSpec\x127\n" +
+	"\x05image\x18\x01 \x01(\v2!.agents.runtime.v1.ImageReferenceR\x05image\x12O\n" +
+	"\tresources\x18\x02 \x01(\v21.agents.runtime.v1.KubernetesResourceRequirementsR\tresources\"\xcc\x02\n" +
+	"\x1eKubernetesResourceRequirements\x12[\n" +
+	"\brequests\x18\x01 \x03(\v2?.agents.runtime.v1.KubernetesResourceRequirements.RequestsEntryR\brequests\x12U\n" +
+	"\x06limits\x18\x02 \x03(\v2=.agents.runtime.v1.KubernetesResourceRequirements.LimitsEntryR\x06limits\x1a;\n" +
 	"\rRequestsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a9\n" +
@@ -5448,18 +5448,18 @@ const file_runtime_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"9\n" +
 	"\tSkillFile\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x18\n" +
-	"\acontent\x18\x02 \x01(\tR\acontent\"t\n" +
+	"\acontent\x18\x02 \x01(\tR\acontent\"p\n" +
 	"\fSkillContent\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
-	"\acontent\x18\x02 \x01(\tR\acontent\x126\n" +
-	"\x05files\x18\x03 \x03(\v2 .deepagents.runtime.v1.SkillFileR\x05files\"\xab\x02\n" +
+	"\acontent\x18\x02 \x01(\tR\acontent\x122\n" +
+	"\x05files\x18\x03 \x03(\v2\x1c.agents.runtime.v1.SkillFileR\x05files\"\xa7\x02\n" +
 	"\vModelConfig\x12\x1a\n" +
 	"\bprovider\x18\x01 \x01(\tR\bprovider\x12\x14\n" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12\x19\n" +
 	"\bbase_url\x18\x03 \x01(\tR\abaseUrl\x12\x17\n" +
 	"\aapi_key\x18\x04 \x01(\tR\x06apiKey\x12\x1e\n" +
-	"\vapi_key_env\x18\x05 \x01(\tR\tapiKeyEnv\x12V\n" +
-	"\fextra_params\x18\x06 \x03(\v23.deepagents.runtime.v1.ModelConfig.ExtraParamsEntryR\vextraParams\x1a>\n" +
+	"\vapi_key_env\x18\x05 \x01(\tR\tapiKeyEnv\x12R\n" +
+	"\fextra_params\x18\x06 \x03(\v2/.agents.runtime.v1.ModelConfig.ExtraParamsEntryR\vextraParams\x1a>\n" +
 	"\x10ExtraParamsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"0\n" +
@@ -5479,18 +5479,18 @@ const file_runtime_proto_rawDesc = "" +
 	"\x05graph\x18\x01 \x01(\v2\x16.google.protobuf.ValueR\x05graph\"C\n" +
 	"\x13UploadWorkspaceFile\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x18\n" +
-	"\acontent\x18\x02 \x01(\fR\acontent\"\x9b\x01\n" +
+	"\acontent\x18\x02 \x01(\fR\acontent\"\x97\x01\n" +
 	"\x1bUploadWorkspaceFilesRequest\x12\x1d\n" +
 	"\n" +
 	"agent_name\x18\x01 \x01(\tR\tagentName\x12\x1b\n" +
-	"\tthread_id\x18\x02 \x01(\tR\bthreadId\x12@\n" +
-	"\x05files\x18\x03 \x03(\v2*.deepagents.runtime.v1.UploadWorkspaceFileR\x05files\"E\n" +
+	"\tthread_id\x18\x02 \x01(\tR\bthreadId\x12<\n" +
+	"\x05files\x18\x03 \x03(\v2&.agents.runtime.v1.UploadWorkspaceFileR\x05files\"E\n" +
 	"\x19UploadWorkspaceFileResult\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"\x83\x01\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"\x7f\n" +
 	"\x1cUploadWorkspaceFilesResponse\x12\x1b\n" +
-	"\tthread_id\x18\x01 \x01(\tR\bthreadId\x12F\n" +
-	"\x05files\x18\x02 \x03(\v20.deepagents.runtime.v1.UploadWorkspaceFileResultR\x05files\"q\n" +
+	"\tthread_id\x18\x01 \x01(\tR\bthreadId\x12B\n" +
+	"\x05files\x18\x02 \x03(\v2,.agents.runtime.v1.UploadWorkspaceFileResultR\x05files\"q\n" +
 	"\x1dDownloadWorkspaceFilesRequest\x12\x1d\n" +
 	"\n" +
 	"agent_name\x18\x01 \x01(\tR\tagentName\x12\x1b\n" +
@@ -5499,10 +5499,10 @@ const file_runtime_proto_rawDesc = "" +
 	"\x1bDownloadWorkspaceFileResult\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\fR\acontent\x12\x14\n" +
-	"\x05error\x18\x03 \x01(\tR\x05error\"\x87\x01\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\"\x83\x01\n" +
 	"\x1eDownloadWorkspaceFilesResponse\x12\x1b\n" +
-	"\tthread_id\x18\x01 \x01(\tR\bthreadId\x12H\n" +
-	"\x05files\x18\x02 \x03(\v22.deepagents.runtime.v1.DownloadWorkspaceFileResultR\x05files\"k\n" +
+	"\tthread_id\x18\x01 \x01(\tR\bthreadId\x12D\n" +
+	"\x05files\x18\x02 \x03(\v2..agents.runtime.v1.DownloadWorkspaceFileResultR\x05files\"k\n" +
 	"\x19ListWorkspaceFilesRequest\x12\x1d\n" +
 	"\n" +
 	"agent_name\x18\x01 \x01(\tR\tagentName\x12\x1b\n" +
@@ -5513,10 +5513,10 @@ const file_runtime_proto_rawDesc = "" +
 	"\x06is_dir\x18\x02 \x01(\bR\x05isDir\x12\x12\n" +
 	"\x04size\x18\x03 \x01(\x03R\x04size\x12\x1f\n" +
 	"\vmodified_at\x18\x04 \x01(\tR\n" +
-	"modifiedAt\"y\n" +
+	"modifiedAt\"u\n" +
 	"\x1aListWorkspaceFilesResponse\x12\x1b\n" +
-	"\tthread_id\x18\x01 \x01(\tR\bthreadId\x12>\n" +
-	"\x05files\x18\x02 \x03(\v2(.deepagents.runtime.v1.WorkspaceFileInfoR\x05files\"P\n" +
+	"\tthread_id\x18\x01 \x01(\tR\bthreadId\x12:\n" +
+	"\x05files\x18\x02 \x03(\v2$.agents.runtime.v1.WorkspaceFileInfoR\x05files\"P\n" +
 	"\x15RemoveResourceRequest\x12#\n" +
 	"\rresource_type\x18\x01 \x01(\tR\fresourceType\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\"8\n" +
@@ -5536,48 +5536,48 @@ const file_runtime_proto_rawDesc = "" +
 	"agent_name\x18\x01 \x01(\tR\tagentName\x12\x1b\n" +
 	"\tpage_size\x18\x02 \x01(\x05R\bpageSize\x12\x1d\n" +
 	"\n" +
-	"page_token\x18\x03 \x01(\tR\tpageToken\"\x81\x01\n" +
-	"\x14ListSessionsResponse\x12A\n" +
-	"\bsessions\x18\x01 \x03(\v2%.deepagents.runtime.v1.SessionSummaryR\bsessions\x12&\n" +
+	"page_token\x18\x03 \x01(\tR\tpageToken\"}\n" +
+	"\x14ListSessionsResponse\x12=\n" +
+	"\bsessions\x18\x01 \x03(\v2!.agents.runtime.v1.SessionSummaryR\bsessions\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"O\n" +
 	"\x11GetSessionRequest\x12\x1b\n" +
 	"\tthread_id\x18\x01 \x01(\tR\bthreadId\x12\x1d\n" +
 	"\n" +
-	"agent_name\x18\x02 \x01(\tR\tagentName\"j\n" +
+	"agent_name\x18\x02 \x01(\tR\tagentName\"f\n" +
 	"\x12GetSessionResponse\x12\x14\n" +
-	"\x05found\x18\x01 \x01(\bR\x05found\x12>\n" +
-	"\asession\x18\x02 \x01(\v2$.deepagents.runtime.v1.SessionDetailR\asession\"8\n" +
+	"\x05found\x18\x01 \x01(\bR\x05found\x12:\n" +
+	"\asession\x18\x02 \x01(\v2 .agents.runtime.v1.SessionDetailR\asession\"8\n" +
 	"\x17GetLatestSessionRequest\x12\x1d\n" +
 	"\n" +
-	"agent_name\x18\x01 \x01(\tR\tagentName\"q\n" +
+	"agent_name\x18\x01 \x01(\tR\tagentName\"m\n" +
 	"\x18GetLatestSessionResponse\x12\x14\n" +
-	"\x05found\x18\x01 \x01(\bR\x05found\x12?\n" +
-	"\asession\x18\x02 \x01(\v2%.deepagents.runtime.v1.SessionSummaryR\asession\"R\n" +
+	"\x05found\x18\x01 \x01(\bR\x05found\x12;\n" +
+	"\asession\x18\x02 \x01(\v2!.agents.runtime.v1.SessionSummaryR\asession\"R\n" +
 	"\x14DeleteSessionRequest\x12\x1b\n" +
 	"\tthread_id\x18\x01 \x01(\tR\bthreadId\x12\x1d\n" +
 	"\n" +
 	"agent_name\x18\x02 \x01(\tR\tagentName\"1\n" +
 	"\x15DeleteSessionResponse\x12\x18\n" +
-	"\adeleted\x18\x01 \x01(\bR\adeleted\"\xab\x02\n" +
+	"\adeleted\x18\x01 \x01(\bR\adeleted\"\xa7\x02\n" +
 	"\x19GetSessionMessagesRequest\x12\x1b\n" +
 	"\tthread_id\x18\x01 \x01(\tR\bthreadId\x12#\n" +
 	"\rcheckpoint_id\x18\x02 \x01(\tR\fcheckpointId\x12\x1b\n" +
 	"\tpage_size\x18\x03 \x01(\x05R\bpageSize\x12\x1d\n" +
 	"\n" +
-	"page_token\x18\x04 \x01(\tR\tpageToken\x12P\n" +
-	"\x0erequested_mode\x18\x05 \x01(\x0e2).deepagents.runtime.v1.SessionHistoryModeR\rrequestedMode\x12\x1f\n" +
+	"page_token\x18\x04 \x01(\tR\tpageToken\x12L\n" +
+	"\x0erequested_mode\x18\x05 \x01(\x0e2%.agents.runtime.v1.SessionHistoryModeR\rrequestedMode\x12\x1f\n" +
 	"\vinclude_raw\x18\x06 \x01(\bR\n" +
 	"includeRaw\x12\x1d\n" +
 	"\n" +
-	"agent_name\x18\a \x01(\tR\tagentName\"\xd6\x02\n" +
+	"agent_name\x18\a \x01(\tR\tagentName\"\xce\x02\n" +
 	"\x1aGetSessionMessagesResponse\x12\x1b\n" +
 	"\tthread_id\x18\x01 \x01(\tR\bthreadId\x124\n" +
-	"\x16resolved_checkpoint_id\x18\x02 \x01(\tR\x14resolvedCheckpointId\x12J\n" +
-	"\vactual_mode\x18\x03 \x01(\x0e2).deepagents.runtime.v1.SessionHistoryModeR\n" +
+	"\x16resolved_checkpoint_id\x18\x02 \x01(\tR\x14resolvedCheckpointId\x12F\n" +
+	"\vactual_mode\x18\x03 \x01(\x0e2%.agents.runtime.v1.SessionHistoryModeR\n" +
 	"actualMode\x12.\n" +
-	"\x13total_message_count\x18\x04 \x01(\x05R\x11totalMessageCount\x12A\n" +
-	"\bmessages\x18\x05 \x03(\v2%.deepagents.runtime.v1.SessionMessageR\bmessages\x12&\n" +
-	"\x0fnext_page_token\x18\x06 \x01(\tR\rnextPageToken\"\xa1\x03\n" +
+	"\x13total_message_count\x18\x04 \x01(\x05R\x11totalMessageCount\x12=\n" +
+	"\bmessages\x18\x05 \x03(\v2!.agents.runtime.v1.SessionMessageR\bmessages\x12&\n" +
+	"\x0fnext_page_token\x18\x06 \x01(\tR\rnextPageToken\"\x99\x03\n" +
 	"\x0eSessionSummary\x12\x1b\n" +
 	"\tthread_id\x18\x01 \x01(\tR\bthreadId\x12\x1d\n" +
 	"\n" +
@@ -5586,15 +5586,15 @@ const file_runtime_proto_rawDesc = "" +
 	"updated_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x120\n" +
 	"\x14latest_checkpoint_id\x18\x04 \x01(\tR\x12latestCheckpointId\x12#\n" +
 	"\rmessage_count\x18\x05 \x01(\x05R\fmessageCount\x12%\n" +
-	"\x0einitial_prompt\x18\x06 \x01(\tR\rinitialPrompt\x12L\n" +
-	"\fhistory_mode\x18\a \x01(\x0e2).deepagents.runtime.v1.SessionHistoryModeR\vhistoryMode\x12L\n" +
-	"\fagent_status\x18\b \x01(\x0e2).deepagents.runtime.v1.AgentRuntimeStatusR\vagentStatus\"{\n" +
-	"\rSessionDetail\x12?\n" +
-	"\asummary\x18\x01 \x01(\v2%.deepagents.runtime.v1.SessionSummaryR\asummary\x12)\n" +
-	"\x10checkpoint_count\x18\x02 \x01(\x05R\x0fcheckpointCount\"\xfe\x01\n" +
+	"\x0einitial_prompt\x18\x06 \x01(\tR\rinitialPrompt\x12H\n" +
+	"\fhistory_mode\x18\a \x01(\x0e2%.agents.runtime.v1.SessionHistoryModeR\vhistoryMode\x12H\n" +
+	"\fagent_status\x18\b \x01(\x0e2%.agents.runtime.v1.AgentRuntimeStatusR\vagentStatus\"w\n" +
+	"\rSessionDetail\x12;\n" +
+	"\asummary\x18\x01 \x01(\v2!.agents.runtime.v1.SessionSummaryR\asummary\x12)\n" +
+	"\x10checkpoint_count\x18\x02 \x01(\x05R\x0fcheckpointCount\"\xfa\x01\n" +
 	"\x0eSessionMessage\x12\x14\n" +
-	"\x05index\x18\x01 \x01(\x05R\x05index\x12=\n" +
-	"\x04role\x18\x02 \x01(\x0e2).deepagents.runtime.v1.SessionMessageRoleR\x04role\x12\x12\n" +
+	"\x05index\x18\x01 \x01(\x05R\x05index\x129\n" +
+	"\x04role\x18\x02 \x01(\x0e2%.agents.runtime.v1.SessionMessageRoleR\x04role\x12\x12\n" +
 	"\x04text\x18\x03 \x01(\tR\x04text\x12 \n" +
 	"\ftool_call_id\x18\x04 \x01(\tR\n" +
 	"toolCallId\x12\x1b\n" +
@@ -5618,10 +5618,10 @@ const file_runtime_proto_rawDesc = "" +
 	"\vmodified_at\x18\t \x01(\tR\n" +
 	"modifiedAt\x12\x12\n" +
 	"\x04size\x18\n" +
-	" \x01(\x03R\x04size\"\x7f\n" +
+	" \x01(\x03R\x04size\"{\n" +
 	"\x1bListThreadArtifactsResponse\x12\x1b\n" +
-	"\tthread_id\x18\x01 \x01(\tR\bthreadId\x12C\n" +
-	"\tartifacts\x18\x02 \x03(\v2%.deepagents.runtime.v1.ThreadArtifactR\tartifacts*\x95\x01\n" +
+	"\tthread_id\x18\x01 \x01(\tR\bthreadId\x12?\n" +
+	"\tartifacts\x18\x02 \x03(\v2!.agents.runtime.v1.ThreadArtifactR\tartifacts*\x95\x01\n" +
 	"\x0fImagePullPolicy\x12!\n" +
 	"\x1dIMAGE_PULL_POLICY_UNSPECIFIED\x10\x00\x12$\n" +
 	" IMAGE_PULL_POLICY_IF_NOT_PRESENT\x10\x01\x12\x1c\n" +
@@ -5642,31 +5642,31 @@ const file_runtime_proto_rawDesc = "" +
 	"\x1bSESSION_MESSAGE_ROLE_SYSTEM\x10\x01\x12\x1e\n" +
 	"\x1aSESSION_MESSAGE_ROLE_HUMAN\x10\x02\x12\x1b\n" +
 	"\x17SESSION_MESSAGE_ROLE_AI\x10\x03\x12\x1d\n" +
-	"\x19SESSION_MESSAGE_ROLE_TOOL\x10\x042c\n" +
-	"\rAgentExecutor\x12R\n" +
-	"\x03Run\x12$.deepagents.runtime.v1.ClientMessage\x1a!.deepagents.runtime.v1.AgentEvent(\x010\x012q\n" +
-	"\x0eAgentTelemetry\x12_\n" +
-	"\fRunTelemetry\x12$.deepagents.runtime.v1.ClientMessage\x1a%.deepagents.runtime.v1.TelemetryEvent(\x010\x012\xac\b\n" +
-	"\fResourceSync\x12Y\n" +
-	"\tSyncSkill\x12'.deepagents.runtime.v1.SyncSkillRequest\x1a#.deepagents.runtime.v1.SyncResponse\x12U\n" +
-	"\aSyncMcp\x12%.deepagents.runtime.v1.SyncMcpRequest\x1a#.deepagents.runtime.v1.SyncResponse\x12a\n" +
-	"\rSyncAgentSpec\x12+.deepagents.runtime.v1.SyncAgentSpecRequest\x1a#.deepagents.runtime.v1.SyncResponse\x12[\n" +
-	"\bAssemble\x12&.deepagents.runtime.v1.AssembleRequest\x1a'.deepagents.runtime.v1.AssembleResponse\x12j\n" +
-	"\rGetAgentGraph\x12+.deepagents.runtime.v1.GetAgentGraphRequest\x1a,.deepagents.runtime.v1.GetAgentGraphResponse\x12\x7f\n" +
-	"\x14UploadWorkspaceFiles\x122.deepagents.runtime.v1.UploadWorkspaceFilesRequest\x1a3.deepagents.runtime.v1.UploadWorkspaceFilesResponse\x12\x85\x01\n" +
-	"\x16DownloadWorkspaceFiles\x124.deepagents.runtime.v1.DownloadWorkspaceFilesRequest\x1a5.deepagents.runtime.v1.DownloadWorkspaceFilesResponse\x12y\n" +
-	"\x12ListWorkspaceFiles\x120.deepagents.runtime.v1.ListWorkspaceFilesRequest\x1a1.deepagents.runtime.v1.ListWorkspaceFilesResponse\x12c\n" +
-	"\x0eRemoveResource\x12,.deepagents.runtime.v1.RemoveResourceRequest\x1a#.deepagents.runtime.v1.SyncResponse\x12U\n" +
-	"\x06Health\x12$.deepagents.runtime.v1.HealthRequest\x1a%.deepagents.runtime.v1.HealthResponse2\xb4\x05\n" +
-	"\fSessionQuery\x12g\n" +
-	"\fListSessions\x12*.deepagents.runtime.v1.ListSessionsRequest\x1a+.deepagents.runtime.v1.ListSessionsResponse\x12a\n" +
+	"\x19SESSION_MESSAGE_ROLE_TOOL\x10\x042[\n" +
+	"\rAgentExecutor\x12J\n" +
+	"\x03Run\x12 .agents.runtime.v1.ClientMessage\x1a\x1d.agents.runtime.v1.AgentEvent(\x010\x012i\n" +
+	"\x0eAgentTelemetry\x12W\n" +
+	"\fRunTelemetry\x12 .agents.runtime.v1.ClientMessage\x1a!.agents.runtime.v1.TelemetryEvent(\x010\x012\xdb\a\n" +
+	"\fResourceSync\x12Q\n" +
+	"\tSyncSkill\x12#.agents.runtime.v1.SyncSkillRequest\x1a\x1f.agents.runtime.v1.SyncResponse\x12M\n" +
+	"\aSyncMcp\x12!.agents.runtime.v1.SyncMcpRequest\x1a\x1f.agents.runtime.v1.SyncResponse\x12Y\n" +
+	"\rSyncAgentSpec\x12'.agents.runtime.v1.SyncAgentSpecRequest\x1a\x1f.agents.runtime.v1.SyncResponse\x12S\n" +
+	"\bAssemble\x12\".agents.runtime.v1.AssembleRequest\x1a#.agents.runtime.v1.AssembleResponse\x12b\n" +
+	"\rGetAgentGraph\x12'.agents.runtime.v1.GetAgentGraphRequest\x1a(.agents.runtime.v1.GetAgentGraphResponse\x12w\n" +
+	"\x14UploadWorkspaceFiles\x12..agents.runtime.v1.UploadWorkspaceFilesRequest\x1a/.agents.runtime.v1.UploadWorkspaceFilesResponse\x12}\n" +
+	"\x16DownloadWorkspaceFiles\x120.agents.runtime.v1.DownloadWorkspaceFilesRequest\x1a1.agents.runtime.v1.DownloadWorkspaceFilesResponse\x12q\n" +
+	"\x12ListWorkspaceFiles\x12,.agents.runtime.v1.ListWorkspaceFilesRequest\x1a-.agents.runtime.v1.ListWorkspaceFilesResponse\x12[\n" +
+	"\x0eRemoveResource\x12(.agents.runtime.v1.RemoveResourceRequest\x1a\x1f.agents.runtime.v1.SyncResponse\x12M\n" +
+	"\x06Health\x12 .agents.runtime.v1.HealthRequest\x1a!.agents.runtime.v1.HealthResponse2\x84\x05\n" +
+	"\fSessionQuery\x12_\n" +
+	"\fListSessions\x12&.agents.runtime.v1.ListSessionsRequest\x1a'.agents.runtime.v1.ListSessionsResponse\x12Y\n" +
 	"\n" +
-	"GetSession\x12(.deepagents.runtime.v1.GetSessionRequest\x1a).deepagents.runtime.v1.GetSessionResponse\x12y\n" +
-	"\x12GetSessionMessages\x120.deepagents.runtime.v1.GetSessionMessagesRequest\x1a1.deepagents.runtime.v1.GetSessionMessagesResponse\x12s\n" +
-	"\x10GetLatestSession\x12..deepagents.runtime.v1.GetLatestSessionRequest\x1a/.deepagents.runtime.v1.GetLatestSessionResponse\x12j\n" +
-	"\rDeleteSession\x12+.deepagents.runtime.v1.DeleteSessionRequest\x1a,.deepagents.runtime.v1.DeleteSessionResponse\x12|\n" +
-	"\x13ListThreadArtifacts\x121.deepagents.runtime.v1.ListThreadArtifactsRequest\x1a2.deepagents.runtime.v1.ListThreadArtifactsResponseB9\n" +
-	"\x19com.deepagents.runtime.v1Z\x1cagentctl/pkg/proto;runtimev1b\x06proto3"
+	"GetSession\x12$.agents.runtime.v1.GetSessionRequest\x1a%.agents.runtime.v1.GetSessionResponse\x12q\n" +
+	"\x12GetSessionMessages\x12,.agents.runtime.v1.GetSessionMessagesRequest\x1a-.agents.runtime.v1.GetSessionMessagesResponse\x12k\n" +
+	"\x10GetLatestSession\x12*.agents.runtime.v1.GetLatestSessionRequest\x1a+.agents.runtime.v1.GetLatestSessionResponse\x12b\n" +
+	"\rDeleteSession\x12'.agents.runtime.v1.DeleteSessionRequest\x1a(.agents.runtime.v1.DeleteSessionResponse\x12t\n" +
+	"\x13ListThreadArtifacts\x12-.agents.runtime.v1.ListThreadArtifactsRequest\x1a..agents.runtime.v1.ListThreadArtifactsResponseB5\n" +
+	"\x15com.agents.runtime.v1Z\x1cagentctl/pkg/proto;runtimev1b\x06proto3"
 
 var (
 	file_runtime_proto_rawDescOnce sync.Once
@@ -5683,206 +5683,206 @@ func file_runtime_proto_rawDescGZIP() []byte {
 var file_runtime_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
 var file_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 81)
 var file_runtime_proto_goTypes = []any{
-	(ImagePullPolicy)(0),                   // 0: deepagents.runtime.v1.ImagePullPolicy
-	(AgentRuntimeStatus)(0),                // 1: deepagents.runtime.v1.AgentRuntimeStatus
-	(SessionHistoryMode)(0),                // 2: deepagents.runtime.v1.SessionHistoryMode
-	(SessionMessageRole)(0),                // 3: deepagents.runtime.v1.SessionMessageRole
-	(*ClientMessage)(nil),                  // 4: deepagents.runtime.v1.ClientMessage
-	(*RunRequest)(nil),                     // 5: deepagents.runtime.v1.RunRequest
-	(*HITLDecision)(nil),                   // 6: deepagents.runtime.v1.HITLDecision
-	(*Action)(nil),                         // 7: deepagents.runtime.v1.Action
-	(*Decision)(nil),                       // 8: deepagents.runtime.v1.Decision
-	(*CancelRequest)(nil),                  // 9: deepagents.runtime.v1.CancelRequest
-	(*AgentEvent)(nil),                     // 10: deepagents.runtime.v1.AgentEvent
-	(*RunStarted)(nil),                     // 11: deepagents.runtime.v1.RunStarted
-	(*TextDelta)(nil),                      // 12: deepagents.runtime.v1.TextDelta
-	(*TextDone)(nil),                       // 13: deepagents.runtime.v1.TextDone
-	(*ToolCallStart)(nil),                  // 14: deepagents.runtime.v1.ToolCallStart
-	(*ToolCallDone)(nil),                   // 15: deepagents.runtime.v1.ToolCallDone
-	(*ToolResult)(nil),                     // 16: deepagents.runtime.v1.ToolResult
-	(*HITLRequest)(nil),                    // 17: deepagents.runtime.v1.HITLRequest
-	(*ActionRequest)(nil),                  // 18: deepagents.runtime.v1.ActionRequest
-	(*ReviewConfig)(nil),                   // 19: deepagents.runtime.v1.ReviewConfig
-	(*RunEnded)(nil),                       // 20: deepagents.runtime.v1.RunEnded
-	(*RunCanceled)(nil),                    // 21: deepagents.runtime.v1.RunCanceled
-	(*UsageStats)(nil),                     // 22: deepagents.runtime.v1.UsageStats
-	(*ErrorOccurred)(nil),                  // 23: deepagents.runtime.v1.ErrorOccurred
-	(*TelemetryEvent)(nil),                 // 24: deepagents.runtime.v1.TelemetryEvent
-	(*SyncSkillRequest)(nil),               // 25: deepagents.runtime.v1.SyncSkillRequest
-	(*SyncMcpRequest)(nil),                 // 26: deepagents.runtime.v1.SyncMcpRequest
-	(*SyncAgentSpecRequest)(nil),           // 27: deepagents.runtime.v1.SyncAgentSpecRequest
-	(*SubagentSpec)(nil),                   // 28: deepagents.runtime.v1.SubagentSpec
-	(*McpServerConfig)(nil),                // 29: deepagents.runtime.v1.McpServerConfig
-	(*PromptSpec)(nil),                     // 30: deepagents.runtime.v1.PromptSpec
-	(*ToolsSpec)(nil),                      // 31: deepagents.runtime.v1.ToolsSpec
-	(*SandboxSpec)(nil),                    // 32: deepagents.runtime.v1.SandboxSpec
-	(*SandboxExecutionPolicy)(nil),         // 33: deepagents.runtime.v1.SandboxExecutionPolicy
-	(*SandboxEnvVar)(nil),                  // 34: deepagents.runtime.v1.SandboxEnvVar
-	(*LocalSandboxSpec)(nil),               // 35: deepagents.runtime.v1.LocalSandboxSpec
-	(*ImageReference)(nil),                 // 36: deepagents.runtime.v1.ImageReference
-	(*DockerSandboxSpec)(nil),              // 37: deepagents.runtime.v1.DockerSandboxSpec
-	(*DockerResourceSpec)(nil),             // 38: deepagents.runtime.v1.DockerResourceSpec
-	(*KubernetesSandboxSpec)(nil),          // 39: deepagents.runtime.v1.KubernetesSandboxSpec
-	(*KubernetesResourceRequirements)(nil), // 40: deepagents.runtime.v1.KubernetesResourceRequirements
-	(*SkillFile)(nil),                      // 41: deepagents.runtime.v1.SkillFile
-	(*SkillContent)(nil),                   // 42: deepagents.runtime.v1.SkillContent
-	(*ModelConfig)(nil),                    // 43: deepagents.runtime.v1.ModelConfig
-	(*AssembleRequest)(nil),                // 44: deepagents.runtime.v1.AssembleRequest
-	(*AssembleResponse)(nil),               // 45: deepagents.runtime.v1.AssembleResponse
-	(*GetAgentGraphRequest)(nil),           // 46: deepagents.runtime.v1.GetAgentGraphRequest
-	(*GetAgentGraphResponse)(nil),          // 47: deepagents.runtime.v1.GetAgentGraphResponse
-	(*UploadWorkspaceFile)(nil),            // 48: deepagents.runtime.v1.UploadWorkspaceFile
-	(*UploadWorkspaceFilesRequest)(nil),    // 49: deepagents.runtime.v1.UploadWorkspaceFilesRequest
-	(*UploadWorkspaceFileResult)(nil),      // 50: deepagents.runtime.v1.UploadWorkspaceFileResult
-	(*UploadWorkspaceFilesResponse)(nil),   // 51: deepagents.runtime.v1.UploadWorkspaceFilesResponse
-	(*DownloadWorkspaceFilesRequest)(nil),  // 52: deepagents.runtime.v1.DownloadWorkspaceFilesRequest
-	(*DownloadWorkspaceFileResult)(nil),    // 53: deepagents.runtime.v1.DownloadWorkspaceFileResult
-	(*DownloadWorkspaceFilesResponse)(nil), // 54: deepagents.runtime.v1.DownloadWorkspaceFilesResponse
-	(*ListWorkspaceFilesRequest)(nil),      // 55: deepagents.runtime.v1.ListWorkspaceFilesRequest
-	(*WorkspaceFileInfo)(nil),              // 56: deepagents.runtime.v1.WorkspaceFileInfo
-	(*ListWorkspaceFilesResponse)(nil),     // 57: deepagents.runtime.v1.ListWorkspaceFilesResponse
-	(*RemoveResourceRequest)(nil),          // 58: deepagents.runtime.v1.RemoveResourceRequest
-	(*SyncResponse)(nil),                   // 59: deepagents.runtime.v1.SyncResponse
-	(*HealthRequest)(nil),                  // 60: deepagents.runtime.v1.HealthRequest
-	(*HealthResponse)(nil),                 // 61: deepagents.runtime.v1.HealthResponse
-	(*ListSessionsRequest)(nil),            // 62: deepagents.runtime.v1.ListSessionsRequest
-	(*ListSessionsResponse)(nil),           // 63: deepagents.runtime.v1.ListSessionsResponse
-	(*GetSessionRequest)(nil),              // 64: deepagents.runtime.v1.GetSessionRequest
-	(*GetSessionResponse)(nil),             // 65: deepagents.runtime.v1.GetSessionResponse
-	(*GetLatestSessionRequest)(nil),        // 66: deepagents.runtime.v1.GetLatestSessionRequest
-	(*GetLatestSessionResponse)(nil),       // 67: deepagents.runtime.v1.GetLatestSessionResponse
-	(*DeleteSessionRequest)(nil),           // 68: deepagents.runtime.v1.DeleteSessionRequest
-	(*DeleteSessionResponse)(nil),          // 69: deepagents.runtime.v1.DeleteSessionResponse
-	(*GetSessionMessagesRequest)(nil),      // 70: deepagents.runtime.v1.GetSessionMessagesRequest
-	(*GetSessionMessagesResponse)(nil),     // 71: deepagents.runtime.v1.GetSessionMessagesResponse
-	(*SessionSummary)(nil),                 // 72: deepagents.runtime.v1.SessionSummary
-	(*SessionDetail)(nil),                  // 73: deepagents.runtime.v1.SessionDetail
-	(*SessionMessage)(nil),                 // 74: deepagents.runtime.v1.SessionMessage
-	(*ListThreadArtifactsRequest)(nil),     // 75: deepagents.runtime.v1.ListThreadArtifactsRequest
-	(*ThreadArtifact)(nil),                 // 76: deepagents.runtime.v1.ThreadArtifact
-	(*ListThreadArtifactsResponse)(nil),    // 77: deepagents.runtime.v1.ListThreadArtifactsResponse
-	nil,                                    // 78: deepagents.runtime.v1.RunRequest.MetadataEntry
-	nil,                                    // 79: deepagents.runtime.v1.SyncMcpRequest.EnvEntry
-	nil,                                    // 80: deepagents.runtime.v1.McpServerConfig.EnvEntry
-	nil,                                    // 81: deepagents.runtime.v1.SandboxSpec.ResourcesEntry
-	nil,                                    // 82: deepagents.runtime.v1.KubernetesResourceRequirements.RequestsEntry
-	nil,                                    // 83: deepagents.runtime.v1.KubernetesResourceRequirements.LimitsEntry
-	nil,                                    // 84: deepagents.runtime.v1.ModelConfig.ExtraParamsEntry
+	(ImagePullPolicy)(0),                   // 0: agents.runtime.v1.ImagePullPolicy
+	(AgentRuntimeStatus)(0),                // 1: agents.runtime.v1.AgentRuntimeStatus
+	(SessionHistoryMode)(0),                // 2: agents.runtime.v1.SessionHistoryMode
+	(SessionMessageRole)(0),                // 3: agents.runtime.v1.SessionMessageRole
+	(*ClientMessage)(nil),                  // 4: agents.runtime.v1.ClientMessage
+	(*RunRequest)(nil),                     // 5: agents.runtime.v1.RunRequest
+	(*HITLDecision)(nil),                   // 6: agents.runtime.v1.HITLDecision
+	(*Action)(nil),                         // 7: agents.runtime.v1.Action
+	(*Decision)(nil),                       // 8: agents.runtime.v1.Decision
+	(*CancelRequest)(nil),                  // 9: agents.runtime.v1.CancelRequest
+	(*AgentEvent)(nil),                     // 10: agents.runtime.v1.AgentEvent
+	(*RunStarted)(nil),                     // 11: agents.runtime.v1.RunStarted
+	(*TextDelta)(nil),                      // 12: agents.runtime.v1.TextDelta
+	(*TextDone)(nil),                       // 13: agents.runtime.v1.TextDone
+	(*ToolCallStart)(nil),                  // 14: agents.runtime.v1.ToolCallStart
+	(*ToolCallDone)(nil),                   // 15: agents.runtime.v1.ToolCallDone
+	(*ToolResult)(nil),                     // 16: agents.runtime.v1.ToolResult
+	(*HITLRequest)(nil),                    // 17: agents.runtime.v1.HITLRequest
+	(*ActionRequest)(nil),                  // 18: agents.runtime.v1.ActionRequest
+	(*ReviewConfig)(nil),                   // 19: agents.runtime.v1.ReviewConfig
+	(*RunEnded)(nil),                       // 20: agents.runtime.v1.RunEnded
+	(*RunCanceled)(nil),                    // 21: agents.runtime.v1.RunCanceled
+	(*UsageStats)(nil),                     // 22: agents.runtime.v1.UsageStats
+	(*ErrorOccurred)(nil),                  // 23: agents.runtime.v1.ErrorOccurred
+	(*TelemetryEvent)(nil),                 // 24: agents.runtime.v1.TelemetryEvent
+	(*SyncSkillRequest)(nil),               // 25: agents.runtime.v1.SyncSkillRequest
+	(*SyncMcpRequest)(nil),                 // 26: agents.runtime.v1.SyncMcpRequest
+	(*SyncAgentSpecRequest)(nil),           // 27: agents.runtime.v1.SyncAgentSpecRequest
+	(*SubagentSpec)(nil),                   // 28: agents.runtime.v1.SubagentSpec
+	(*McpServerConfig)(nil),                // 29: agents.runtime.v1.McpServerConfig
+	(*PromptSpec)(nil),                     // 30: agents.runtime.v1.PromptSpec
+	(*ToolsSpec)(nil),                      // 31: agents.runtime.v1.ToolsSpec
+	(*SandboxSpec)(nil),                    // 32: agents.runtime.v1.SandboxSpec
+	(*SandboxExecutionPolicy)(nil),         // 33: agents.runtime.v1.SandboxExecutionPolicy
+	(*SandboxEnvVar)(nil),                  // 34: agents.runtime.v1.SandboxEnvVar
+	(*LocalSandboxSpec)(nil),               // 35: agents.runtime.v1.LocalSandboxSpec
+	(*ImageReference)(nil),                 // 36: agents.runtime.v1.ImageReference
+	(*DockerSandboxSpec)(nil),              // 37: agents.runtime.v1.DockerSandboxSpec
+	(*DockerResourceSpec)(nil),             // 38: agents.runtime.v1.DockerResourceSpec
+	(*KubernetesSandboxSpec)(nil),          // 39: agents.runtime.v1.KubernetesSandboxSpec
+	(*KubernetesResourceRequirements)(nil), // 40: agents.runtime.v1.KubernetesResourceRequirements
+	(*SkillFile)(nil),                      // 41: agents.runtime.v1.SkillFile
+	(*SkillContent)(nil),                   // 42: agents.runtime.v1.SkillContent
+	(*ModelConfig)(nil),                    // 43: agents.runtime.v1.ModelConfig
+	(*AssembleRequest)(nil),                // 44: agents.runtime.v1.AssembleRequest
+	(*AssembleResponse)(nil),               // 45: agents.runtime.v1.AssembleResponse
+	(*GetAgentGraphRequest)(nil),           // 46: agents.runtime.v1.GetAgentGraphRequest
+	(*GetAgentGraphResponse)(nil),          // 47: agents.runtime.v1.GetAgentGraphResponse
+	(*UploadWorkspaceFile)(nil),            // 48: agents.runtime.v1.UploadWorkspaceFile
+	(*UploadWorkspaceFilesRequest)(nil),    // 49: agents.runtime.v1.UploadWorkspaceFilesRequest
+	(*UploadWorkspaceFileResult)(nil),      // 50: agents.runtime.v1.UploadWorkspaceFileResult
+	(*UploadWorkspaceFilesResponse)(nil),   // 51: agents.runtime.v1.UploadWorkspaceFilesResponse
+	(*DownloadWorkspaceFilesRequest)(nil),  // 52: agents.runtime.v1.DownloadWorkspaceFilesRequest
+	(*DownloadWorkspaceFileResult)(nil),    // 53: agents.runtime.v1.DownloadWorkspaceFileResult
+	(*DownloadWorkspaceFilesResponse)(nil), // 54: agents.runtime.v1.DownloadWorkspaceFilesResponse
+	(*ListWorkspaceFilesRequest)(nil),      // 55: agents.runtime.v1.ListWorkspaceFilesRequest
+	(*WorkspaceFileInfo)(nil),              // 56: agents.runtime.v1.WorkspaceFileInfo
+	(*ListWorkspaceFilesResponse)(nil),     // 57: agents.runtime.v1.ListWorkspaceFilesResponse
+	(*RemoveResourceRequest)(nil),          // 58: agents.runtime.v1.RemoveResourceRequest
+	(*SyncResponse)(nil),                   // 59: agents.runtime.v1.SyncResponse
+	(*HealthRequest)(nil),                  // 60: agents.runtime.v1.HealthRequest
+	(*HealthResponse)(nil),                 // 61: agents.runtime.v1.HealthResponse
+	(*ListSessionsRequest)(nil),            // 62: agents.runtime.v1.ListSessionsRequest
+	(*ListSessionsResponse)(nil),           // 63: agents.runtime.v1.ListSessionsResponse
+	(*GetSessionRequest)(nil),              // 64: agents.runtime.v1.GetSessionRequest
+	(*GetSessionResponse)(nil),             // 65: agents.runtime.v1.GetSessionResponse
+	(*GetLatestSessionRequest)(nil),        // 66: agents.runtime.v1.GetLatestSessionRequest
+	(*GetLatestSessionResponse)(nil),       // 67: agents.runtime.v1.GetLatestSessionResponse
+	(*DeleteSessionRequest)(nil),           // 68: agents.runtime.v1.DeleteSessionRequest
+	(*DeleteSessionResponse)(nil),          // 69: agents.runtime.v1.DeleteSessionResponse
+	(*GetSessionMessagesRequest)(nil),      // 70: agents.runtime.v1.GetSessionMessagesRequest
+	(*GetSessionMessagesResponse)(nil),     // 71: agents.runtime.v1.GetSessionMessagesResponse
+	(*SessionSummary)(nil),                 // 72: agents.runtime.v1.SessionSummary
+	(*SessionDetail)(nil),                  // 73: agents.runtime.v1.SessionDetail
+	(*SessionMessage)(nil),                 // 74: agents.runtime.v1.SessionMessage
+	(*ListThreadArtifactsRequest)(nil),     // 75: agents.runtime.v1.ListThreadArtifactsRequest
+	(*ThreadArtifact)(nil),                 // 76: agents.runtime.v1.ThreadArtifact
+	(*ListThreadArtifactsResponse)(nil),    // 77: agents.runtime.v1.ListThreadArtifactsResponse
+	nil,                                    // 78: agents.runtime.v1.RunRequest.MetadataEntry
+	nil,                                    // 79: agents.runtime.v1.SyncMcpRequest.EnvEntry
+	nil,                                    // 80: agents.runtime.v1.McpServerConfig.EnvEntry
+	nil,                                    // 81: agents.runtime.v1.SandboxSpec.ResourcesEntry
+	nil,                                    // 82: agents.runtime.v1.KubernetesResourceRequirements.RequestsEntry
+	nil,                                    // 83: agents.runtime.v1.KubernetesResourceRequirements.LimitsEntry
+	nil,                                    // 84: agents.runtime.v1.ModelConfig.ExtraParamsEntry
 	(*structpb.Struct)(nil),                // 85: google.protobuf.Struct
 	(*timestamppb.Timestamp)(nil),          // 86: google.protobuf.Timestamp
 	(*structpb.Value)(nil),                 // 87: google.protobuf.Value
 }
 var file_runtime_proto_depIdxs = []int32{
-	5,  // 0: deepagents.runtime.v1.ClientMessage.run_request:type_name -> deepagents.runtime.v1.RunRequest
-	6,  // 1: deepagents.runtime.v1.ClientMessage.hitl_decision:type_name -> deepagents.runtime.v1.HITLDecision
-	9,  // 2: deepagents.runtime.v1.ClientMessage.cancel:type_name -> deepagents.runtime.v1.CancelRequest
-	78, // 3: deepagents.runtime.v1.RunRequest.metadata:type_name -> deepagents.runtime.v1.RunRequest.MetadataEntry
-	8,  // 4: deepagents.runtime.v1.HITLDecision.decisions:type_name -> deepagents.runtime.v1.Decision
-	85, // 5: deepagents.runtime.v1.Action.args:type_name -> google.protobuf.Struct
-	7,  // 6: deepagents.runtime.v1.Decision.edited_action:type_name -> deepagents.runtime.v1.Action
-	86, // 7: deepagents.runtime.v1.AgentEvent.timestamp:type_name -> google.protobuf.Timestamp
-	11, // 8: deepagents.runtime.v1.AgentEvent.run_started:type_name -> deepagents.runtime.v1.RunStarted
-	12, // 9: deepagents.runtime.v1.AgentEvent.text_delta:type_name -> deepagents.runtime.v1.TextDelta
-	13, // 10: deepagents.runtime.v1.AgentEvent.text_done:type_name -> deepagents.runtime.v1.TextDone
-	14, // 11: deepagents.runtime.v1.AgentEvent.tool_call_start:type_name -> deepagents.runtime.v1.ToolCallStart
-	15, // 12: deepagents.runtime.v1.AgentEvent.tool_call_done:type_name -> deepagents.runtime.v1.ToolCallDone
-	16, // 13: deepagents.runtime.v1.AgentEvent.tool_result:type_name -> deepagents.runtime.v1.ToolResult
-	17, // 14: deepagents.runtime.v1.AgentEvent.hitl_request:type_name -> deepagents.runtime.v1.HITLRequest
-	20, // 15: deepagents.runtime.v1.AgentEvent.run_ended:type_name -> deepagents.runtime.v1.RunEnded
-	23, // 16: deepagents.runtime.v1.AgentEvent.error:type_name -> deepagents.runtime.v1.ErrorOccurred
-	21, // 17: deepagents.runtime.v1.AgentEvent.run_canceled:type_name -> deepagents.runtime.v1.RunCanceled
-	85, // 18: deepagents.runtime.v1.ToolCallStart.args:type_name -> google.protobuf.Struct
-	87, // 19: deepagents.runtime.v1.ToolResult.payload:type_name -> google.protobuf.Value
-	18, // 20: deepagents.runtime.v1.HITLRequest.action_requests:type_name -> deepagents.runtime.v1.ActionRequest
-	19, // 21: deepagents.runtime.v1.HITLRequest.review_configs:type_name -> deepagents.runtime.v1.ReviewConfig
-	85, // 22: deepagents.runtime.v1.ActionRequest.args:type_name -> google.protobuf.Struct
-	85, // 23: deepagents.runtime.v1.ReviewConfig.args_schema:type_name -> google.protobuf.Struct
-	22, // 24: deepagents.runtime.v1.RunEnded.stats:type_name -> deepagents.runtime.v1.UsageStats
-	86, // 25: deepagents.runtime.v1.TelemetryEvent.timestamp:type_name -> google.protobuf.Timestamp
-	85, // 26: deepagents.runtime.v1.TelemetryEvent.metadata:type_name -> google.protobuf.Struct
-	87, // 27: deepagents.runtime.v1.TelemetryEvent.payload:type_name -> google.protobuf.Value
-	10, // 28: deepagents.runtime.v1.TelemetryEvent.public_event:type_name -> deepagents.runtime.v1.AgentEvent
-	41, // 29: deepagents.runtime.v1.SyncSkillRequest.files:type_name -> deepagents.runtime.v1.SkillFile
-	79, // 30: deepagents.runtime.v1.SyncMcpRequest.env:type_name -> deepagents.runtime.v1.SyncMcpRequest.EnvEntry
-	30, // 31: deepagents.runtime.v1.SyncAgentSpecRequest.prompt:type_name -> deepagents.runtime.v1.PromptSpec
-	42, // 32: deepagents.runtime.v1.SyncAgentSpecRequest.skills:type_name -> deepagents.runtime.v1.SkillContent
-	31, // 33: deepagents.runtime.v1.SyncAgentSpecRequest.tools:type_name -> deepagents.runtime.v1.ToolsSpec
-	28, // 34: deepagents.runtime.v1.SyncAgentSpecRequest.subagents:type_name -> deepagents.runtime.v1.SubagentSpec
-	32, // 35: deepagents.runtime.v1.SyncAgentSpecRequest.sandbox:type_name -> deepagents.runtime.v1.SandboxSpec
-	29, // 36: deepagents.runtime.v1.SyncAgentSpecRequest.mcp_servers:type_name -> deepagents.runtime.v1.McpServerConfig
-	43, // 37: deepagents.runtime.v1.SyncAgentSpecRequest.model_config:type_name -> deepagents.runtime.v1.ModelConfig
-	42, // 38: deepagents.runtime.v1.SubagentSpec.skills:type_name -> deepagents.runtime.v1.SkillContent
-	43, // 39: deepagents.runtime.v1.SubagentSpec.model_config:type_name -> deepagents.runtime.v1.ModelConfig
-	80, // 40: deepagents.runtime.v1.McpServerConfig.env:type_name -> deepagents.runtime.v1.McpServerConfig.EnvEntry
-	81, // 41: deepagents.runtime.v1.SandboxSpec.resources:type_name -> deepagents.runtime.v1.SandboxSpec.ResourcesEntry
-	33, // 42: deepagents.runtime.v1.SandboxSpec.execution:type_name -> deepagents.runtime.v1.SandboxExecutionPolicy
-	34, // 43: deepagents.runtime.v1.SandboxSpec.env:type_name -> deepagents.runtime.v1.SandboxEnvVar
-	35, // 44: deepagents.runtime.v1.SandboxSpec.local:type_name -> deepagents.runtime.v1.LocalSandboxSpec
-	37, // 45: deepagents.runtime.v1.SandboxSpec.docker:type_name -> deepagents.runtime.v1.DockerSandboxSpec
-	39, // 46: deepagents.runtime.v1.SandboxSpec.kubernetes:type_name -> deepagents.runtime.v1.KubernetesSandboxSpec
-	0,  // 47: deepagents.runtime.v1.ImageReference.pull_policy:type_name -> deepagents.runtime.v1.ImagePullPolicy
-	36, // 48: deepagents.runtime.v1.DockerSandboxSpec.image:type_name -> deepagents.runtime.v1.ImageReference
-	38, // 49: deepagents.runtime.v1.DockerSandboxSpec.resources:type_name -> deepagents.runtime.v1.DockerResourceSpec
-	36, // 50: deepagents.runtime.v1.KubernetesSandboxSpec.image:type_name -> deepagents.runtime.v1.ImageReference
-	40, // 51: deepagents.runtime.v1.KubernetesSandboxSpec.resources:type_name -> deepagents.runtime.v1.KubernetesResourceRequirements
-	82, // 52: deepagents.runtime.v1.KubernetesResourceRequirements.requests:type_name -> deepagents.runtime.v1.KubernetesResourceRequirements.RequestsEntry
-	83, // 53: deepagents.runtime.v1.KubernetesResourceRequirements.limits:type_name -> deepagents.runtime.v1.KubernetesResourceRequirements.LimitsEntry
-	41, // 54: deepagents.runtime.v1.SkillContent.files:type_name -> deepagents.runtime.v1.SkillFile
-	84, // 55: deepagents.runtime.v1.ModelConfig.extra_params:type_name -> deepagents.runtime.v1.ModelConfig.ExtraParamsEntry
-	87, // 56: deepagents.runtime.v1.GetAgentGraphResponse.graph:type_name -> google.protobuf.Value
-	48, // 57: deepagents.runtime.v1.UploadWorkspaceFilesRequest.files:type_name -> deepagents.runtime.v1.UploadWorkspaceFile
-	50, // 58: deepagents.runtime.v1.UploadWorkspaceFilesResponse.files:type_name -> deepagents.runtime.v1.UploadWorkspaceFileResult
-	53, // 59: deepagents.runtime.v1.DownloadWorkspaceFilesResponse.files:type_name -> deepagents.runtime.v1.DownloadWorkspaceFileResult
-	56, // 60: deepagents.runtime.v1.ListWorkspaceFilesResponse.files:type_name -> deepagents.runtime.v1.WorkspaceFileInfo
-	72, // 61: deepagents.runtime.v1.ListSessionsResponse.sessions:type_name -> deepagents.runtime.v1.SessionSummary
-	73, // 62: deepagents.runtime.v1.GetSessionResponse.session:type_name -> deepagents.runtime.v1.SessionDetail
-	72, // 63: deepagents.runtime.v1.GetLatestSessionResponse.session:type_name -> deepagents.runtime.v1.SessionSummary
-	2,  // 64: deepagents.runtime.v1.GetSessionMessagesRequest.requested_mode:type_name -> deepagents.runtime.v1.SessionHistoryMode
-	2,  // 65: deepagents.runtime.v1.GetSessionMessagesResponse.actual_mode:type_name -> deepagents.runtime.v1.SessionHistoryMode
-	74, // 66: deepagents.runtime.v1.GetSessionMessagesResponse.messages:type_name -> deepagents.runtime.v1.SessionMessage
-	86, // 67: deepagents.runtime.v1.SessionSummary.updated_at:type_name -> google.protobuf.Timestamp
-	2,  // 68: deepagents.runtime.v1.SessionSummary.history_mode:type_name -> deepagents.runtime.v1.SessionHistoryMode
-	1,  // 69: deepagents.runtime.v1.SessionSummary.agent_status:type_name -> deepagents.runtime.v1.AgentRuntimeStatus
-	72, // 70: deepagents.runtime.v1.SessionDetail.summary:type_name -> deepagents.runtime.v1.SessionSummary
-	3,  // 71: deepagents.runtime.v1.SessionMessage.role:type_name -> deepagents.runtime.v1.SessionMessageRole
-	85, // 72: deepagents.runtime.v1.SessionMessage.raw:type_name -> google.protobuf.Struct
-	76, // 73: deepagents.runtime.v1.ListThreadArtifactsResponse.artifacts:type_name -> deepagents.runtime.v1.ThreadArtifact
-	4,  // 74: deepagents.runtime.v1.AgentExecutor.Run:input_type -> deepagents.runtime.v1.ClientMessage
-	4,  // 75: deepagents.runtime.v1.AgentTelemetry.RunTelemetry:input_type -> deepagents.runtime.v1.ClientMessage
-	25, // 76: deepagents.runtime.v1.ResourceSync.SyncSkill:input_type -> deepagents.runtime.v1.SyncSkillRequest
-	26, // 77: deepagents.runtime.v1.ResourceSync.SyncMcp:input_type -> deepagents.runtime.v1.SyncMcpRequest
-	27, // 78: deepagents.runtime.v1.ResourceSync.SyncAgentSpec:input_type -> deepagents.runtime.v1.SyncAgentSpecRequest
-	44, // 79: deepagents.runtime.v1.ResourceSync.Assemble:input_type -> deepagents.runtime.v1.AssembleRequest
-	46, // 80: deepagents.runtime.v1.ResourceSync.GetAgentGraph:input_type -> deepagents.runtime.v1.GetAgentGraphRequest
-	49, // 81: deepagents.runtime.v1.ResourceSync.UploadWorkspaceFiles:input_type -> deepagents.runtime.v1.UploadWorkspaceFilesRequest
-	52, // 82: deepagents.runtime.v1.ResourceSync.DownloadWorkspaceFiles:input_type -> deepagents.runtime.v1.DownloadWorkspaceFilesRequest
-	55, // 83: deepagents.runtime.v1.ResourceSync.ListWorkspaceFiles:input_type -> deepagents.runtime.v1.ListWorkspaceFilesRequest
-	58, // 84: deepagents.runtime.v1.ResourceSync.RemoveResource:input_type -> deepagents.runtime.v1.RemoveResourceRequest
-	60, // 85: deepagents.runtime.v1.ResourceSync.Health:input_type -> deepagents.runtime.v1.HealthRequest
-	62, // 86: deepagents.runtime.v1.SessionQuery.ListSessions:input_type -> deepagents.runtime.v1.ListSessionsRequest
-	64, // 87: deepagents.runtime.v1.SessionQuery.GetSession:input_type -> deepagents.runtime.v1.GetSessionRequest
-	70, // 88: deepagents.runtime.v1.SessionQuery.GetSessionMessages:input_type -> deepagents.runtime.v1.GetSessionMessagesRequest
-	66, // 89: deepagents.runtime.v1.SessionQuery.GetLatestSession:input_type -> deepagents.runtime.v1.GetLatestSessionRequest
-	68, // 90: deepagents.runtime.v1.SessionQuery.DeleteSession:input_type -> deepagents.runtime.v1.DeleteSessionRequest
-	75, // 91: deepagents.runtime.v1.SessionQuery.ListThreadArtifacts:input_type -> deepagents.runtime.v1.ListThreadArtifactsRequest
-	10, // 92: deepagents.runtime.v1.AgentExecutor.Run:output_type -> deepagents.runtime.v1.AgentEvent
-	24, // 93: deepagents.runtime.v1.AgentTelemetry.RunTelemetry:output_type -> deepagents.runtime.v1.TelemetryEvent
-	59, // 94: deepagents.runtime.v1.ResourceSync.SyncSkill:output_type -> deepagents.runtime.v1.SyncResponse
-	59, // 95: deepagents.runtime.v1.ResourceSync.SyncMcp:output_type -> deepagents.runtime.v1.SyncResponse
-	59, // 96: deepagents.runtime.v1.ResourceSync.SyncAgentSpec:output_type -> deepagents.runtime.v1.SyncResponse
-	45, // 97: deepagents.runtime.v1.ResourceSync.Assemble:output_type -> deepagents.runtime.v1.AssembleResponse
-	47, // 98: deepagents.runtime.v1.ResourceSync.GetAgentGraph:output_type -> deepagents.runtime.v1.GetAgentGraphResponse
-	51, // 99: deepagents.runtime.v1.ResourceSync.UploadWorkspaceFiles:output_type -> deepagents.runtime.v1.UploadWorkspaceFilesResponse
-	54, // 100: deepagents.runtime.v1.ResourceSync.DownloadWorkspaceFiles:output_type -> deepagents.runtime.v1.DownloadWorkspaceFilesResponse
-	57, // 101: deepagents.runtime.v1.ResourceSync.ListWorkspaceFiles:output_type -> deepagents.runtime.v1.ListWorkspaceFilesResponse
-	59, // 102: deepagents.runtime.v1.ResourceSync.RemoveResource:output_type -> deepagents.runtime.v1.SyncResponse
-	61, // 103: deepagents.runtime.v1.ResourceSync.Health:output_type -> deepagents.runtime.v1.HealthResponse
-	63, // 104: deepagents.runtime.v1.SessionQuery.ListSessions:output_type -> deepagents.runtime.v1.ListSessionsResponse
-	65, // 105: deepagents.runtime.v1.SessionQuery.GetSession:output_type -> deepagents.runtime.v1.GetSessionResponse
-	71, // 106: deepagents.runtime.v1.SessionQuery.GetSessionMessages:output_type -> deepagents.runtime.v1.GetSessionMessagesResponse
-	67, // 107: deepagents.runtime.v1.SessionQuery.GetLatestSession:output_type -> deepagents.runtime.v1.GetLatestSessionResponse
-	69, // 108: deepagents.runtime.v1.SessionQuery.DeleteSession:output_type -> deepagents.runtime.v1.DeleteSessionResponse
-	77, // 109: deepagents.runtime.v1.SessionQuery.ListThreadArtifacts:output_type -> deepagents.runtime.v1.ListThreadArtifactsResponse
+	5,  // 0: agents.runtime.v1.ClientMessage.run_request:type_name -> agents.runtime.v1.RunRequest
+	6,  // 1: agents.runtime.v1.ClientMessage.hitl_decision:type_name -> agents.runtime.v1.HITLDecision
+	9,  // 2: agents.runtime.v1.ClientMessage.cancel:type_name -> agents.runtime.v1.CancelRequest
+	78, // 3: agents.runtime.v1.RunRequest.metadata:type_name -> agents.runtime.v1.RunRequest.MetadataEntry
+	8,  // 4: agents.runtime.v1.HITLDecision.decisions:type_name -> agents.runtime.v1.Decision
+	85, // 5: agents.runtime.v1.Action.args:type_name -> google.protobuf.Struct
+	7,  // 6: agents.runtime.v1.Decision.edited_action:type_name -> agents.runtime.v1.Action
+	86, // 7: agents.runtime.v1.AgentEvent.timestamp:type_name -> google.protobuf.Timestamp
+	11, // 8: agents.runtime.v1.AgentEvent.run_started:type_name -> agents.runtime.v1.RunStarted
+	12, // 9: agents.runtime.v1.AgentEvent.text_delta:type_name -> agents.runtime.v1.TextDelta
+	13, // 10: agents.runtime.v1.AgentEvent.text_done:type_name -> agents.runtime.v1.TextDone
+	14, // 11: agents.runtime.v1.AgentEvent.tool_call_start:type_name -> agents.runtime.v1.ToolCallStart
+	15, // 12: agents.runtime.v1.AgentEvent.tool_call_done:type_name -> agents.runtime.v1.ToolCallDone
+	16, // 13: agents.runtime.v1.AgentEvent.tool_result:type_name -> agents.runtime.v1.ToolResult
+	17, // 14: agents.runtime.v1.AgentEvent.hitl_request:type_name -> agents.runtime.v1.HITLRequest
+	20, // 15: agents.runtime.v1.AgentEvent.run_ended:type_name -> agents.runtime.v1.RunEnded
+	23, // 16: agents.runtime.v1.AgentEvent.error:type_name -> agents.runtime.v1.ErrorOccurred
+	21, // 17: agents.runtime.v1.AgentEvent.run_canceled:type_name -> agents.runtime.v1.RunCanceled
+	85, // 18: agents.runtime.v1.ToolCallStart.args:type_name -> google.protobuf.Struct
+	87, // 19: agents.runtime.v1.ToolResult.payload:type_name -> google.protobuf.Value
+	18, // 20: agents.runtime.v1.HITLRequest.action_requests:type_name -> agents.runtime.v1.ActionRequest
+	19, // 21: agents.runtime.v1.HITLRequest.review_configs:type_name -> agents.runtime.v1.ReviewConfig
+	85, // 22: agents.runtime.v1.ActionRequest.args:type_name -> google.protobuf.Struct
+	85, // 23: agents.runtime.v1.ReviewConfig.args_schema:type_name -> google.protobuf.Struct
+	22, // 24: agents.runtime.v1.RunEnded.stats:type_name -> agents.runtime.v1.UsageStats
+	86, // 25: agents.runtime.v1.TelemetryEvent.timestamp:type_name -> google.protobuf.Timestamp
+	85, // 26: agents.runtime.v1.TelemetryEvent.metadata:type_name -> google.protobuf.Struct
+	87, // 27: agents.runtime.v1.TelemetryEvent.payload:type_name -> google.protobuf.Value
+	10, // 28: agents.runtime.v1.TelemetryEvent.public_event:type_name -> agents.runtime.v1.AgentEvent
+	41, // 29: agents.runtime.v1.SyncSkillRequest.files:type_name -> agents.runtime.v1.SkillFile
+	79, // 30: agents.runtime.v1.SyncMcpRequest.env:type_name -> agents.runtime.v1.SyncMcpRequest.EnvEntry
+	30, // 31: agents.runtime.v1.SyncAgentSpecRequest.prompt:type_name -> agents.runtime.v1.PromptSpec
+	42, // 32: agents.runtime.v1.SyncAgentSpecRequest.skills:type_name -> agents.runtime.v1.SkillContent
+	31, // 33: agents.runtime.v1.SyncAgentSpecRequest.tools:type_name -> agents.runtime.v1.ToolsSpec
+	28, // 34: agents.runtime.v1.SyncAgentSpecRequest.subagents:type_name -> agents.runtime.v1.SubagentSpec
+	32, // 35: agents.runtime.v1.SyncAgentSpecRequest.sandbox:type_name -> agents.runtime.v1.SandboxSpec
+	29, // 36: agents.runtime.v1.SyncAgentSpecRequest.mcp_servers:type_name -> agents.runtime.v1.McpServerConfig
+	43, // 37: agents.runtime.v1.SyncAgentSpecRequest.model_config:type_name -> agents.runtime.v1.ModelConfig
+	42, // 38: agents.runtime.v1.SubagentSpec.skills:type_name -> agents.runtime.v1.SkillContent
+	43, // 39: agents.runtime.v1.SubagentSpec.model_config:type_name -> agents.runtime.v1.ModelConfig
+	80, // 40: agents.runtime.v1.McpServerConfig.env:type_name -> agents.runtime.v1.McpServerConfig.EnvEntry
+	81, // 41: agents.runtime.v1.SandboxSpec.resources:type_name -> agents.runtime.v1.SandboxSpec.ResourcesEntry
+	33, // 42: agents.runtime.v1.SandboxSpec.execution:type_name -> agents.runtime.v1.SandboxExecutionPolicy
+	34, // 43: agents.runtime.v1.SandboxSpec.env:type_name -> agents.runtime.v1.SandboxEnvVar
+	35, // 44: agents.runtime.v1.SandboxSpec.local:type_name -> agents.runtime.v1.LocalSandboxSpec
+	37, // 45: agents.runtime.v1.SandboxSpec.docker:type_name -> agents.runtime.v1.DockerSandboxSpec
+	39, // 46: agents.runtime.v1.SandboxSpec.kubernetes:type_name -> agents.runtime.v1.KubernetesSandboxSpec
+	0,  // 47: agents.runtime.v1.ImageReference.pull_policy:type_name -> agents.runtime.v1.ImagePullPolicy
+	36, // 48: agents.runtime.v1.DockerSandboxSpec.image:type_name -> agents.runtime.v1.ImageReference
+	38, // 49: agents.runtime.v1.DockerSandboxSpec.resources:type_name -> agents.runtime.v1.DockerResourceSpec
+	36, // 50: agents.runtime.v1.KubernetesSandboxSpec.image:type_name -> agents.runtime.v1.ImageReference
+	40, // 51: agents.runtime.v1.KubernetesSandboxSpec.resources:type_name -> agents.runtime.v1.KubernetesResourceRequirements
+	82, // 52: agents.runtime.v1.KubernetesResourceRequirements.requests:type_name -> agents.runtime.v1.KubernetesResourceRequirements.RequestsEntry
+	83, // 53: agents.runtime.v1.KubernetesResourceRequirements.limits:type_name -> agents.runtime.v1.KubernetesResourceRequirements.LimitsEntry
+	41, // 54: agents.runtime.v1.SkillContent.files:type_name -> agents.runtime.v1.SkillFile
+	84, // 55: agents.runtime.v1.ModelConfig.extra_params:type_name -> agents.runtime.v1.ModelConfig.ExtraParamsEntry
+	87, // 56: agents.runtime.v1.GetAgentGraphResponse.graph:type_name -> google.protobuf.Value
+	48, // 57: agents.runtime.v1.UploadWorkspaceFilesRequest.files:type_name -> agents.runtime.v1.UploadWorkspaceFile
+	50, // 58: agents.runtime.v1.UploadWorkspaceFilesResponse.files:type_name -> agents.runtime.v1.UploadWorkspaceFileResult
+	53, // 59: agents.runtime.v1.DownloadWorkspaceFilesResponse.files:type_name -> agents.runtime.v1.DownloadWorkspaceFileResult
+	56, // 60: agents.runtime.v1.ListWorkspaceFilesResponse.files:type_name -> agents.runtime.v1.WorkspaceFileInfo
+	72, // 61: agents.runtime.v1.ListSessionsResponse.sessions:type_name -> agents.runtime.v1.SessionSummary
+	73, // 62: agents.runtime.v1.GetSessionResponse.session:type_name -> agents.runtime.v1.SessionDetail
+	72, // 63: agents.runtime.v1.GetLatestSessionResponse.session:type_name -> agents.runtime.v1.SessionSummary
+	2,  // 64: agents.runtime.v1.GetSessionMessagesRequest.requested_mode:type_name -> agents.runtime.v1.SessionHistoryMode
+	2,  // 65: agents.runtime.v1.GetSessionMessagesResponse.actual_mode:type_name -> agents.runtime.v1.SessionHistoryMode
+	74, // 66: agents.runtime.v1.GetSessionMessagesResponse.messages:type_name -> agents.runtime.v1.SessionMessage
+	86, // 67: agents.runtime.v1.SessionSummary.updated_at:type_name -> google.protobuf.Timestamp
+	2,  // 68: agents.runtime.v1.SessionSummary.history_mode:type_name -> agents.runtime.v1.SessionHistoryMode
+	1,  // 69: agents.runtime.v1.SessionSummary.agent_status:type_name -> agents.runtime.v1.AgentRuntimeStatus
+	72, // 70: agents.runtime.v1.SessionDetail.summary:type_name -> agents.runtime.v1.SessionSummary
+	3,  // 71: agents.runtime.v1.SessionMessage.role:type_name -> agents.runtime.v1.SessionMessageRole
+	85, // 72: agents.runtime.v1.SessionMessage.raw:type_name -> google.protobuf.Struct
+	76, // 73: agents.runtime.v1.ListThreadArtifactsResponse.artifacts:type_name -> agents.runtime.v1.ThreadArtifact
+	4,  // 74: agents.runtime.v1.AgentExecutor.Run:input_type -> agents.runtime.v1.ClientMessage
+	4,  // 75: agents.runtime.v1.AgentTelemetry.RunTelemetry:input_type -> agents.runtime.v1.ClientMessage
+	25, // 76: agents.runtime.v1.ResourceSync.SyncSkill:input_type -> agents.runtime.v1.SyncSkillRequest
+	26, // 77: agents.runtime.v1.ResourceSync.SyncMcp:input_type -> agents.runtime.v1.SyncMcpRequest
+	27, // 78: agents.runtime.v1.ResourceSync.SyncAgentSpec:input_type -> agents.runtime.v1.SyncAgentSpecRequest
+	44, // 79: agents.runtime.v1.ResourceSync.Assemble:input_type -> agents.runtime.v1.AssembleRequest
+	46, // 80: agents.runtime.v1.ResourceSync.GetAgentGraph:input_type -> agents.runtime.v1.GetAgentGraphRequest
+	49, // 81: agents.runtime.v1.ResourceSync.UploadWorkspaceFiles:input_type -> agents.runtime.v1.UploadWorkspaceFilesRequest
+	52, // 82: agents.runtime.v1.ResourceSync.DownloadWorkspaceFiles:input_type -> agents.runtime.v1.DownloadWorkspaceFilesRequest
+	55, // 83: agents.runtime.v1.ResourceSync.ListWorkspaceFiles:input_type -> agents.runtime.v1.ListWorkspaceFilesRequest
+	58, // 84: agents.runtime.v1.ResourceSync.RemoveResource:input_type -> agents.runtime.v1.RemoveResourceRequest
+	60, // 85: agents.runtime.v1.ResourceSync.Health:input_type -> agents.runtime.v1.HealthRequest
+	62, // 86: agents.runtime.v1.SessionQuery.ListSessions:input_type -> agents.runtime.v1.ListSessionsRequest
+	64, // 87: agents.runtime.v1.SessionQuery.GetSession:input_type -> agents.runtime.v1.GetSessionRequest
+	70, // 88: agents.runtime.v1.SessionQuery.GetSessionMessages:input_type -> agents.runtime.v1.GetSessionMessagesRequest
+	66, // 89: agents.runtime.v1.SessionQuery.GetLatestSession:input_type -> agents.runtime.v1.GetLatestSessionRequest
+	68, // 90: agents.runtime.v1.SessionQuery.DeleteSession:input_type -> agents.runtime.v1.DeleteSessionRequest
+	75, // 91: agents.runtime.v1.SessionQuery.ListThreadArtifacts:input_type -> agents.runtime.v1.ListThreadArtifactsRequest
+	10, // 92: agents.runtime.v1.AgentExecutor.Run:output_type -> agents.runtime.v1.AgentEvent
+	24, // 93: agents.runtime.v1.AgentTelemetry.RunTelemetry:output_type -> agents.runtime.v1.TelemetryEvent
+	59, // 94: agents.runtime.v1.ResourceSync.SyncSkill:output_type -> agents.runtime.v1.SyncResponse
+	59, // 95: agents.runtime.v1.ResourceSync.SyncMcp:output_type -> agents.runtime.v1.SyncResponse
+	59, // 96: agents.runtime.v1.ResourceSync.SyncAgentSpec:output_type -> agents.runtime.v1.SyncResponse
+	45, // 97: agents.runtime.v1.ResourceSync.Assemble:output_type -> agents.runtime.v1.AssembleResponse
+	47, // 98: agents.runtime.v1.ResourceSync.GetAgentGraph:output_type -> agents.runtime.v1.GetAgentGraphResponse
+	51, // 99: agents.runtime.v1.ResourceSync.UploadWorkspaceFiles:output_type -> agents.runtime.v1.UploadWorkspaceFilesResponse
+	54, // 100: agents.runtime.v1.ResourceSync.DownloadWorkspaceFiles:output_type -> agents.runtime.v1.DownloadWorkspaceFilesResponse
+	57, // 101: agents.runtime.v1.ResourceSync.ListWorkspaceFiles:output_type -> agents.runtime.v1.ListWorkspaceFilesResponse
+	59, // 102: agents.runtime.v1.ResourceSync.RemoveResource:output_type -> agents.runtime.v1.SyncResponse
+	61, // 103: agents.runtime.v1.ResourceSync.Health:output_type -> agents.runtime.v1.HealthResponse
+	63, // 104: agents.runtime.v1.SessionQuery.ListSessions:output_type -> agents.runtime.v1.ListSessionsResponse
+	65, // 105: agents.runtime.v1.SessionQuery.GetSession:output_type -> agents.runtime.v1.GetSessionResponse
+	71, // 106: agents.runtime.v1.SessionQuery.GetSessionMessages:output_type -> agents.runtime.v1.GetSessionMessagesResponse
+	67, // 107: agents.runtime.v1.SessionQuery.GetLatestSession:output_type -> agents.runtime.v1.GetLatestSessionResponse
+	69, // 108: agents.runtime.v1.SessionQuery.DeleteSession:output_type -> agents.runtime.v1.DeleteSessionResponse
+	77, // 109: agents.runtime.v1.SessionQuery.ListThreadArtifacts:output_type -> agents.runtime.v1.ListThreadArtifactsResponse
 	92, // [92:110] is the sub-list for method output_type
 	74, // [74:92] is the sub-list for method input_type
 	74, // [74:74] is the sub-list for extension type_name

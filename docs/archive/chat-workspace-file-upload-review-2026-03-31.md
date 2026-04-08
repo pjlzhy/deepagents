@@ -44,7 +44,7 @@ The main change is that workspace behavior is now enforced by the runtime rather
 
 ### 3.1 Thread-scoped backend adapter
 
-Added `ThreadScopedRuntimeBackend` in [runtime_backend.py](/D:/open_project/deepagents/libs/runtime/deepagents-runtime/deepagents_runtime/runtime_backend.py).
+Added `ThreadScopedRuntimeBackend` in [runtime_backend.py](/D:/open_project/deepagents/libs/runtime/agents-runtime/agents_runtime/runtime_backend.py).
 
 Responsibilities:
 
@@ -64,7 +64,7 @@ Two construction paths are supported:
 
 ### 3.2 Registry layout
 
-The registry still keeps the agent runtime root under `runtime/`, but thread-specific helpers were added in [registry.py](/D:/open_project/deepagents/libs/runtime/deepagents-runtime/deepagents_runtime/registry.py):
+The registry still keeps the agent runtime root under `runtime/`, but thread-specific helpers were added in [registry.py](/D:/open_project/deepagents/libs/runtime/agents-runtime/agents_runtime/registry.py):
 
 - `thread_workspace_dir(name, thread_id)`
 - `thread_history_dir(name, thread_id)`
@@ -83,7 +83,7 @@ runtime/
 
 ### 3.3 RuntimeAgent changes
 
-Updated [agent.py](/D:/open_project/deepagents/libs/runtime/deepagents-runtime/deepagents_runtime/agent.py) to:
+Updated [agent.py](/D:/open_project/deepagents/libs/runtime/agents-runtime/agents_runtime/agent.py) to:
 
 - build an `AgentFilesystemView` that separates:
   - host runtime root
@@ -200,9 +200,9 @@ Suggested review order:
    - [runtime.proto](/D:/open_project/deepagents/proto/runtime.proto)
    - generated Go/Python stubs
 2. Runtime filesystem semantics
-   - [runtime_backend.py](/D:/open_project/deepagents/libs/runtime/deepagents-runtime/deepagents_runtime/runtime_backend.py)
-   - [agent.py](/D:/open_project/deepagents/libs/runtime/deepagents-runtime/deepagents_runtime/agent.py)
-   - [registry.py](/D:/open_project/deepagents/libs/runtime/deepagents-runtime/deepagents_runtime/registry.py)
+   - [runtime_backend.py](/D:/open_project/deepagents/libs/runtime/agents-runtime/agents_runtime/runtime_backend.py)
+   - [agent.py](/D:/open_project/deepagents/libs/runtime/agents-runtime/agents_runtime/agent.py)
+   - [registry.py](/D:/open_project/deepagents/libs/runtime/agents-runtime/agents_runtime/registry.py)
 3. Control upload path
    - [service.go](/D:/open_project/deepagents/libs/control/pkg/orchestrator/service.go)
    - [grpc_client.go](/D:/open_project/deepagents/libs/control/pkg/runtimeclient/grpc_client.go)
@@ -253,7 +253,7 @@ go test ./pkg/api ./pkg/orchestrator ./pkg/runtimeclient
 ```
 
 ```bash
-uv run --project libs/runtime/deepagents-runtime pytest \
+uv run --project libs/runtime/agents-runtime pytest \
   tests/unit_tests/test_runtime_agent_sandbox_lifecycle.py \
   tests/unit_tests/test_manager_runtime_agent.py \
   tests/unit_tests/test_server_hitl.py \
@@ -263,12 +263,12 @@ uv run --project libs/runtime/deepagents-runtime pytest \
 ```
 
 ```bash
-uv run --project libs/runtime/deepagents-runtime ruff check \
-  deepagents_runtime/agent.py \
-  deepagents_runtime/entry/server.py \
-  deepagents_runtime/manager/manager.py \
-  deepagents_runtime/registry.py \
-  deepagents_runtime/runtime_backend.py \
+uv run --project libs/runtime/agents-runtime ruff check \
+  agents_runtime/agent.py \
+  agents_runtime/entry/server.py \
+  agents_runtime/manager/manager.py \
+  agents_runtime/registry.py \
+  agents_runtime/runtime_backend.py \
   tests/unit_tests/test_runtime_agent_sandbox_lifecycle.py \
   tests/unit_tests/test_manager_runtime_agent.py
 ```

@@ -10,7 +10,7 @@ func TestBuildProtocArgsUseRepoLevelProtoAndControlOutput(t *testing.T) {
 	cfg := generatorConfig{
 		ProtoRoot:        filepath.Clean("D:/repo/proto"),
 		ControlModuleDir: filepath.Clean("D:/repo/libs/control"),
-		RuntimeProject:   filepath.Clean("D:/repo/libs/runtime/deepagents-runtime"),
+		RuntimeProject:   filepath.Clean("D:/repo/libs/runtime/agents-runtime"),
 		GoPluginPath:     filepath.Clean("C:/Users/test/go/bin/protoc-gen-go.exe"),
 		GoGRPCPluginPath: filepath.Clean("C:/Users/test/go/bin/protoc-gen-go-grpc.exe"),
 	}

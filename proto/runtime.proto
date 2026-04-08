@@ -10,9 +10,9 @@
 
 syntax = "proto3";
 
-package deepagents.runtime.v1;
+package agents.runtime.v1;
 
-option java_package = "com.deepagents.runtime.v1";
+option java_package = "com.agents.runtime.v1";
 option go_package = "agentctl/pkg/proto;runtimev1";
 
 import "google/protobuf/struct.proto";

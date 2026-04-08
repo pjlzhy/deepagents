@@ -26,7 +26,7 @@
 本次 review 覆盖以下边界：
 
 - `proto/runtime.proto` 中 `ClientMessage`、`AgentEvent` 以及相关 HITL / cancel / error / tool 事件定义
-- `libs/runtime/deepagents-runtime` 中的 stream parser、protobuf converters、gRPC server、manager / runtime agent 执行链
+- `libs/runtime/agents-runtime` 中的 stream parser、protobuf converters、gRPC server、manager / runtime agent 执行链
 - `libs/control` 中 gRPC mapper、run stream proxy、HTTP northbound 输出
 - `libs/control-web` 中 run studio 对 southbound 事件的消费
 
@@ -41,10 +41,10 @@
 逐层对照以下实现：
 
 - `proto/runtime.proto`
-- `deepagents_runtime/converters.py`
-- `deepagents_runtime/streams.py`
-- `deepagents_runtime/entry/server.py`
-- `deepagents_runtime/agent.py`
+- `agents_runtime/converters.py`
+- `agents_runtime/streams.py`
+- `agents_runtime/entry/server.py`
+- `agents_runtime/agent.py`
 - `control/pkg/runtimeclient/grpc_mapper.go`
 - `control/pkg/streamproxy/default_proxy.go`
 - `control/pkg/api/http_handler.go`
@@ -54,8 +54,8 @@
 
 已运行并通过以下测试：
 
-- `uv run --project libs/runtime/deepagents-runtime pytest tests/unit_tests/test_event_protocol.py`
-- `uv run --project libs/runtime/deepagents-runtime pytest tests/integration_tests/test_manager_process_integration.py -k structured_tool_payloads`
+- `uv run --project libs/runtime/agents-runtime pytest tests/unit_tests/test_event_protocol.py`
+- `uv run --project libs/runtime/agents-runtime pytest tests/integration_tests/test_manager_process_integration.py -k structured_tool_payloads`
 - `go test ./pkg/runtimeclient ./pkg/api`
 - `pnpm.cmd typecheck`
 - `pnpm.cmd exec vitest run --config vitest.config.ts src/features/run-studio/state.test.ts src/features/run-studio/run-studio-page.test.tsx`

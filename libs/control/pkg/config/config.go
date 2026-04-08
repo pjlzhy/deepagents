@@ -40,22 +40,22 @@ func Default() Config {
 // FromEnv 从环境变量读取配置，未设置时回退到默认值。
 func FromEnv(getenv func(string) string) Config {
 	cfg := Default()
-	cfg.ListenAddress = firstNonEmpty(getenv("DEEPAGENTS_CONTROL_LISTEN"), cfg.ListenAddress)
-	cfg.StoragePath = firstNonEmpty(getenv("DEEPAGENTS_CONTROL_STORAGE_PATH"), cfg.StoragePath)
+	cfg.ListenAddress = firstNonEmpty(getenv("CONTROL_LISTEN"), cfg.ListenAddress)
+	cfg.StoragePath = firstNonEmpty(getenv("CONTROL_STORAGE_PATH"), cfg.StoragePath)
 	cfg.DefaultRuntimeTarget = firstNonEmpty(
-		getenv("DEEPAGENTS_CONTROL_DEFAULT_RUNTIME_TARGET"),
+		getenv("CONTROL_DEFAULT_RUNTIME_TARGET"),
 		cfg.DefaultRuntimeTarget,
 	)
 	cfg.RuntimeEndpoint = firstNonEmpty(
-		getenv("DEEPAGENTS_CONTROL_RUNTIME_ENDPOINT"),
+		getenv("CONTROL_RUNTIME_ENDPOINT"),
 		cfg.RuntimeEndpoint,
 	)
 	cfg.NorthboundTransport = firstNonEmpty(
-		getenv("DEEPAGENTS_CONTROL_TRANSPORT"),
+		getenv("CONTROL_TRANSPORT"),
 		cfg.NorthboundTransport,
 	)
-	cfg.LogLevel = firstNonEmpty(getenv("DEEPAGENTS_CONTROL_LOG_LEVEL"), cfg.LogLevel)
-	cfg.SecretKey = getenv("DEEPAGENTS_CONTROL_SECRET_KEY")
+	cfg.LogLevel = firstNonEmpty(getenv("CONTROL_LOG_LEVEL"), cfg.LogLevel)
+	cfg.SecretKey = getenv("CONTROL_SECRET_KEY")
 	return cfg
 }
 

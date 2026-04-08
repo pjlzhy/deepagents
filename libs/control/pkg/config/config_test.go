@@ -11,12 +11,12 @@ func TestDefaultConfigIsValid(t *testing.T) {
 
 func TestFromEnvOverridesDefaults(t *testing.T) {
 	env := map[string]string{
-		"DEEPAGENTS_CONTROL_LISTEN":                 ":9090",
-		"DEEPAGENTS_CONTROL_STORAGE_PATH":           "control.sqlite",
-		"DEEPAGENTS_CONTROL_DEFAULT_RUNTIME_TARGET": "runtime-a",
-		"DEEPAGENTS_CONTROL_RUNTIME_ENDPOINT":       "127.0.0.1:60051",
-		"DEEPAGENTS_CONTROL_TRANSPORT":              "grpc",
-		"DEEPAGENTS_CONTROL_LOG_LEVEL":              "debug",
+		"CONTROL_LISTEN":                 ":9090",
+		"CONTROL_STORAGE_PATH":           "control.sqlite",
+		"CONTROL_DEFAULT_RUNTIME_TARGET": "runtime-a",
+		"CONTROL_RUNTIME_ENDPOINT":       "127.0.0.1:60051",
+		"CONTROL_TRANSPORT":              "grpc",
+		"CONTROL_LOG_LEVEL":              "debug",
 	}
 
 	cfg := FromEnv(func(key string) string {

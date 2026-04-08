@@ -16,7 +16,7 @@ const (
 	protoFileName          = "runtime.proto"
 	protocGenGoVersion     = "v1.36.11"
 	protocGenGoGRPCVersion = "v1.5.1"
-	runtimeProjectRelPath  = "libs/runtime/deepagents-runtime"
+	runtimeProjectRelPath  = "libs/runtime/agents-runtime"
 	controlModuleRelPath   = "libs/control"
 )
 
