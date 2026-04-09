@@ -572,21 +572,21 @@ func TestHTTPHandlerListsTelemetrySteps(t *testing.T) {
 	service := &fakeAgentService{
 		listTelemetryStepsResp: []domain.TelemetryStep{
 			{
-				StepID:       "step:node:task-1",
-				RunID:        "run-1",
-				ParentStepID: "step:run:run-1",
-				Kind:         domain.TelemetryStepKindNode,
-				Title:        "research",
-				Namespace:    []string{"task:research"},
-				Status:       domain.TelemetryStepStatusCompleted,
-				StartedAt:    time.Unix(1710000000, 0).UTC(),
-				FinishedAt:   time.Unix(1710000002, 0).UTC(),
-				Depth:        1,
-				Step:         2,
-				TaskID:       "task-1",
-				Reasoning:    []string{"thinking..."},
-				Messages:     []string{"done"},
-				EventCount:   2,
+				StepID:          "step:node:task-1",
+				RunID:           "run-1",
+				ParentStepID:    "step:run:run-1",
+				Kind:            domain.TelemetryStepKindNode,
+				Title:           "research",
+				Namespace:       []string{"task:research"},
+				Status:          domain.TelemetryStepStatusCompleted,
+				StartedAt:       time.Unix(1710000000, 0).UTC(),
+				FinishedAt:      time.Unix(1710000002, 0).UTC(),
+				Depth:           1,
+				Step:            2,
+				TaskID:          "task-1",
+				Reasoning:       []string{"thinking..."},
+				Messages:        []string{"done"},
+				RelatedEventIDs: []string{"run-1:1:2", "run-1:1:3"},
 			},
 		},
 	}
@@ -607,7 +607,7 @@ func TestHTTPHandlerListsTelemetrySteps(t *testing.T) {
 		!strings.Contains(body, `"kind":"node"`) ||
 		!strings.Contains(body, `"title":"research"`) ||
 		!strings.Contains(body, `"task_id":"task-1"`) ||
-		!strings.Contains(body, `"event_count":2`) {
+		!strings.Contains(body, `"related_event_ids":["run-1:1:2","run-1:1:3"]`) {
 		t.Fatalf("unexpected telemetry steps body: %s", body)
 	}
 	if service.listTelemetryStepsRunID != "run-1" {

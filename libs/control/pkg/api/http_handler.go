@@ -426,7 +426,7 @@ type telemetryStepResponse struct {
 	ToolCalls          []string          `json:"tool_calls,omitempty"`
 	Updates            []json.RawMessage `json:"updates,omitempty"`
 	Custom             []json.RawMessage `json:"custom,omitempty"`
-	EventCount         int32             `json:"event_count,omitempty"`
+	RelatedEventIDs    []string          `json:"related_event_ids,omitempty"`
 	Order              int32             `json:"order,omitempty"`
 	Synthetic          bool              `json:"synthetic,omitempty"`
 }
@@ -1562,7 +1562,7 @@ func newHTTPTelemetryStepResponse(step domain.TelemetryStep) telemetryStepRespon
 		ToolCalls:          step.ToolCalls,
 		Updates:            step.Updates,
 		Custom:             step.Custom,
-		EventCount:         step.EventCount,
+		RelatedEventIDs:    step.RelatedEventIDs,
 		Order:              step.Order,
 		Synthetic:          step.Synthetic,
 	}

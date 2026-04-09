@@ -527,43 +527,10 @@ def _parse_updates_part(
     ns: tuple[str, ...],
     state: TelemetryParserState,
 ) -> TelemetryParseResult:
-    """Parse one `updates` stream part into telemetry events and interrupts."""
+    """Parse one `updates` stream part and retain only interrupt semantics."""
 
     result = TelemetryParseResult()
     timestamp = time.time()
-    update_metadata = data.get("__metadata__")
-    if isinstance(update_metadata, dict):
-        result.events.append(
-            TelemetryEvent(
-                stream_mode="updates",
-                event_type="update_metadata",
-                payload=_normalize_json_like(update_metadata),
-                ns=ns,
-                metadata={},
-                timestamp=timestamp,
-                run_id=state.run_id,
-                agent_name=state.agent_name,
-            )
-        )
-
-    state_update = {
-        key: value
-        for key, value in data.items()
-        if key not in {"__interrupt__", "__metadata__"}
-    }
-    if state_update:
-        result.events.append(
-            TelemetryEvent(
-                stream_mode="updates",
-                event_type="state_update",
-                payload=_normalize_json_like(state_update),
-                ns=ns,
-                metadata={},
-                timestamp=timestamp,
-                run_id=state.run_id,
-                agent_name=state.agent_name,
-            )
-        )
 
     if "__interrupt__" not in data:
         return result

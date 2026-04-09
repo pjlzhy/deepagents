@@ -40,17 +40,16 @@ func BuildSteps(events []domain.TelemetryEventRecord) []domain.TelemetryStep {
 	})
 
 	var (
-		steps                  []*domain.TelemetryStep
-		stepByID               = map[string]*domain.TelemetryStep{}
-		activeNodeByTaskID     = map[string]*domain.TelemetryStep{}
-		latestNodeByNamespace  = map[string]*domain.TelemetryStep{}
-		latestModelByNamespace = map[string]*domain.TelemetryStep{}
-		modelStepByID          = map[string]*domain.TelemetryStep{}
-		toolStepByID           = map[string]*domain.TelemetryStep{}
-		hitlStepByID           = map[string]*domain.TelemetryStep{}
-		runStep                *domain.TelemetryStep
-		reasoningIndexByStep   = map[string]map[string]int{}
-		messageIndexByStep     = map[string]map[string]int{}
+		steps                 []*domain.TelemetryStep
+		stepByID              = map[string]*domain.TelemetryStep{}
+		activeNodeByTaskID    = map[string]*domain.TelemetryStep{}
+		latestNodeByNamespace = map[string]*domain.TelemetryStep{}
+		modelStepByID         = map[string]*domain.TelemetryStep{}
+		toolStepByID          = map[string]*domain.TelemetryStep{}
+		hitlStepByID          = map[string]*domain.TelemetryStep{}
+		runStep               *domain.TelemetryStep
+		reasoningIndexByStep  = map[string]map[string]int{}
+		messageIndexByStep    = map[string]map[string]int{}
 	)
 
 	appendStep := func(step domain.TelemetryStep) *domain.TelemetryStep {
@@ -290,7 +289,6 @@ func BuildSteps(events []domain.TelemetryEventRecord) []domain.TelemetryStep {
 			step.Title = firstNonEmpty(modelTitle, step.Title, "model")
 			appendRelatedEvent(step, event.EventID)
 			step.MessageID = firstNonEmpty(step.MessageID, event.MessageID)
-			latestModelByNamespace[namespaceLabel(event.Namespace)] = step
 			appendReasoning(step, payload, reasoningIndexByStep)
 			appendModelToolCall(step, event, payload)
 			if text := firstNonEmpty(stringValue(payload["text"]), stringValue(payload["content"])); text != "" &&
@@ -312,14 +310,6 @@ func BuildSteps(events []domain.TelemetryEventRecord) []domain.TelemetryStep {
 				appendStep,
 			)
 			appendRelatedEvent(step, event.EventID)
-			if event.EventType == "state_update" {
-				step.Updates = append(step.Updates, normalizeRaw(event.Payload))
-				backfillModelStepFromStateUpdate(
-					payload,
-					event.Namespace,
-					latestModelByNamespace,
-				)
-			}
 			if event.EventType == "custom" {
 				step.Custom = append(step.Custom, normalizeRaw(event.Payload))
 			}
@@ -412,7 +402,7 @@ func appendRelatedEvent(step *domain.TelemetryStep, eventID string) {
 	if step == nil || eventID == "" {
 		return
 	}
-	step.EventCount += 1
+	step.RelatedEventIDs = append(step.RelatedEventIDs, eventID)
 }
 
 func appendReasoning(
@@ -535,122 +525,6 @@ func telemetryModelTitle(metadata map[string]any) string {
 	default:
 		return "model"
 	}
-}
-
-func backfillModelStepFromStateUpdate(
-	payload map[string]any,
-	namespace []string,
-	latestModelByNamespace map[string]*domain.TelemetryStep,
-) {
-	if len(payload) == 0 {
-		return
-	}
-	step := latestModelByNamespace[namespaceLabel(namespace)]
-	if step == nil {
-		return
-	}
-
-	container := stateUpdateMessageContainer(payload)
-	if len(container) == 0 {
-		return
-	}
-
-	messagesValue, ok := container["messages"].([]any)
-	if !ok || len(messagesValue) == 0 {
-		return
-	}
-
-	reasoning, reasoningEncrypted, text, toolCalls := extractModelMessageSummary(messagesValue)
-	if len(reasoning) > 0 {
-		step.Reasoning = reasoning
-		step.ReasoningEncrypted = false
-	} else if reasoningEncrypted {
-		step.ReasoningEncrypted = true
-	}
-	if text != "" {
-		step.Messages = []string{text}
-		step.Output = rawJSONValue(text)
-	}
-	if len(toolCalls) > 0 {
-		step.ToolCalls = toolCalls
-	}
-}
-
-func stateUpdateMessageContainer(payload map[string]any) map[string]any {
-	if len(payload) == 0 {
-		return nil
-	}
-	for _, value := range payload {
-		record, ok := value.(map[string]any)
-		if !ok {
-			continue
-		}
-		if _, hasMessages := record["messages"]; hasMessages {
-			return record
-		}
-	}
-	return nil
-}
-
-func extractModelMessageSummary(messages []any) ([]string, bool, string, []string) {
-	var (
-		reasoning          []string
-		reasoningEncrypted bool
-		textParts          []string
-		toolCalls          []string
-	)
-
-	for _, rawMessage := range messages {
-		record, ok := rawMessage.(map[string]any)
-		if !ok {
-			continue
-		}
-		content, ok := record["content"].([]any)
-		if !ok {
-			continue
-		}
-
-		reasoning = reasoning[:0]
-		reasoningEncrypted = false
-		textParts = textParts[:0]
-		toolCalls = toolCalls[:0]
-
-		for _, rawPart := range content {
-			part, ok := rawPart.(map[string]any)
-			if !ok {
-				continue
-			}
-			switch stringValue(part["type"]) {
-			case "reasoning":
-				if summaries, ok := part["summary"].([]any); ok {
-					for _, rawSummary := range summaries {
-						summary, ok := rawSummary.(map[string]any)
-						if !ok {
-							continue
-						}
-						text := stringValue(summary["text"])
-						if text == "" {
-							continue
-						}
-						reasoning = append(reasoning, text)
-					}
-				}
-				if len(reasoning) == 0 && stringValue(part["encrypted_content"]) != "" {
-					reasoningEncrypted = true
-				}
-			case "text", "output_text":
-				if text := stringValue(part["text"]); text != "" {
-					textParts = append(textParts, text)
-				}
-			case "function_call", "tool_call":
-				if name := firstNonEmpty(stringValue(part["name"]), stringValue(part["tool_name"])); name != "" {
-					appendUniqueString(&toolCalls, name)
-				}
-			}
-		}
-	}
-
-	return reasoning, reasoningEncrypted, strings.TrimSpace(strings.Join(textParts, "")), toolCalls
 }
 
 func messageOrReasoningIndex(indexByStep map[string]map[string]int, stepID string) map[string]int {

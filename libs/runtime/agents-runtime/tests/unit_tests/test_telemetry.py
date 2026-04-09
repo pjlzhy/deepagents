@@ -86,8 +86,8 @@ def test_parse_telemetry_stream_part_uses_one_model_call_id_per_ai_message() -> 
     assert parsed.events[1].payload["model_call_id"] == "resp_model_1"
 
 
-def test_parse_telemetry_stream_part_emits_state_update_and_interrupt() -> None:
-    """Updates parts should preserve state updates and interrupts together."""
+def test_parse_telemetry_stream_part_emits_interrupt_only_for_updates() -> None:
+    """Updates parts should only surface interrupts in telemetry mode."""
 
     state = TelemetryParserState(run_id="run-updates", agent_name="demo-agent")
     interrupt = SimpleNamespace(
@@ -111,13 +111,8 @@ def test_parse_telemetry_stream_part_emits_state_update_and_interrupt() -> None:
 
     assert "interrupt-1" in parsed.interrupts
     assert parsed.interrupts["interrupt-1"]["action_requests"][0]["name"] == "execute"
-    assert [event.event_type for event in parsed.events] == [
-        "update_metadata",
-        "state_update",
-        "interrupt",
-    ]
-    assert parsed.events[1].payload["planner"]["todos"][0]["content"] == "inspect repo"
-    assert parsed.events[2].ns == ("task:worker",)
+    assert [event.event_type for event in parsed.events] == ["interrupt"]
+    assert parsed.events[0].ns == ("task:worker",)
 
 
 def test_parse_telemetry_stream_part_emits_tool_result_projection() -> None:

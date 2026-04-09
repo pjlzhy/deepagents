@@ -440,7 +440,7 @@ export type HTTPTelemetryStepDTO = {
   tool_calls?: string[];
   updates?: unknown[];
   custom?: unknown[];
-  event_count?: number;
+  related_event_ids?: string[];
   order?: number;
   synthetic?: boolean;
 };

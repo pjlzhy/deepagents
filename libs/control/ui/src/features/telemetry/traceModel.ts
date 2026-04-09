@@ -51,6 +51,7 @@ export type TraceSpanVM = {
   updates: unknown[];
   custom: unknown[];
   events: TelemetryEventVM[];
+  relatedEventIDs: string[];
   eventCount: number;
   order: number;
   synthetic: boolean;
@@ -180,6 +181,7 @@ function makeSyntheticSpan(event: TelemetryEventVM, nodeName: string, order: num
     updates: [],
     custom: [],
     events: [],
+    relatedEventIDs: [],
     eventCount: 0,
     order,
     synthetic: true,
@@ -262,6 +264,7 @@ export function buildTraceSpans(events: TelemetryEventVM[]): TraceSpanVM[] {
         updates: [],
         custom: [],
         events: [],
+        relatedEventIDs: [],
         eventCount: 0,
         order: spans.length,
         synthetic: false,
@@ -289,6 +292,7 @@ export function buildTraceSpans(events: TelemetryEventVM[]): TraceSpanVM[] {
     if (!span) continue;
 
     span.events.push(event);
+    span.relatedEventIDs.push(event.id);
     span.eventCount += 1;
     span.step = span.step ?? traceStep(event);
 
@@ -358,9 +362,14 @@ export function buildTraceSpansFromSteps(
   steps: HTTPTelemetryStepDTO[],
   events: TelemetryEventVM[],
 ): TraceSpanVM[] {
+  const eventByID = new Map(events.map((event) => [event.id, event]));
+
   return [...steps]
     .map((step, index) => {
-      const relatedEvents = events.filter((event) => matchesStepEvent(step, event));
+      const relatedEventIDs = step.related_event_ids ?? [];
+      const relatedEvents = relatedEventIDs
+        .map((eventID) => eventByID.get(eventID))
+        .filter((event): event is TelemetryEventVM => Boolean(event));
       const start = parseDate(step.started_at);
       const end = parseDate(step.finished_at);
 
@@ -387,7 +396,8 @@ export function buildTraceSpansFromSteps(
         updates: step.updates ?? [],
         custom: step.custom ?? [],
         events: relatedEvents,
-        eventCount: step.event_count ?? relatedEvents.length,
+        relatedEventIDs,
+        eventCount: relatedEventIDs.length || relatedEvents.length,
         order: step.order ?? index,
         synthetic: step.synthetic ?? false,
       } satisfies TraceSpanVM;
@@ -402,42 +412,4 @@ export function buildTraceSpansFromSteps(
 
 function isModelToolCallEvent(event: TelemetryEventVM): boolean {
   return ['tool_call', 'tool_call_chunk', 'tool_call_start', 'function_call', 'function_call_chunk'].includes(event.eventType);
-}
-
-function matchesStepEvent(step: HTTPTelemetryStepDTO, event: TelemetryEventVM): boolean {
-  if (step.run_id && event.runId && step.run_id !== event.runId) return false;
-
-  switch (step.kind) {
-    case 'run':
-      return event.streamMode === 'lifecycle';
-    case 'model':
-      return Boolean(step.model_call_id) && event.modelCallId === step.model_call_id;
-    case 'tool':
-      return Boolean(step.tool_call_id) && event.toolCallId === step.tool_call_id;
-    case 'hitl':
-      return Boolean(step.interrupt_id) && event.interruptId === step.interrupt_id;
-    case 'node':
-      if (step.task_id && event.taskId === step.task_id) return true;
-      if (event.streamMode === 'messages' || event.streamMode === 'lifecycle') return false;
-      if (event.eventType === 'interrupt' || event.eventType === 'hitl_request') return false;
-      if (!sameNamespace(step.namespace ?? [], event.namespace)) return false;
-      return eventWithinStep(step, event);
-    default:
-      return false;
-  }
-}
-
-function sameNamespace(left: string[], right: string[]): boolean {
-  if (left.length !== right.length) return false;
-  return left.every((value, index) => value === right[index]);
-}
-
-function eventWithinStep(step: HTTPTelemetryStepDTO, event: TelemetryEventVM): boolean {
-  const eventTime = parseDate(event.timestamp);
-  if (eventTime === undefined) return false;
-  const start = parseDate(step.started_at);
-  const end = parseDate(step.finished_at);
-  if (start !== undefined && eventTime < start) return false;
-  if (end !== undefined && eventTime > end) return false;
-  return true;
 }

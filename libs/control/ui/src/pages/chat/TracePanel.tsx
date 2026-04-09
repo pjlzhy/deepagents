@@ -215,15 +215,6 @@ export default function TracePanel(props: TracePanelProps) {
                       {stringifyValue(selectedTrace.output ?? selectedTrace.messages.at(-1)) ?? 'n/a'}
                     </pre>
                   </div>
-                  <div>
-                    <span className='mb-8px block text-11px uppercase tracking-widest text-[var(--control-subtle)]'>state updates</span>
-                    <pre
-                      className='!m-0 overflow-auto whitespace-pre-wrap break-words rd-10px p-10px text-12px'
-                      style={{ background: 'rgba(255,159,26,0.03)', border: '1px solid rgba(255,159,26,0.12)' }}
-                    >
-                      {selectedTrace.updates.length > 0 ? stringifyValue(selectedTrace.updates) : 'n/a'}
-                    </pre>
-                  </div>
                 </div>
               ) : traceDetailTab === 'reasoning' ? (
                 <div>

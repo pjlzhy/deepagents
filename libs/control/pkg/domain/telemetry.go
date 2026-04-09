@@ -131,7 +131,7 @@ type TelemetryStep struct {
 	ToolCalls          []string
 	Updates            []json.RawMessage
 	Custom             []json.RawMessage
-	EventCount         int32
+	RelatedEventIDs    []string
 	Order              int32
 	Synthetic          bool
 }

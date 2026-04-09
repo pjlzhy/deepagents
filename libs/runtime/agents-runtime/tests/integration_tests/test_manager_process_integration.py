@@ -955,7 +955,6 @@ def test_grpc_run_telemetry_preserves_debug_custom_reasoning_and_namespace() -> 
         assert "run_started" in event_types
         assert "text" in event_types
         assert "reasoning" in event_types
-        assert "state_update" in event_types
         assert "task" in event_types
         assert "custom" in event_types
         assert "text_done" in event_types
