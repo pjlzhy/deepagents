@@ -1,4 +1,4 @@
-import { DataAll, HamburgerButton, RobotOne, Server } from '@icon-park/react';
+import { DataAll, HamburgerButton, RobotOne } from '@icon-park/react';
 import { Button, Layout, Menu, Tag, Typography } from '@arco-design/web-react';
 import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -13,7 +13,6 @@ function resolveSelectedKey(pathname: string): string {
   if (pathname.startsWith('/registry/agents/build')) return links.agents();
   if (pathname.startsWith('/registry/agents')) return links.agents();
   if (pathname.startsWith('/chat')) return links.chatRoot();
-  if (pathname.startsWith('/telemetry')) return links.telemetryRoot();
   return links.overview();
 }
 
@@ -78,9 +77,6 @@ export default function AppShell() {
           </Menu.SubMenu>
           <Menu.Item key={links.chatRoot()}>
             <NavIcon icon={<RobotOne theme='outline' size='16' fill='currentColor' />} label='Chat' />
-          </Menu.Item>
-          <Menu.Item key={links.telemetryRoot()}>
-            <NavIcon icon={<Server theme='outline' size='16' fill='currentColor' />} label='Telemetry' />
           </Menu.Item>
         </Menu>
 

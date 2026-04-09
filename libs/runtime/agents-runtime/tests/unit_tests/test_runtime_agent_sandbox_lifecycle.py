@@ -555,6 +555,37 @@ def test_local_runtime_filesystem_reads_thread_memory_snapshot() -> None:
         shutil.rmtree(base_dir, ignore_errors=True)
 
 
+def test_local_runtime_skills_listing_stays_relative() -> None:
+    """Thread backend should remap shared skill paths back to relative runtime paths."""
+
+    base_dir = _make_base_dir()
+    agent = _build_agent(base_dir)
+    filesystem_view = agent._build_filesystem_view(spec=None)
+    shell_backend = agent._build_local_backend(filesystem_view=filesystem_view)
+    skills_dir = agent.registry.shared_skills_dir(agent.spec.name) / "pcap-analyzer"
+    skills_dir.mkdir(parents=True, exist_ok=True)
+    (skills_dir / "SKILL.md").write_text(
+        "---\nname: pcap-analyzer\ndescription: analyze pcaps\n---\n",
+        encoding="utf-8",
+    )
+    thread_backend = ThreadRuntimeBackend.for_local(
+        shell_backend=shell_backend,
+        thread_root_dir=agent.registry.materialize_thread_root(agent.spec.name, "thread-1"),
+    )
+
+    try:
+        paths = [item["path"] for item in thread_backend.ls_info(".runtime/skills")]
+        assert ".runtime/skills/pcap-analyzer/" in paths
+
+        download = thread_backend.download_files([".runtime/skills/pcap-analyzer/SKILL.md"])
+        assert len(download) == 1
+        assert download[0].error is None
+        assert download[0].content is not None
+        assert b"pcap-analyzer" in download[0].content
+    finally:
+        shutil.rmtree(base_dir, ignore_errors=True)
+
+
 def test_local_runtime_shell_pwd_starts_in_thread_root() -> None:
     """Thread backend execution should start in the current thread root."""
 
@@ -569,7 +600,7 @@ def test_local_runtime_shell_pwd_starts_in_thread_root() -> None:
     )
 
     try:
-        result = backend.execute("pwd")
+        result = backend.execute("cd")
 
         assert result.exit_code == 0
         assert result.output.strip() == str(thread_root)
