@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import useSWR from 'swr';
 import { controlClient } from '@/shared/api/controlClient';
 import type { TelemetryEventVM } from '@/features/telemetry/traceModel';
@@ -31,6 +31,16 @@ export default function RunsView(props: RunsViewProps) {
 
   const runs = runsQuery.data?.runs ?? [];
   const effectiveRunId = detailRunId ?? props.selectedRunId;
+
+  // Auto-select first run when data loads and nothing is selected
+  useEffect(() => {
+    if (effectiveRunId) return;
+    const firstId = props.liveRunId ?? runs[0]?.run_id;
+    if (firstId) {
+      setDetailRunId(firstId);
+      props.onSelectRun(firstId);
+    }
+  }, [runs, props.liveRunId, effectiveRunId]);
 
   function handleSelectRun(runId: string) {
     setDetailRunId(runId);

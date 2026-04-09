@@ -174,9 +174,15 @@ export function traceNamespaceLabel(span: TraceSpanVM): string {
 
 export function traceSummary(span: TraceSpanVM): string {
   if (span.error) return truncate(span.error);
-  if (span.messages.length > 0) return truncate(span.messages.at(-1));
+  // Filter out meaningless single-char messages like "?"
+  const lastMessage = span.messages.at(-1);
+  if (lastMessage && lastMessage.trim().length > 1) return truncate(lastMessage);
+  // Prefer full joined reasoning over single fragment
+  if (span.reasoning.length > 0) {
+    const fullReasoning = span.reasoning.join('').trim();
+    if (fullReasoning.length > 1) return truncate(fullReasoning);
+  }
   if (typeof span.output === 'string' && span.output.trim()) return truncate(span.output);
-  if (span.reasoning.length > 0) return truncate(span.reasoning.at(-1));
   if (typeof span.input === 'string' && span.input.trim()) return truncate(span.input);
   return truncate(`${span.nodeName} ${span.synthetic ? 'observed' : 'executed'}`);
 }
@@ -188,7 +194,7 @@ export function traceDurationLabel(span: TraceSpanVM): string {
 }
 
 export function traceReasoningMarkdown(span: TraceSpanVM): string | undefined {
-  const text = span.reasoning.join('\n\n').trim();
+  const text = span.reasoning.join(' ').trim();
   return text || undefined;
 }
 

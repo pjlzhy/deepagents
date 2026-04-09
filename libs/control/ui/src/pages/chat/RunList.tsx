@@ -91,7 +91,7 @@ export default function RunList(props: RunListProps) {
                 <button
                   key={runId}
                   type='button'
-                  className='cursor-pointer border-none rd-12px px-12px py-10px text-left transition-all duration-200'
+                  className='group cursor-pointer border-none rd-12px px-12px py-10px text-left transition-all duration-200'
                   style={{
                     background: active ? `${statusView.color}14` : 'rgba(16,22,48,0.76)',
                     border: `1px solid ${active ? `${statusView.color}55` : 'rgba(0,240,255,0.08)'}`,
@@ -122,9 +122,9 @@ export default function RunList(props: RunListProps) {
                     {run.model_step_count ? <Tag size='small' color='arcoblue'>model {run.model_step_count}</Tag> : null}
                     {run.tool_step_count ? <Tag size='small' color='orange'>tools {run.tool_step_count}</Tag> : null}
                   </div>
-                  {/* Snapshot button - placeholder for future fork/replay */}
+                  {/* Snapshot button - visible on hover or when selected */}
                   {props.onViewSnapshot ? (
-                    <div className='mt-8px flex justify-end'>
+                    <div className={`mt-8px flex justify-end transition-opacity duration-200 ${active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
                       <Button
                         size='mini'
                         type='text'

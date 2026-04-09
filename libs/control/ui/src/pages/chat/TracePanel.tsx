@@ -124,12 +124,16 @@ export default function TracePanel(props: TracePanelProps) {
                       }}
                       onClick={() => setSelectedTraceId(span.id)}
                     >
+                      {/* Row 1: status dot + node name (truncated) */}
                       <div className='flex items-center gap-8px'>
                         <span
                           className='inline-block h-8px w-8px shrink-0 rd-full'
                           style={{ background: accent, boxShadow: `0 0 8px ${accent}` }}
                         />
-                        <span className='text-12px font-semibold text-[var(--control-text)]'>{span.nodeName}</span>
+                        <span className='truncate text-12px font-semibold text-[var(--control-text)]'>{span.nodeName}</span>
+                      </div>
+                      {/* Row 2: kind + status + step tags + duration */}
+                      <div className='mt-6px flex flex-wrap items-center gap-6px'>
                         <Tag size='small' color='purple'>{span.kind}</Tag>
                         <Tag size='small' color='arcoblue'>{traceStatusLabel(span.status)}</Tag>
                         {span.step !== undefined ? <Tag size='small' color='purple'>step {span.step}</Tag> : null}
@@ -137,9 +141,12 @@ export default function TracePanel(props: TracePanelProps) {
                           {traceDurationLabel(span)}
                         </span>
                       </div>
-                      <div className='mt-6px text-11px uppercase tracking-wider text-[var(--control-subtle)]'>
-                        {traceNamespaceLabel(span)}
-                      </div>
+                      {/* Row 3: namespace (hidden if "root") */}
+                      {traceNamespaceLabel(span) !== 'root' ? (
+                        <div className='mt-6px text-11px uppercase tracking-wider text-[var(--control-subtle)]'>
+                          {traceNamespaceLabel(span)}
+                        </div>
+                      ) : null}
                       <div className='mt-6px text-12px leading-18px text-[var(--control-subtle)]'>
                         {traceSummary(span)}
                       </div>

@@ -122,8 +122,13 @@ export default function ChatWorkspacePage() {
                 {state.statusView.text}
               </span>
               {state.selectedThreadId ? (
-                <Typography.Text className='text-12px text-[var(--control-subtle)]'>
-                  {state.selectedThreadId}
+                <Typography.Text
+                  className='text-12px text-[var(--control-subtle)]'
+                  title={state.selectedThreadId}
+                >
+                  {state.selectedThreadId.length > 8
+                    ? `${state.selectedThreadId.slice(0, 8)}...`
+                    : state.selectedThreadId}
                 </Typography.Text>
               ) : null}
             </div>
