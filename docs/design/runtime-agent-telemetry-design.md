@@ -1,526 +1,644 @@
-# Runtime Agent Telemetry 接口设计
+# Runtime Agent Telemetry 设计
 
-> 状态：Active
-> 最后更新：2026-04-04
-> 范围：runtime telemetry 已完成 Phase 0-3 主链；本文同步记录当前实现与下一阶段缺口
-> 落地状态：协议、runtime server、control southbound client、northbound telemetry SSE、graph 查询、Telemetry UI 已实现；trace store / replay / 指标聚合 / 稳定 span 模型 尚未实现
+> 状态：Proposed
+> 最后更新：2026-04-07
+> 设计目标：围绕 Telemetry UI 的产品能力重构 telemetry 模型，统一 live 与 history，并为后续 exporter / OTel 集成保留稳定入口
 
 ## 1. 背景
 
-当前 runtime 已经具备稳定的执行主链：
+当前仓库已经具备一条最小可用的 live telemetry 主链：
 
-- `SyncAgentSpec -> Assemble -> Run -> SessionQuery`
-- gRPC `AgentExecutor.Run`
-- control northbound HTTP / SSE `runs/stream`
-- UI 聊天页实时消费 `run_started / text_delta / tool_call_* / run_ended`
+- runtime 通过 `AgentTelemetry.RunTelemetry` 向 control 暴露结构化 telemetry 事件流
+- runtime telemetry parser 已经保留 `messages`、`updates`、`debug`、`custom` 和 lifecycle 事件
+- control 已提供 `POST /api/v1/agents/{agent}/telemetry/stream`
+- UI 已提供 `Trace / Graph / Debug` 页面，并能够消费 live stream
 
-但针对 agent 级监控，这条主链存在一个明确问题：
+当前实现的优势是：
 
-- 它是面向交互消费的运行流，不是面向监控和审计的完整遥测流
+- live 调试链路已经可用
+- runtime 事件粒度已经明显优于 public `Run` 交互流
+- Telemetry UI 已经验证了产品方向
 
-前面排查已经确认，当前链路会主动丢弃大量 LangGraph / Deep Agents 原生流信息：
+当前实现的核心问题也很明确：
 
-- runtime 只订阅 `messages` 和 `updates`
-- 不订阅 `debug` 和 `custom`
-- 只处理 root namespace，非空 `ns` 的 subgraph / subagent 事件直接丢弃
-- `updates` 只保留 `__interrupt__`
-- `messages` 只保留 `text` 和 `tool_call*`
-- `reasoning` block 不进入现有 public event 协议
+- history 没有稳定权威模型
+- Trace 视图主要由前端启发式从 raw events 推导，语义不稳定
+- Graph 视图查询的是 agent 当前 graph，而不是 run 启动时的 graph 快照
+- runtime event 还缺少稳定的 `event_id / seq / attempt / correlation ids`
+- 模型调用、工具调用、HITL 等待虽然能“看出来”，但还不是稳定的产品语义对象
+- OTel / LangSmith 可以作为外挂 tracing 能力，但不能直接替代本地 telemetry read model
 
-这意味着现有 `Run` 流可以继续服务 UI 和 HITL，但不适合作为完整监控的基础协议。
+因此，这一轮 telemetry 设计不再以“先做 span 树”为目标，而是先把 Telemetry UI 真正需要的产品模型定稳。
 
-同时，本轮约束非常明确：
+## 2. 产品范围
 
-- 不能破坏当前功能
-- 现有 `Run` 协议和 northbound HTTP / SSE 行为要保持稳定
-- runtime 可以单独实现新的 proto 端点承载 telemetry
+本轮 telemetry 的目标只服务以下能力：
 
-## 2. 设计目标
+- run 列表
+- run 详情
+- 节点执行树
+- 模型调用 / 工具调用 / HITL 等待
+- 输入输出 / 错误 / reasoning summary
+- graph 与 trace 联动
 
-本设计希望解决以下问题：
+同时必须满足：
 
-- 为 data plane 增加一条面向监控的独立 gRPC telemetry 流
-- 保留 LangGraph v2 stream 的关键信息，不再沿用当前 lossy 解析链
-- 支持 `messages`、`updates`、`debug`、`custom` 四类原生流
-- 保留 `ns` 以支持 subgraph / subagent 级观测
-- 为后续控制面、审计存储、指标聚合提供稳定 southbound 契约
-- 在不改动现有 `AgentExecutor.Run` 的前提下，引入增量能力
+- 支持 live stream
+- 支持 history 查询
+- live 与 history 使用同一套 canonical telemetry 模型
+- OTel 先只保留 trace context 注入入口，不把 OTel span 作为产品查询面
 
-### 2.1 当前实现快照（2026-04-04）
+## 3. 设计原则
 
-当前代码已经落地以下能力：
+### 3.1 Event First
 
-- `proto/runtime.proto`
-  - 已新增 `AgentTelemetry.RunTelemetry`
-  - 已新增 `TelemetryEvent`
-- `libs/runtime/deepagents-runtime/deepagents_runtime/telemetry.py`
-  - 已实现独立 telemetry parser
-  - 已保留 `messages`、`updates`、`debug`、`custom`
-- `libs/runtime/deepagents-runtime/deepagents_runtime/agent.py`
-  - 已实现 `RuntimeAgent.atelemetry()`
-  - 已以 `subgraphs=True` 订阅 telemetry 原始流
-- `libs/runtime/deepagents-runtime/deepagents_runtime/manager/manager.py`
-  - 已实现 `invoke_telemetry()`
-- `libs/runtime/deepagents-runtime/deepagents_runtime/entry/server.py`
-  - 已实现 `AgentTelemetryServicer`
-- `libs/control/pkg/runtimeclient/`
-  - 已实现 telemetry gRPC client 与 protobuf 映射
-- `libs/control/pkg/api/http_handler.go`
-  - 已暴露 northbound telemetry SSE：`POST /api/v1/agents/{agent}/telemetry/stream`
-  - 已暴露 graph 查询：`GET /api/v1/agents/{agent}/graph`
-- `libs/control/ui/src/pages/telemetry/index.tsx`
-  - 已实现 `Trace / Graph / Debug` 三视图
-  - 已支持筛选、分组、HITL 处理、graph 交互查看
+telemetry 的 source of truth 是事件账本，而不是 span 树。
 
-因此，本文后半段的“分阶段落地”和“追踪矩阵”不再表示“尚未开始的总设计”，而是用来区分：
+原因：
 
-- 已经交付的 telemetry 主链
-- 仍然缺失的监控 / 审计 / 回放能力
+- runtime 当前真正稳定产出的就是事件
+- span 树如果先行定义，容易把当前并不稳定的执行边界固化成错误抽象
+- 产品 UI 需要的是“可解释的执行过程”，而不是“任意层级的通用 span”
 
-## 3. 初始非目标（Phase 0 约束）
+因此：
 
-本设计明确不处理以下事项：
+- `TelemetryEvent` 是 canonical fact
+- `TelemetryStep` 是 control 侧派生出来的 read model
+- 不在 phase 1 引入通用 `span_id / parent_span_id`
 
-- 不替换现有 `AgentExecutor.Run`
-- 不修改现有 HTTP / SSE `runs/stream` contract
-- 不在本阶段重做 UI
-- 不在本阶段引入完整的 trace store 或 checkpoint replay store
-- 不承诺暴露模型供应商未公开的内部状态
-- 不将 telemetry 端点包装成“完整审计系统”
+### 3.2 Control Owns History
 
-这些约束在当前实现里仍然成立，尤其是：
+runtime 负责发出执行事实，不负责 telemetry history query。
 
-- 当前 telemetry 仍然是“实时遥测流 + 调试 UI”
-- 还不是“完整审计和回放系统”
-- 还没有持久化 trace store
+control 负责：
 
-## 4. 当前现实约束
+- run history
+- event history
+- step projection
+- graph snapshot
+- northbound live / history query
 
-### 4.1 现有 public 运行流已经是收敛后的兼容协议
+inbound transport 可以是：
 
-当前 public runtime event 枚举只覆盖：
+- 当前 southbound live stream 直连持久化
+- 后续 `runtime -> MQ -> control ingest`
+
+不论底层 transport 如何变化，control 都是 northbound telemetry read boundary。
+
+### 3.3 Graph Is Run-Bound
+
+Telemetry Graph 不能继续只查 agent 当前 graph。
+
+必须改成：
+
+- run 启动时固化一份 `TelemetryGraphSnapshot`
+- run detail、trace 联动、graph 联动都只查这份 run-bound graph
+
+否则：
+
+- 历史 run 会随着 agent 版本变化而漂移
+- graph 与 trace 的节点关联无法稳定复现
+
+### 3.4 Product Trace Uses Step Projection
+
+Trace 视图展示的不是 raw events，也不是 generic span tree，而是 `TelemetryStep`。
+
+`TelemetryStep` 是 control 从事件账本增量投影出来的产品语义对象，直接服务：
+
+- 中栏执行树
+- 右栏 step 详情
+- graph 节点状态联动
+- run summary 聚合
+
+### 3.5 OTel Is Infra Trace, Not Product Trace
+
+OTel 在本设计中的角色只有：
+
+- 接收 / 透传 `traceparent`、`tracestate`
+- 跨 gateway、runtime、worker、MQ 的基础设施 tracing
+- 后续 exporter 的 trace context 入口
+
+OTel 不承担：
+
+- Telemetry UI 查询
+- 产品级节点执行树
+- run history source of truth
+
+## 4. Canonical 模型
+
+### 4.1 `TelemetryRun`
+
+`TelemetryRun` 表示一次可查询的 agent 执行。
+
+最少包含：
+
+- `run_id`
+- `thread_id`
+- `agent_name`
+- `runtime_target`
+- `status`
+- `started_at`
+- `finished_at`
+- `created_by`
+- `request_metadata`
+- `graph_snapshot_id`
+- `trace_context`
+
+说明：
+
+- `trace_context` 只用于保留 gateway 注入的 `traceparent / tracestate`
+- `TelemetryRun` 是 run 列表和 run 详情头部的主对象
+- `TelemetryRun` 的统计字段来自 event / step projector 增量更新
+
+建议聚合字段：
+
+- `node_step_count`
+- `model_step_count`
+- `tool_step_count`
+- `hitl_wait_count`
+- `error_count`
+- `last_event_at`
+- `reasoning_summary`
+
+### 4.2 `TelemetryEvent`
+
+`TelemetryEvent` 是 append-only 的 canonical execution fact。
+
+phase 1 目标字段：
+
+- `event_id`
+- `run_id`
+- `attempt`
+- `seq`
+- `source`
+- `emitted_at`
+- `namespace`
+- `stream_mode`
+- `event_type`
+- `node_name`
+- `task_id`
+- `model_call_id`
+- `tool_call_id`
+- `interrupt_id`
+- `message_id`
+- `payload`
+- `metadata`
+- `public_event`
+
+字段语义：
+
+- `event_id`：全局去重键
+- `attempt`：同一 `run_id` 下的重试序号
+- `seq`：单个 run attempt 内的严格递增顺序
+- `source`：`runtime`、`gateway` 或未来其他 ingest source
+- `task_id / model_call_id / tool_call_id / interrupt_id / message_id`：语义相关的稳定关联键
+
+本设计明确要求：
+
+- phase 1 不引入 generic `span_id`
+- 优先引入语义相关的 correlation id
+
+原因：
+
+- 产品面真正稳定需要的是“哪个 node task / 哪次 model call / 哪个 tool call / 哪个 interrupt”
+- 在这些语义对象稳定之前，通用 span 只会把问题包装得更复杂
+
+### 4.3 `TelemetryStep`
+
+`TelemetryStep` 是 control 侧基于事件账本投影出的产品级执行树节点。
+
+`TelemetryStep.kind` 先收敛为：
+
+- `run`
+- `node`
+- `model`
+- `tool`
+- `hitl`
+
+`TelemetryStep` 最少包含：
+
+- `step_id`
+- `run_id`
+- `parent_step_id`
+- `kind`
+- `title`
+- `status`
+- `started_at`
+- `finished_at`
+- `graph_node_key`
+- `task_id`
+- `model_call_id`
+- `tool_call_id`
+- `interrupt_id`
+- `input_summary`
+- `output_summary`
+- `error_summary`
+- `reasoning_summary`
+- `related_event_ids`
+
+树结构规则：
+
+- 根节点永远是 `run`
+- `node` step 挂在 `run` 下，或挂在对应 subgraph 的上层 `node` 下
+- `model / tool / hitl` step 挂在最近的活动 `node` step 下
+- Graph 视图只与 `node` step 做主关联
+
+这一点非常重要：
+
+- UI 显示的是 `TelemetryStep tree`
+- `TelemetryStep` 不是 runtime 直接发出来的 transport object
+- 它是 control 的 read model
+
+### 4.4 `TelemetryGraphSnapshot`
+
+`TelemetryGraphSnapshot` 表示 run 启动时冻结的一份 graph。
+
+最少包含：
+
+- `graph_snapshot_id`
+- `run_id`
+- `agent_name`
+- `agent_version`
+- `captured_at`
+- `graph_payload`
+- `graph_hash`
+
+用途：
+
+- run detail graph 视图
+- graph 与 trace 的节点联动
+- 历史 run 重放和导出
+
+## 5. Runtime 事件模型
+
+### 5.1 保留现有 stream 模式
+
+runtime 继续保留以下 source stream：
+
+- `messages`
+- `updates`
+- `debug`
+- `custom`
+- `lifecycle`
+
+这是当前 telemetry parser 已经具备的基础能力，不需要回退。
+
+### 5.2 phase 1 需要补齐的稳定字段
+
+为了支持 live + history，需要在 runtime telemetry 事件中补齐：
+
+- `event_id`
+- `attempt`
+- `seq`
+- `node_name`
+- `task_id`
+- `message_id`
+- `model_call_id`
+
+当前已经基本可用或已存在语义基础的字段：
+
+- `tool_call_id`
+- `interrupt_id`
+- `namespace`
+- `stream_mode`
+- `event_type`
+
+### 5.3 语义事件分组
+
+为了支撑产品 UI，control 至少要能从 runtime 事件中稳定识别以下几类过程。
+
+#### Run lifecycle
 
 - `run_started`
-- `text_delta`
+- `run_ended`
+- `run_canceled`
+- `error`
+
+#### Node execution
+
+优先复用 `debug.task` / `debug.task_result`，并稳定暴露：
+
+- `task_id`
+- `node_name`
+- `step`
+- `triggers`
+
+这组事件用于投影 `node` step。
+
+#### Model execution
+
+产品上需要“模型调用”这一层，但 phase 1 不强制把它抽象成 generic span。
+
+本设计要求 runtime 至少稳定提供：
+
+- `message_id`
+- `model_call_id`
+- `reasoning`
+- `text`
 - `text_done`
+
+control projector 以 `model_call_id` 为主键投影 `model` step。
+
+如果某些 runtime 场景下暂时拿不到天然 `model_call_id`，则需要 runtime 合成一个 run-local 稳定键，而不是把这一层继续留给前端猜。
+
+#### Tool execution
+
+工具调用继续使用已有语义：
+
 - `tool_call_start`
 - `tool_call_done`
 - `tool_result`
-- `hitl_request`
-- `run_ended`
-- `run_canceled`
-- `error`
 
-这条协议已经被下面几层消费：
+并以 `tool_call_id` 为稳定键投影 `tool` step。
 
-- data plane protobuf `AgentEvent`
-- control runtime client
-- northbound HTTP / SSE
-- control UI chat reducer
+#### HITL wait
 
-因此，这条协议应视为“稳定交互协议”，而不是可自由扩张的内部实验面。
+runtime 发出：
 
-### 4.2 LangGraph 原生流能力比当前 public event 丰富得多
+- `interrupt`
 
-按当前依赖 `langgraph==1.1.2`，原生 v2 `StreamPart` 支持：
+control gateway 追加：
 
-- `values`
-- `updates`
-- `messages`
-- `checkpoints`
-- `tasks`
-- `debug`
-- `custom`
+- `hitl_decision_sent`
+- `hitl_decision_acked`
+- `cancel_requested`
 
-其中：
+`hitl` step 的关闭不能只依赖 runtime 原始 stream，需要把 gateway 侧控制事实也纳入同一条 event ledger。
 
-- `debug` 本质上是 `checkpoints` 和 `tasks` 的包装
-- `messages` 里会带 `message` + `metadata`
-- `metadata` 包含 `langgraph_node`、`langgraph_step`、`langgraph_triggers` 等
-- 开启 `subgraphs=True` 时，`ns` 可以表达 subgraph / subagent 路径
+#### State / custom detail
 
-也就是说，监控协议最理想的输入不是当前 `RuntimeEvent`，而是更靠近原始 `StreamPart` 的结构化流。
-
-### 4.3 telemetry 最稳的落点是新增 service，而不是扩写旧 event
-
-如果直接在现有 `AgentEvent` 上继续追加字段或 oneof：
-
-- 会放大 control client 和 UI 的兼容面
-- 会把“交互流”和“监控流”混成一套协议
-- 会提高现有 northbound 回归风险
-
-在已有“不可破坏当前功能”的要求下，新增一个独立 service 更稳。
-
-## 5. 设计原则
-
-### 5.1 保持现有 `Run` 主链不变
-
-本设计的第一原则是：
-
-- `AgentExecutor.Run` 不变
-- `RuntimeEvent -> AgentEvent -> HTTP / SSE -> UI` 主链不变
-
-telemetry 端点是新增能力，不是替换能力。
-
-### 5.2 telemetry 直接面向监控，不为 UI 兼容做信息压缩
-
-新协议应优先满足：
-
-- 结构化保真
-- 可筛选
-- 可聚合
-- 可持久化
-
-而不是优先满足聊天 UI 的最小渲染需求。
-
-### 5.3 保留原始上下文，而不是过早翻译成展示语义
-
-telemetry 事件应保留：
-
-- 原始 `stream_mode`
-- 原始 `ns`
-- 原始 `metadata`
-- 可 JSON 化的 `payload`
-
-后续 control plane 和监控系统可以在此基础上做二次投影，但 southbound 协议不应过早丢信息。
-
-## 6. 协议方案
-
-### 6.1 新增独立 service
-
-建议在 `runtime.proto` 中新增：
-
-```proto
-service AgentTelemetry {
-  rpc RunTelemetry(stream ClientMessage) returns (stream TelemetryEvent);
-}
-```
-
-设计意图：
-
-- 复用现有 `ClientMessage`，避免重造 run 启动 / HITL / cancel 控制消息
-- 复用当前 server run lifecycle
-- 新 client 可以只接 telemetry 端点
-- 旧 client 完全不受影响
-
-### 6.2 新增 `TelemetryEvent`
-
-建议定义独立 message，而不是复用 `AgentEvent`：
-
-```proto
-message TelemetryEvent {
-  string run_id = 1;
-  string agent_name = 2;
-  google.protobuf.Timestamp timestamp = 3;
-  repeated string ns = 4;
-  string stream_mode = 5;
-  string event_type = 6;
-  google.protobuf.Struct metadata = 7;
-  google.protobuf.Value payload = 8;
-  AgentEvent public_event = 9;
-}
-```
-
-字段语义如下：
-
-- `run_id`
-  - 当前运行唯一标识
-- `agent_name`
-  - 产生该事件的 agent 名称
-- `timestamp`
-  - telemetry 事件生成时间
-- `ns`
-  - LangGraph namespace path；空数组表示 root graph
-- `stream_mode`
-  - 原始 stream mode，例如 `messages`、`updates`、`debug`、`custom`
-- `event_type`
-  - telemetry 投影后的细粒度类型，例如 `text`、`reasoning`、`tool_call`、`checkpoint`
-- `metadata`
-  - 原始 `messages` metadata 或 telemetry 级补充元数据
-- `payload`
-  - 结构化 JSON-like 主负载
-- `public_event`
-  - 如果当前 telemetry 事件可以无损映射到既有 `AgentEvent`，则可选填充
-
-### 6.3 `stream_mode` 订阅策略
-
-`RunTelemetry` 建议固定订阅：
-
-- `messages`
-- `updates`
-- `debug`
-- `custom`
-
-并保持：
-
-- `subgraphs=True`
-- `version="v2"`
-
-原因如下：
-
-- `messages` 提供 LLM token、tool call、reasoning、message metadata
-- `updates` 提供 state update 与 interrupt
-- `debug` 提供 task / task_result / checkpoint
-- `custom` 提供业务自定义埋点
-
-`values` 暂不纳入默认 telemetry 订阅，原因是：
-
-- payload 体积通常更大
-- 对在线监控价值低于 `updates + debug`
-- 会显著增加传输压力
-
-后续如果有需要，可以追加显式 opt-in 参数。
-
-### 6.4 telemetry event type 投影
-
-建议先定义稳定的一层 event type 投影，而不是把原始对象裸奔给上游。
-
-#### `messages`
-
-建议拆分为：
-
-- `text`
-- `reasoning`
-- `tool_call_chunk`
-- `tool_call`
-- `message_metadata`
-
-说明：
-
-- `text` 对应 `content_blocks[type="text"]`
-- `reasoning` 对应 `content_blocks[type="reasoning"]`
-- `tool_call_chunk` 和 `tool_call` 保持区分，避免监控端丢失 streamed args 粒度
-- `message_metadata` 可选，仅在需要时输出；否则可放入同一事件的 `metadata`
-
-#### `updates`
-
-建议拆分为：
+以下事件仍保留为 detail surface：
 
 - `state_update`
-- `interrupt`
 - `update_metadata`
-
-说明：
-
-- 普通 node update 不再丢弃
-- `__interrupt__` 仍单独标识
-- `__metadata__` 单独保留
-
-#### `debug`
-
-建议直接透传三类：
-
-- `task`
-- `task_result`
-- `checkpoint`
-
-这是 `langgraph` 当前 `debug` payload 的稳定语义边界。
-
-#### `custom`
-
-建议统一标识为：
-
 - `custom`
 
-`payload` 保留 node 通过 `StreamWriter` 写出的原始数据。
+它们用于：
 
-### 6.5 lifecycle 事件
+- Debug 视图
+- step detail 的补充信息
+- 后续导出 / replay
 
-telemetry 流仍应补齐 run lifecycle：
+## 6. Step 投影规则
+
+control projector 对 event ledger 做增量投影。
+
+### 6.1 `run` step
+
+打开条件：
 
 - `run_started`
+
+关闭条件：
+
 - `run_ended`
 - `run_canceled`
 - `error`
 
-这些事件并非全部来自 LangGraph 原始 stream，而是来自 runtime 运行壳层。
+### 6.2 `node` step
 
-建议统一用：
+打开条件：
 
-- `stream_mode = "lifecycle"`
+- `debug.task`
 
-这样 telemetry client 可以明确区分：
+关闭条件：
 
-- 图内事件
-- 运行壳层事件
+- `debug.task_result`
+- 运行级 terminal 事件兜底关闭
 
-## 7. 服务端实现策略
+关联键：
 
-### 7.1 独立 parser，不复用当前 `RuntimeEvent` parser
+- `task_id`
 
-当前 `deepagents_runtime/streams.py` 是面向 public event 协议的 lossy parser。
+### 6.3 `model` step
 
-新 telemetry 端点应新增独立 parser，例如：
+打开条件：
 
-- `deepagents_runtime/telemetry.py`
+- 某个活动 `node` 下首次出现指定 `model_call_id` 的 message 事件
 
-其职责是：
+关闭条件：
 
-- 消费原始 `StreamPart`
-- 生成 `TelemetryEvent`
-- 不依赖现有 `RuntimeEventType`
+- 该 `model_call_id` 的完成事件
+- 同一 node 内新的 `model_call_id` 开始且旧 step 仍未关闭时的保守收口
+- 所属 `node` 关闭时兜底关闭
 
-### 7.2 复用现有 run lifecycle，但分离输出流
+`model` step 聚合内容：
 
-`RunTelemetry` 可以复用现有：
+- `reasoning_summary`
+- `output_summary`
+- `message count`
+- `text chunks`
 
-- `RunRequest` 校验
-- `thread_id` / `run_id` 分配
-- HITL coordinator
-- cancel 机制
-- timeout 机制
+### 6.4 `tool` step
 
-但输出队列和 protobuf 映射应独立于 `Run()`。
+打开条件：
 
-### 7.3 保持 server 端 ownership 简单
+- `tool_call_start`
 
-Phase 0 不做：
+关闭条件：
 
-- 一次执行同时 fan-out 到 `Run()` 和 `RunTelemetry()` 两条不同客户端流
-- 跨请求订阅现有 run 的旁路监听
+- `tool_result`
+- 运行级 terminal 事件兜底关闭
 
-Phase 0 只支持：
+### 6.5 `hitl` step
 
-- 调用哪个 RPC，就启动哪种 run stream
+打开条件：
 
-这样实现最小，风险最低。
+- `interrupt`
 
-## 8. 兼容性要求
+关闭条件：
 
-### 8.1 必须保持的稳定面
+- `hitl_decision_acked`
+- `cancel_requested`
+- 运行级 terminal 事件兜底关闭
 
-以下内容在本设计中必须保持不变：
+这部分必须允许 gateway 事件参与投影，否则 live 和 history 会出现“看到等待，但看不到谁批准了”的断层。
 
-- `proto/runtime.proto` 中现有 `AgentExecutor.Run`
-- 现有 `AgentEvent` message 结构
-- 现有 Python generated stubs 的兼容导入路径
-- 现有 Go generated stubs 的包路径与现有调用点
-- control plane northbound `runs/stream`
-- control UI chat 页事件 reducer
+## 7. Storage 设计
 
-### 8.2 允许变化的面
+control 侧建议至少维护以下对象：
 
-本设计允许新增：
+- `telemetry_runs`
+- `telemetry_events`
+- `telemetry_steps`
+- `telemetry_graph_snapshots`
 
-- 新 service
-- 新 message
-- 新 Go / Python client 映射层
-- 新 southbound 监控接入客户端
+建议语义：
 
-## 9. 分阶段落地
+- `telemetry_events`：append-only，不做覆盖更新
+- `telemetry_steps`：projected read model，允许 upsert
+- `telemetry_runs`：summary read model，允许增量更新
+- `telemetry_graph_snapshots`：run 启动时固化
 
-### Phase 0：设计与协议落点
+这四者的关系是：
 
-已完成。
+- `events` 是真相
+- `runs / steps / graph_snapshots` 都是可重建的 read model
 
-- 补设计文档
-- 明确非破坏性边界
-- 明确 proto service / message 草案
+## 8. Live 与 History 一体化
 
-### Phase 1：runtime proto + data plane server
+### 8.1 统一 contract
 
-已完成。
+live 与 history 必须共享同一套事件模型。
 
-- 在 `proto/runtime.proto` 中新增 `AgentTelemetry`
-- 生成 Python / Go stubs
-- 在 runtime server 中新增 `AgentTelemetryServicer`
-- 实现 telemetry parser
-- 覆盖最小集成测试
+换句话说：
 
-### Phase 2：control side southbound client
+- live SSE 看到的 `TelemetryEvent`
+- history API 查到的 `TelemetryEvent`
 
-已完成。
+在字段和语义上必须一致。
 
-- 为 control 增加 telemetry gRPC client
-- 支持消费 `TelemetryEvent`
-- 已接入后续 northbound 与 UI 适配层
+### 8.2 Resumable stream
 
-### Phase 3：监控接入
+live stream 应支持断线续传。
 
-已完成最小可用链路，但仍未完成“监控产品化”。
+建议：
 
-- 已提供 northbound telemetry SSE
-- 已提供 graph 查询 API
-- 已提供实时 Telemetry 页面
+- SSE `id` 使用 `event_id`
+- control 支持 `Last-Event-ID`
+- 若 client 已经拉过 history，可从最后一个 `event_id` 开始接 live tail
 
-### Phase 4：监控产品化与审计能力
+这部分可以直接借鉴 LangGraph API 的 resumable stream 思路，但不复用其内部 run store 语义。
 
-下一阶段建议优先处理：
+### 8.3 UI 使用方式
 
-- 引入 telemetry trace store / run store
-- 提供 run 级历史查询、回放、导出
-- 将 runtime 下发的稳定 `span_id / parent_span_id / node_id` 纳入协议
-- 增加 timeline / waterfall 视图
-- 增加指标聚合与告警友好的统计投影
+Telemetry UI 的推荐加载顺序：
 
-### Phase 5：生产化治理
+1. 进入 run 详情页先拉：
+   - `run`
+   - `steps`
+   - `graph`
+   - 首屏 `events`
+2. 如果 run 仍在执行，再接 `stream`
+3. live 增量到达后：
+   - Debug 视图直接追加 raw event
+   - Trace / Graph 视图优先消费 control 投影后的 step / summary 更新
 
-- 请求级过滤参数
-  - 例如关闭 `debug` 或仅订阅特定 `stream_mode`
-- `values` opt-in
-- payload 截断、敏感字段脱敏、采样策略
-- 跨 run 对比与深链接
+兼容策略：
 
-## 10. 验收标准
+- phase 1 仍允许 UI 用 raw events 做本地补丁
+- 目标状态是 UI 不再负责“发明 step”，而是只渲染 control 的 `TelemetryStep`
 
-当前实现已经满足的基础验收项：
+## 9. Northbound / Southbound 接口
 
-- 新增 telemetry 端点不会改变现有 `Run` 行为
-- 监控 client 可收到 root graph 和 subgraph 的 `ns`
-- `messages` 中的 `reasoning` 不再丢失
-- `debug` 中的 `task / task_result / checkpoint` 可稳定接收
-- `custom` 事件可原样透传
-- 现有 HTTP / SSE 和 UI 回归测试全部保持通过
+### 9.1 Southbound
 
-下一阶段的补充验收项建议为：
+当前保留：
 
-- 历史 run 可查询、可回放、可导出
-- 运行链路具备稳定 span 关联，而不是仅由 UI 启发式拼装
-- UI 可直接呈现 timeline / critical path / node latency
-- 至少提供基础聚合指标
-  - 总时长
-  - 节点耗时
-  - token / reasoning token
-  - tool 次数
-  - HITL 等待时间
-  - 失败类型
+- `AgentTelemetry.RunTelemetry`
 
-## 11. 追踪矩阵
+它的定位是：
 
-| 项目 | 当前状态 | 目标落点 |
-|------|----------|----------|
-| 设计文档 | 已完成 | `docs/design/runtime-agent-telemetry-design.md` |
-| Proto service | 已完成 | `proto/runtime.proto` |
-| Python stubs | 已完成 | `libs/runtime/deepagents-runtime/deepagents_runtime/generated/` |
-| Go stubs | 已完成 | `libs/control/pkg/proto/` |
-| Runtime server | 已完成 | `libs/runtime/deepagents-runtime/deepagents_runtime/entry/server.py` |
-| Telemetry parser | 已完成 | `libs/runtime/deepagents-runtime/deepagents_runtime/telemetry.py` |
-| Control southbound client | 已完成 | `libs/control/pkg/runtimeclient/` |
-| Northbound HTTP / SSE | 已完成 | `libs/control/pkg/api/http_handler.go` |
-| Telemetry UI | 已完成 | `libs/control/ui/src/pages/telemetry/index.tsx` |
-| Trace store / replay store | 未开始 | 新增 telemetry persistence 层 |
-| 稳定 span / correlation 模型 | 未开始 | runtime telemetry 协议与 parser |
-| Timeline / waterfall 视图 | 未开始 | `libs/control/ui/src/pages/telemetry/` |
-| 指标聚合 / 概览统计 | 未开始 | control aggregation / UI |
-| 请求级过滤 / 采样 / 脱敏 | 未开始 | runtime + control northbound |
+- runtime -> control 的 live execution facts stream
+- 当前 live telemetry 主链的 transport
 
-## 12. 开放问题
+它不承担：
 
-- `TelemetryEvent.metadata` 是否应允许 `google.protobuf.Value`，而不是 `Struct`
-- 是否需要为 `RunTelemetry` 增加请求级过滤参数，例如关闭 `debug`
-- `values` 是否应作为可选订阅引入，用于状态快照回放
-- runtime 是否应直接下发稳定 `span_id / parent_span_id / node_id`
-- trace store 应位于 runtime、本地 control，还是外部 observability backend
-- telemetry payload 的截断、脱敏、采样边界如何定义
-- `public_event` 继续保留为兼容投影，还是逐步收缩为可选字段
-- 当前 northbound SSE 已经存在；后续是否还需要旁路 southbound 直连模式供监控系统直接消费
+- history query
+- step query
+- graph snapshot query
 
-## 13. 当前决策
+### 9.2 Northbound
 
-当前建议先按以下决策推进：
+目标 northbound 接口：
 
-1. 现有 `Run` 主链不变。
-2. telemetry 通过新增独立 gRPC service 落地。
-3. telemetry parser 直接消费原始 `StreamPart`，不复用当前 `RuntimeEvent` parser。
-4. 当前 northbound telemetry SSE、graph API 与 Telemetry UI 继续保留，不回退到“仅 southbound 可见”。
-5. 下一阶段优先补“历史 run / replay / 稳定 span 模型 / timeline / 指标聚合”，而不是继续堆单次 live 调试细节。
+- `POST /api/v1/agents/{agent}/telemetry/stream`
+- `GET /api/v1/telemetry/runs`
+- `GET /api/v1/telemetry/runs/{run_id}`
+- `GET /api/v1/telemetry/runs/{run_id}/events`
+- `GET /api/v1/telemetry/runs/{run_id}/steps`
+- `GET /api/v1/telemetry/runs/{run_id}/graph`
+- `GET /api/v1/telemetry/runs/{run_id}/stream`
+
+说明：
+
+- 当前 `POST /api/v1/agents/{agent}/telemetry/stream` 继续保留，作为 live run 入口
+- history 面统一走 `/api/v1/telemetry/runs/*`
+- `graph` 必须是 run-bound graph，而不是 agent current graph
+
+## 10. OTel 与外部 tracing
+
+### 10.1 当前约束
+
+本轮不把 OTel span 作为产品查询面。
+
+### 10.2 需要保留的入口
+
+保留：
+
+- gateway 接收 `traceparent`
+- control 在 `TelemetryRun.trace_context` 中记录该值
+- control 向 runtime 透传 `traceparent / tracestate`
+
+这样后续可以无缝接上：
+
+- OTel exporter
+- MQ / worker / webhook distributed tracing
+- LangSmith 或其他外部 tracing exporter
+
+### 10.3 明确不做的事情
+
+本轮不做：
+
+- 以 OTel span 树替代 `TelemetryStep`
+- 以 LangSmith run tree 替代本地 telemetry store
+- 让 Telemetry UI 直接查询外部 tracing backend
+
+外部 tracing 只能是 optional exporter，不能成为 source of truth。
+
+## 11. 分阶段落地
+
+### Phase 0：当前基线
+
+当前已经具备：
+
+- runtime live telemetry event stream
+- northbound live telemetry SSE
+- Telemetry UI 原型
+
+### Phase 1：稳定 event ledger
+
+目标：
+
+- 给 runtime telemetry event 补齐 `event_id / attempt / seq`
+- 补齐 `node_name / task_id / message_id / model_call_id`
+- control 持久化 `TelemetryRun` 和 `TelemetryEvent`
+- live SSE 支持 resumable stream
+
+### Phase 2：server-side step projection
+
+目标：
+
+- control 增量投影 `TelemetryStep`
+- 增量维护 `TelemetryRun` summary
+- gateway 控制事件纳入同一条 event ledger
+- UI Trace 视图从“前端推导 span”切到“服务端 steps”
+
+### Phase 3：run-bound graph 与联动
+
+目标：
+
+- run 启动时固化 `TelemetryGraphSnapshot`
+- `GET /api/v1/telemetry/runs/{run_id}/graph`
+- Trace / Graph 双向联动改为 run-bound
+
+### Phase 4：外部 tracing / exporter
+
+目标：
+
+- 保持本地 telemetry model 不变
+- 在此基础上增加 optional exporter：
+  - OTel exporter
+  - LangSmith-like exporter
+
+## 12. 当前决策
+
+本轮设计明确采用以下决策：
+
+1. telemetry 先做 `event ledger first`
+2. 产品 Trace 使用 `TelemetryStep`，而不是通用 span
+3. graph 查询必须切到 run-bound snapshot
+4. live 与 history 共享同一套 canonical event model
+5. gateway 侧控制事实要进入同一条 telemetry event ledger
+6. OTel 先只保留 trace context 注入入口
+7. LangSmith 或其他 tracing backend 未来只能作为 optional exporter

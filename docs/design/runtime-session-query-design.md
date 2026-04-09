@@ -3,7 +3,7 @@
 > 状态：Final
 > 最后更新：2026-03-27
 > 范围：Phase 5
-> 落地状态：已实现到 `runtime.proto`、`deepagents_runtime/sessions.py`、`deepagents_runtime/entry/server.py`
+> 落地状态：已实现到 `runtime.proto`、`agents_runtime/sessions.py`、`agents_runtime/entry/server.py`
 
 ## 1. 背景
 
@@ -16,7 +16,7 @@
 
 当前已有实现主要集中在两个地方：
 
-- `libs/runtime/deepagents-runtime/deepagents_runtime/sessions.py`
+- `libs/runtime/agents-runtime/agents_runtime/sessions.py`
 - `libs/cli/deepagents_cli/sessions.py`
 - `libs/cli/deepagents_cli/app.py`
 

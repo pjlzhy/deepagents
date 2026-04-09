@@ -76,6 +76,9 @@ func TestSQLiteStoreRecordsRunsAndEvents(t *testing.T) {
 	if run.ThreadID != "thread-1" {
 		t.Fatalf("unexpected thread_id: %q", run.ThreadID)
 	}
+	if run.TurnIndex != 1 {
+		t.Fatalf("unexpected turn_index: %d", run.TurnIndex)
+	}
 	if run.EventCount != 2 {
 		t.Fatalf("unexpected event count: %d", run.EventCount)
 	}
@@ -91,12 +94,147 @@ func TestSQLiteStoreRecordsRunsAndEvents(t *testing.T) {
 		t.Fatalf("unexpected event ids: %#v", page.Items)
 	}
 
-	runsPage, err := telemetryStore.ListRuns(ctx, domain.PageQuery{PageSize: 10, PageNumber: 1})
+	runsPage, err := telemetryStore.ListRuns(ctx, domain.TelemetryRunQuery{
+		PageQuery: domain.PageQuery{PageSize: 10, PageNumber: 1},
+	})
 	if err != nil {
 		t.Fatalf("list runs: %v", err)
 	}
 	if len(runsPage.Items) != 1 || runsPage.Items[0].RunID != "run-1" {
 		t.Fatalf("unexpected runs page: %#v", runsPage.Items)
+	}
+}
+
+func TestSQLiteStoreProjectsRunCheckpointBoundsAndFilters(t *testing.T) {
+	ctx := context.Background()
+	sqliteStore, err := store.OpenSQLite(ctx, store.SQLiteConfig{Path: filepath.Join(t.TempDir(), "telemetry.sqlite")})
+	if err != nil {
+		t.Fatalf("open sqlite store: %v", err)
+	}
+	defer func() { _ = sqliteStore.Close() }()
+
+	telemetryStore, err := NewSQLiteStore(sqliteStore.DB())
+	if err != nil {
+		t.Fatalf("new telemetry store: %v", err)
+	}
+
+	checkpointAt := time.Unix(1710000001, 0).UTC()
+	checkpointPayload := json.RawMessage(`{
+		"config":{"configurable":{"checkpoint_id":"cp-002"}},
+		"parent_config":{"configurable":{"checkpoint_id":"cp-001"}}
+	}`)
+
+	if err := telemetryStore.RecordEvent(ctx, runtimeclient.TelemetryEvent{
+		RunID:      "run-checkpoint-1",
+		AgentName:  "assistant",
+		Timestamp:  checkpointAt,
+		EventID:    "run-checkpoint-1:1:1",
+		Attempt:    1,
+		Seq:        1,
+		StreamMode: "debug",
+		EventType:  "checkpoint",
+		NodeName:   "root",
+		Payload:    checkpointPayload,
+		PublicEvent: &runtimeclient.AgentEvent{
+			Type:      runtimeclient.AgentEventTypeRunStarted,
+			RunID:     "run-checkpoint-1",
+			AgentName: "assistant",
+			ThreadID:  "thread-a",
+			Timestamp: checkpointAt,
+		},
+	}); err != nil {
+		t.Fatalf("record checkpoint event: %v", err)
+	}
+
+	if err := telemetryStore.RecordEvent(ctx, runtimeclient.TelemetryEvent{
+		RunID:      "run-checkpoint-2",
+		AgentName:  "assistant",
+		Timestamp:  checkpointAt.Add(time.Second),
+		EventID:    "run-checkpoint-2:1:1",
+		Attempt:    1,
+		Seq:        1,
+		StreamMode: "lifecycle",
+		EventType:  "run_started",
+		NodeName:   "run",
+		PublicEvent: &runtimeclient.AgentEvent{
+			Type:      runtimeclient.AgentEventTypeRunStarted,
+			RunID:     "run-checkpoint-2",
+			AgentName: "assistant",
+			ThreadID:  "thread-b",
+			Timestamp: checkpointAt.Add(time.Second),
+		},
+	}); err != nil {
+		t.Fatalf("record second run event: %v", err)
+	}
+
+	run, err := telemetryStore.GetRun(ctx, "run-checkpoint-1")
+	if err != nil {
+		t.Fatalf("get run: %v", err)
+	}
+	if run.StartCheckpointID != "cp-001" || run.EndCheckpointID != "cp-002" {
+		t.Fatalf("unexpected checkpoint bounds: %#v", run)
+	}
+
+	page, err := telemetryStore.ListRuns(ctx, domain.TelemetryRunQuery{
+		PageQuery: domain.PageQuery{PageSize: 10, PageNumber: 1},
+		ThreadID:  "thread-a",
+	})
+	if err != nil {
+		t.Fatalf("list runs by thread: %v", err)
+	}
+	if len(page.Items) != 1 || page.Items[0].RunID != "run-checkpoint-1" {
+		t.Fatalf("unexpected filtered runs page: %#v", page.Items)
+	}
+}
+
+func TestSQLiteStoreAssignsTurnIndexPerThread(t *testing.T) {
+	ctx := context.Background()
+	sqliteStore, err := store.OpenSQLite(ctx, store.SQLiteConfig{Path: filepath.Join(t.TempDir(), "telemetry.sqlite")})
+	if err != nil {
+		t.Fatalf("open sqlite store: %v", err)
+	}
+	defer func() { _ = sqliteStore.Close() }()
+
+	telemetryStore, err := NewSQLiteStore(sqliteStore.DB())
+	if err != nil {
+		t.Fatalf("new telemetry store: %v", err)
+	}
+
+	base := time.Unix(1710000100, 0).UTC()
+	for index, runID := range []string{"run-a", "run-b"} {
+		eventTime := base.Add(time.Duration(index) * time.Second)
+		if err := telemetryStore.RecordEvent(ctx, runtimeclient.TelemetryEvent{
+			RunID:      runID,
+			AgentName:  "assistant",
+			Timestamp:  eventTime,
+			EventID:    runID + ":1:1",
+			Attempt:    1,
+			Seq:        1,
+			StreamMode: "lifecycle",
+			EventType:  "run_started",
+			NodeName:   "run",
+			PublicEvent: &runtimeclient.AgentEvent{
+				Type:      runtimeclient.AgentEventTypeRunStarted,
+				RunID:     runID,
+				AgentName: "assistant",
+				ThreadID:  "thread-seq",
+				Timestamp: eventTime,
+			},
+		}); err != nil {
+			t.Fatalf("record run %s: %v", runID, err)
+		}
+	}
+
+	runA, err := telemetryStore.GetRun(ctx, "run-a")
+	if err != nil {
+		t.Fatalf("get run-a: %v", err)
+	}
+	runB, err := telemetryStore.GetRun(ctx, "run-b")
+	if err != nil {
+		t.Fatalf("get run-b: %v", err)
+	}
+	if runA.TurnIndex != 1 || runB.TurnIndex != 2 {
+		t.Fatalf("unexpected turn indices: runA=%d runB=%d", runA.TurnIndex, runB.TurnIndex)
 	}
 }
 

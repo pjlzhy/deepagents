@@ -11,12 +11,13 @@ import {
   markInterruptResolved,
   markRunCanceling,
   reduceRuntimeEvent,
+  telemetryEventToRuntimeEvent,
   type ConversationTimelineItemVM,
   type PendingInterruptVM,
   type RunStatusVM,
 } from '@/features/chat/runtimeEventParser';
 import { controlClient } from '@/shared/api/controlClient';
-import type { HTTPAgentEventDTO } from '@/shared/types/api';
+import type { HTTPAgentEventDTO, HTTPTelemetryEventDTO } from '@/shared/types/api';
 import '@/styles/registry-cards.css';
 
 import ThreadSidebar from './ThreadSidebar';
@@ -33,6 +34,10 @@ function isRunActive(status: RunStatusVM): boolean {
 
 function isRuntimeEvent(payload: unknown): payload is HTTPAgentEventDTO {
   return typeof payload === 'object' && payload !== null && 'type' in payload;
+}
+
+function isTelemetryEvent(payload: unknown): payload is HTTPTelemetryEventDTO {
+  return typeof payload === 'object' && payload !== null && ('event_type' in payload || 'public_event' in payload);
 }
 
 type StatusStyle = { text: string; color: string; dot: string };
@@ -155,7 +160,7 @@ export default function ChatWorkspacePage() {
     streamAbortRef.current = controller;
 
     try {
-      await controlClient.runs.stream(
+      await controlClient.runs.streamTelemetry(
         selectedAgentName,
         { message, thread_id: selectedThreadId },
         {
@@ -171,11 +176,13 @@ export default function ChatWorkspacePage() {
               Message.error(typeof (payload as Record<string, unknown>).error === 'string' ? ((payload as Record<string, unknown>).error as string) : 'stream transport error');
               return;
             }
-            if (!isRuntimeEvent(payload)) return;
-            if (payload.thread_id && selectedAgentName && payload.thread_id !== selectedThreadId) {
-              void navigate(links.chatThread(selectedAgentName, payload.thread_id), { replace: true });
+            if (!isTelemetryEvent(payload)) return;
+            const runtimeEvent = telemetryEventToRuntimeEvent(payload);
+            if (!runtimeEvent || !isRuntimeEvent(runtimeEvent)) return;
+            if (runtimeEvent.thread_id && selectedAgentName && runtimeEvent.thread_id !== selectedThreadId) {
+              void navigate(links.chatThread(selectedAgentName, runtimeEvent.thread_id), { replace: true });
             }
-            setRuntimeState((prev) => reduceRuntimeEvent(prev, payload));
+            setRuntimeState((prev) => reduceRuntimeEvent(prev, runtimeEvent));
           },
           onClose: () => {
             setRunSessionId(undefined);

@@ -2,6 +2,7 @@ import type {
   HTTPActionRequestDTO,
   HTTPAgentEventDTO,
   HTTPReviewConfigDTO,
+  HTTPTelemetryEventDTO,
   SessionMessageDTO,
 } from '@/shared/types/api';
 import { v4 as uuidv4 } from 'uuid';
@@ -443,5 +444,28 @@ export function reduceRuntimeEvent(state: RuntimeState, event: HTTPAgentEventDTO
       };
     default:
       return state;
+  }
+}
+
+export function telemetryEventToRuntimeEvent(event: HTTPTelemetryEventDTO): HTTPAgentEventDTO | null {
+  if (event.public_event && typeof event.public_event.type === 'string') {
+    return event.public_event;
+  }
+
+  const fallbackType = event.event_type?.trim();
+  if (!fallbackType) {
+    return null;
+  }
+
+  switch (fallbackType) {
+    case 'error':
+      return {
+        type: 'error',
+        run_id: event.run_id,
+        agent_name: event.agent_name,
+        timestamp: event.timestamp,
+      };
+    default:
+      return null;
   }
 }

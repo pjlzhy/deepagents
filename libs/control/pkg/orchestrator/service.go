@@ -398,7 +398,7 @@ func (s *Service) RecordTelemetryEvent(
 // ListTelemetryRuns returns one page of telemetry run summaries.
 func (s *Service) ListTelemetryRuns(
 	ctx context.Context,
-	query domain.PageQuery,
+	query domain.TelemetryRunQuery,
 ) (domain.ResourcePage[domain.TelemetryRun], error) {
 	if err := ctx.Err(); err != nil {
 		return domain.ResourcePage[domain.TelemetryRun]{}, err
@@ -415,6 +415,43 @@ func (s *Service) GetTelemetryRun(
 		return domain.TelemetryRun{}, err
 	}
 	return s.telemetryStore.GetRun(ctx, runID)
+}
+
+// GetTelemetryRunSnapshot resolves one run-bound checkpoint snapshot through session query.
+func (s *Service) GetTelemetryRunSnapshot(
+	ctx context.Context,
+	runID string,
+	position domain.TelemetryRunSnapshotPosition,
+	query domain.SessionMessageQuery,
+) (domain.SessionMessagePage, error) {
+	if err := ctx.Err(); err != nil {
+		return domain.SessionMessagePage{}, err
+	}
+
+	run, err := s.telemetryStore.GetRun(ctx, runID)
+	if err != nil {
+		return domain.SessionMessagePage{}, err
+	}
+
+	checkpointID := ""
+	switch position {
+	case domain.TelemetryRunSnapshotPositionBefore:
+		checkpointID = strings.TrimSpace(run.StartCheckpointID)
+	case domain.TelemetryRunSnapshotPositionAfter:
+		checkpointID = strings.TrimSpace(run.EndCheckpointID)
+	default:
+		return domain.SessionMessagePage{}, fmt.Errorf("invalid snapshot position %q", position)
+	}
+	if checkpointID == "" {
+		return domain.SessionMessagePage{}, telemetry.ErrRunSnapshotUnavailable
+	}
+
+	messageQuery := query
+	messageQuery.AgentName = strings.TrimSpace(run.AgentName)
+	messageQuery.ThreadID = strings.TrimSpace(run.ThreadID)
+	messageQuery.CheckpointID = checkpointID
+
+	return s.GetSessionMessagePage(ctx, messageQuery)
 }
 
 // ListTelemetryEvents returns one page of telemetry events for one run.
@@ -455,7 +492,7 @@ func (noopTelemetryStore) RecordEvent(context.Context, runtimeclient.TelemetryEv
 
 func (noopTelemetryStore) ListRuns(
 	context.Context,
-	domain.PageQuery,
+	domain.TelemetryRunQuery,
 ) (domain.ResourcePage[domain.TelemetryRun], error) {
 	return domain.ResourcePage[domain.TelemetryRun]{}, nil
 }

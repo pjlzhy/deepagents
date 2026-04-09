@@ -378,6 +378,7 @@ func TestHTTPHandlerListsTelemetryRuns(t *testing.T) {
 					RunID:       "run-1",
 					AgentName:   "assistant",
 					ThreadID:    "thread-1",
+					TurnIndex:   3,
 					Status:      domain.TelemetryRunStatusRunning,
 					EventCount:  3,
 					StartedAt:   time.Unix(1710000000, 0).UTC(),
@@ -397,7 +398,7 @@ func TestHTTPHandlerListsTelemetryRuns(t *testing.T) {
 		t.Fatalf("NewHTTPHandler: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/telemetry/runs?page_size=20&page_number=2", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/telemetry/runs?page_size=20&page_number=2&agent_name=assistant&thread_id=thread-1", nil)
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, req)
 
@@ -405,13 +406,16 @@ func TestHTTPHandlerListsTelemetryRuns(t *testing.T) {
 		t.Fatalf("unexpected telemetry runs status: %d body=%s", recorder.Code, recorder.Body.String())
 	}
 	body := recorder.Body.String()
-	if !strings.Contains(body, `"run_id":"run-1"`) || !strings.Contains(body, `"status":"running"`) {
+	if !strings.Contains(body, `"run_id":"run-1"`) || !strings.Contains(body, `"status":"running"`) || !strings.Contains(body, `"turn_index":3`) {
 		t.Fatalf("unexpected telemetry runs body: %s", body)
 	}
 	if !strings.Contains(body, `"page_size":20`) || !strings.Contains(body, `"page_number":2`) {
 		t.Fatalf("expected paging metadata, got %s", body)
 	}
-	if service.listTelemetryRunsQuery.PageSize != 20 || service.listTelemetryRunsQuery.PageNumber != 2 {
+	if service.listTelemetryRunsQuery.PageSize != 20 ||
+		service.listTelemetryRunsQuery.PageNumber != 2 ||
+		service.listTelemetryRunsQuery.AgentName != "assistant" ||
+		service.listTelemetryRunsQuery.ThreadID != "thread-1" {
 		t.Fatalf("unexpected telemetry run query: %#v", service.listTelemetryRunsQuery)
 	}
 }
@@ -419,13 +423,16 @@ func TestHTTPHandlerListsTelemetryRuns(t *testing.T) {
 func TestHTTPHandlerReturnsTelemetryRun(t *testing.T) {
 	service := &fakeAgentService{
 		getTelemetryRunResp: domain.TelemetryRun{
-			RunID:      "run-1",
-			AgentName:  "assistant",
-			ThreadID:   "thread-1",
-			Status:     domain.TelemetryRunStatusCompleted,
-			EventCount: 8,
-			StartedAt:  time.Unix(1710000000, 0).UTC(),
-			FinishedAt: time.Unix(1710000005, 0).UTC(),
+			RunID:             "run-1",
+			AgentName:         "assistant",
+			ThreadID:          "thread-1",
+			TurnIndex:         3,
+			StartCheckpointID: "cp-001",
+			EndCheckpointID:   "cp-002",
+			Status:            domain.TelemetryRunStatusCompleted,
+			EventCount:        8,
+			StartedAt:         time.Unix(1710000000, 0).UTC(),
+			FinishedAt:        time.Unix(1710000005, 0).UTC(),
 		},
 	}
 	handler, err := NewHTTPHandler(service, nil)
@@ -441,11 +448,61 @@ func TestHTTPHandlerReturnsTelemetryRun(t *testing.T) {
 		t.Fatalf("unexpected telemetry run status: %d body=%s", recorder.Code, recorder.Body.String())
 	}
 	body := recorder.Body.String()
-	if !strings.Contains(body, `"run_id":"run-1"`) || !strings.Contains(body, `"status":"completed"`) {
+	if !strings.Contains(body, `"run_id":"run-1"`) ||
+		!strings.Contains(body, `"turn_index":3`) ||
+		!strings.Contains(body, `"status":"completed"`) ||
+		!strings.Contains(body, `"start_checkpoint_id":"cp-001"`) ||
+		!strings.Contains(body, `"end_checkpoint_id":"cp-002"`) {
 		t.Fatalf("unexpected telemetry run body: %s", body)
 	}
 	if service.getTelemetryRunID != "run-1" {
 		t.Fatalf("unexpected telemetry run id: %q", service.getTelemetryRunID)
+	}
+}
+
+func TestHTTPHandlerReturnsTelemetryRunSnapshot(t *testing.T) {
+	service := &fakeAgentService{
+		getTelemetryRunSnapshotResp: domain.SessionMessagePage{
+			ThreadID:             "thread-1",
+			ResolvedCheckpointID: "cp-002",
+			ActualMode:           domain.SessionHistoryModeResumeView,
+			TotalMessageCount:    1,
+			Messages: []domain.SessionMessage{
+				{
+					Index:        0,
+					CheckpointID: "cp-002",
+					Role:         domain.SessionMessageRoleAI,
+					Text:         "hello world",
+					Content:      "hello world",
+				},
+			},
+		},
+	}
+	handler, err := NewHTTPHandler(service, nil)
+	if err != nil {
+		t.Fatalf("NewHTTPHandler: %v", err)
+	}
+
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/telemetry/runs/run-1/snapshot?position=after&page_size=50&mode=resume_view",
+		nil,
+	)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected telemetry snapshot status: %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, `"resolved_checkpoint_id":"cp-002"`) ||
+		!strings.Contains(body, `"text":"hello world"`) {
+		t.Fatalf("unexpected telemetry snapshot body: %s", body)
+	}
+	if service.getTelemetryRunSnapshotID != "run-1" ||
+		service.getTelemetryRunSnapshotPosition != domain.TelemetryRunSnapshotPositionAfter ||
+		service.getTelemetryRunSnapshotQuery.PageSize != 50 {
+		t.Fatalf("unexpected telemetry snapshot query: %#v", service)
 	}
 }
 

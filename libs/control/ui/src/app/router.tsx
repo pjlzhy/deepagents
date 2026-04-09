@@ -61,6 +61,14 @@ export default function AppRouter() {
         }
       />
       <Route
+        path='/telemetry/runs/:runId'
+        element={
+          <StretchPage>
+            <TelemetryPage />
+          </StretchPage>
+        }
+      />
+      <Route
         path='/telemetry/:agentName'
         element={
           <StretchPage>

@@ -115,6 +115,9 @@ CREATE TABLE IF NOT EXISTS telemetry_runs (
 	run_id TEXT NOT NULL,
 	agent_name TEXT NOT NULL,
 	thread_id TEXT NOT NULL,
+	turn_index INTEGER NOT NULL,
+	start_checkpoint_id TEXT NOT NULL,
+	end_checkpoint_id TEXT NOT NULL,
 	runtime_target TEXT NOT NULL,
 	status TEXT NOT NULL,
 	request_metadata_json TEXT NOT NULL,
@@ -176,6 +179,8 @@ CREATE INDEX IF NOT EXISTS idx_operations_kind ON operations(kind);
 CREATE INDEX IF NOT EXISTS idx_operations_status ON operations(status);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_telemetry_runs_run_id ON telemetry_runs(run_id);
 CREATE INDEX IF NOT EXISTS idx_telemetry_runs_agent_name ON telemetry_runs(agent_name);
+CREATE INDEX IF NOT EXISTS idx_telemetry_runs_thread_id ON telemetry_runs(thread_id);
+CREATE INDEX IF NOT EXISTS idx_telemetry_runs_agent_thread_last_event_at ON telemetry_runs(agent_name, thread_id, last_event_at);
 CREATE INDEX IF NOT EXISTS idx_telemetry_runs_status ON telemetry_runs(status);
 CREATE INDEX IF NOT EXISTS idx_telemetry_runs_last_event_at ON telemetry_runs(last_event_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_telemetry_events_event_id ON telemetry_events(event_id);
@@ -250,6 +255,15 @@ func (s *SQLite) init(ctx context.Context) error {
 		return fmt.Errorf("migrate sqlite schema: %w", err)
 	}
 	if err := ensureSQLiteColumn(ctx, s.db, "agent_specs", "sandbox_ref", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return fmt.Errorf("migrate sqlite schema: %w", err)
+	}
+	if err := ensureSQLiteColumn(ctx, s.db, "telemetry_runs", "start_checkpoint_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return fmt.Errorf("migrate sqlite schema: %w", err)
+	}
+	if err := ensureSQLiteColumn(ctx, s.db, "telemetry_runs", "end_checkpoint_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return fmt.Errorf("migrate sqlite schema: %w", err)
+	}
+	if err := ensureSQLiteColumn(ctx, s.db, "telemetry_runs", "turn_index", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return fmt.Errorf("migrate sqlite schema: %w", err)
 	}
 	if err := ensureSQLiteSurrogatePrimaryKeys(ctx, s.db); err != nil {

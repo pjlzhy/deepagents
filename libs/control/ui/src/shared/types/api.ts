@@ -391,6 +391,9 @@ export type HTTPTelemetryRunDTO = {
   run_id?: string;
   agent_name?: string;
   thread_id?: string;
+  turn_index?: number;
+  start_checkpoint_id?: string;
+  end_checkpoint_id?: string;
   runtime_target?: string;
   status?: string;
   request_metadata?: unknown;

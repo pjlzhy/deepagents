@@ -15,8 +15,14 @@ type AgentService interface {
 	RunAgent(ctx context.Context, req domain.RunRequest) (runtimeclient.RunStream, error)
 	RunAgentTelemetry(ctx context.Context, req domain.RunRequest) (runtimeclient.TelemetryStream, error)
 	RecordTelemetryEvent(ctx context.Context, event runtimeclient.TelemetryEvent) error
-	ListTelemetryRuns(ctx context.Context, query domain.PageQuery) (domain.ResourcePage[domain.TelemetryRun], error)
+	ListTelemetryRuns(ctx context.Context, query domain.TelemetryRunQuery) (domain.ResourcePage[domain.TelemetryRun], error)
 	GetTelemetryRun(ctx context.Context, runID string) (domain.TelemetryRun, error)
+	GetTelemetryRunSnapshot(
+		ctx context.Context,
+		runID string,
+		position domain.TelemetryRunSnapshotPosition,
+		query domain.SessionMessageQuery,
+	) (domain.SessionMessagePage, error)
 	ListTelemetrySteps(ctx context.Context, runID string) ([]domain.TelemetryStep, error)
 	ListTelemetryEvents(
 		ctx context.Context,
@@ -107,7 +113,7 @@ func (s *Server) RecordTelemetryEvent(
 // ListTelemetryRuns forwards one telemetry run page query to the backing service.
 func (s *Server) ListTelemetryRuns(
 	ctx context.Context,
-	query domain.PageQuery,
+	query domain.TelemetryRunQuery,
 ) (domain.ResourcePage[domain.TelemetryRun], error) {
 	return s.service.ListTelemetryRuns(ctx, query)
 }
@@ -115,6 +121,16 @@ func (s *Server) ListTelemetryRuns(
 // GetTelemetryRun forwards one telemetry run lookup to the backing service.
 func (s *Server) GetTelemetryRun(ctx context.Context, runID string) (domain.TelemetryRun, error) {
 	return s.service.GetTelemetryRun(ctx, runID)
+}
+
+// GetTelemetryRunSnapshot resolves one run-bound session snapshot.
+func (s *Server) GetTelemetryRunSnapshot(
+	ctx context.Context,
+	runID string,
+	position domain.TelemetryRunSnapshotPosition,
+	query domain.SessionMessageQuery,
+) (domain.SessionMessagePage, error) {
+	return s.service.GetTelemetryRunSnapshot(ctx, runID, position, query)
 }
 
 // ListTelemetrySteps forwards one telemetry step projection query to the backing service.

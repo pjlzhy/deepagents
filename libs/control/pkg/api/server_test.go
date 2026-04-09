@@ -14,34 +14,39 @@ type fakeAgentService struct {
 	ensureRunnableErr error
 	ensureAgent       string
 
-	runStream                runtimeclient.RunStream
-	runErr                   error
-	runRequest               domain.RunRequest
-	telemetryStream          runtimeclient.TelemetryStream
-	telemetryErr             error
-	telemetryRequest         domain.RunRequest
-	recordTelemetryEvent     runtimeclient.TelemetryEvent
-	recordTelemetryErr       error
-	listTelemetryRunsResp    domain.ResourcePage[domain.TelemetryRun]
-	listTelemetryRunsErr     error
-	listTelemetryRunsQuery   domain.PageQuery
-	getTelemetryRunResp      domain.TelemetryRun
-	getTelemetryRunErr       error
-	getTelemetryRunID        string
-	listTelemetryStepsResp   []domain.TelemetryStep
-	listTelemetryStepsErr    error
-	listTelemetryStepsRunID  string
-	listTelemetryEventsResp  domain.ResourcePage[domain.TelemetryEventRecord]
-	listTelemetryEventsErr   error
-	listTelemetryEventsRunID string
-	listTelemetryEventsQuery domain.PageQuery
-	graphResp                []byte
-	graphErr                 error
-	graphAgentName           string
-	graphXrayDepth           int32
-	uploadResp               domain.WorkspaceUploadResponse
-	uploadErr                error
-	uploadReq                domain.WorkspaceUploadRequest
+	runStream                       runtimeclient.RunStream
+	runErr                          error
+	runRequest                      domain.RunRequest
+	telemetryStream                 runtimeclient.TelemetryStream
+	telemetryErr                    error
+	telemetryRequest                domain.RunRequest
+	recordTelemetryEvent            runtimeclient.TelemetryEvent
+	recordTelemetryErr              error
+	listTelemetryRunsResp           domain.ResourcePage[domain.TelemetryRun]
+	listTelemetryRunsErr            error
+	listTelemetryRunsQuery          domain.TelemetryRunQuery
+	getTelemetryRunResp             domain.TelemetryRun
+	getTelemetryRunErr              error
+	getTelemetryRunID               string
+	getTelemetryRunSnapshotResp     domain.SessionMessagePage
+	getTelemetryRunSnapshotErr      error
+	getTelemetryRunSnapshotID       string
+	getTelemetryRunSnapshotPosition domain.TelemetryRunSnapshotPosition
+	getTelemetryRunSnapshotQuery    domain.SessionMessageQuery
+	listTelemetryStepsResp          []domain.TelemetryStep
+	listTelemetryStepsErr           error
+	listTelemetryStepsRunID         string
+	listTelemetryEventsResp         domain.ResourcePage[domain.TelemetryEventRecord]
+	listTelemetryEventsErr          error
+	listTelemetryEventsRunID        string
+	listTelemetryEventsQuery        domain.PageQuery
+	graphResp                       []byte
+	graphErr                        error
+	graphAgentName                  string
+	graphXrayDepth                  int32
+	uploadResp                      domain.WorkspaceUploadResponse
+	uploadErr                       error
+	uploadReq                       domain.WorkspaceUploadRequest
 
 	downloadErr         error
 	downloadReq         domain.WorkspaceFileDownloadRequest
@@ -173,7 +178,7 @@ func (f *fakeAgentService) RecordTelemetryEvent(_ context.Context, event runtime
 
 func (f *fakeAgentService) ListTelemetryRuns(
 	_ context.Context,
-	query domain.PageQuery,
+	query domain.TelemetryRunQuery,
 ) (domain.ResourcePage[domain.TelemetryRun], error) {
 	f.listTelemetryRunsQuery = query
 	return f.listTelemetryRunsResp, f.listTelemetryRunsErr
@@ -185,6 +190,18 @@ func (f *fakeAgentService) GetTelemetryRun(
 ) (domain.TelemetryRun, error) {
 	f.getTelemetryRunID = runID
 	return f.getTelemetryRunResp, f.getTelemetryRunErr
+}
+
+func (f *fakeAgentService) GetTelemetryRunSnapshot(
+	_ context.Context,
+	runID string,
+	position domain.TelemetryRunSnapshotPosition,
+	query domain.SessionMessageQuery,
+) (domain.SessionMessagePage, error) {
+	f.getTelemetryRunSnapshotID = runID
+	f.getTelemetryRunSnapshotPosition = position
+	f.getTelemetryRunSnapshotQuery = query
+	return f.getTelemetryRunSnapshotResp, f.getTelemetryRunSnapshotErr
 }
 
 func (f *fakeAgentService) ListTelemetrySteps(
@@ -692,14 +709,19 @@ func TestServerDelegatesTelemetryQueries(t *testing.T) {
 		t.Fatalf("NewServer: %v", err)
 	}
 
-	page, err := server.ListTelemetryRuns(context.Background(), domain.PageQuery{PageSize: 10, PageNumber: 1})
+	page, err := server.ListTelemetryRuns(context.Background(), domain.TelemetryRunQuery{
+		PageQuery: domain.PageQuery{PageSize: 10, PageNumber: 1},
+		AgentName: "assistant",
+		ThreadID:  "thread-1",
+	})
 	if err != nil {
 		t.Fatalf("ListTelemetryRuns: %v", err)
 	}
 	if len(page.Items) != 1 || page.Items[0].RunID != "run-1" {
 		t.Fatalf("unexpected telemetry runs page: %#v", page)
 	}
-	if service.listTelemetryRunsQuery.PageSize != 10 || service.listTelemetryRunsQuery.PageNumber != 1 {
+	if service.listTelemetryRunsQuery.PageSize != 10 || service.listTelemetryRunsQuery.PageNumber != 1 ||
+		service.listTelemetryRunsQuery.AgentName != "assistant" || service.listTelemetryRunsQuery.ThreadID != "thread-1" {
 		t.Fatalf("unexpected telemetry run query: %#v", service.listTelemetryRunsQuery)
 	}
 
@@ -709,6 +731,27 @@ func TestServerDelegatesTelemetryQueries(t *testing.T) {
 	}
 	if run.RunID != "run-1" || service.getTelemetryRunID != "run-1" {
 		t.Fatalf("unexpected telemetry run lookup: run=%#v service=%#v", run, service)
+	}
+
+	service.getTelemetryRunSnapshotResp = domain.SessionMessagePage{
+		ThreadID:             "thread-1",
+		ResolvedCheckpointID: "cp-002",
+		Messages:             []domain.SessionMessage{{Index: 0, Text: "hello"}},
+	}
+	snapshot, err := server.GetTelemetryRunSnapshot(
+		context.Background(),
+		"run-1",
+		domain.TelemetryRunSnapshotPositionAfter,
+		domain.SessionMessageQuery{PageSize: 100},
+	)
+	if err != nil {
+		t.Fatalf("GetTelemetryRunSnapshot: %v", err)
+	}
+	if snapshot.ResolvedCheckpointID != "cp-002" ||
+		service.getTelemetryRunSnapshotID != "run-1" ||
+		service.getTelemetryRunSnapshotPosition != domain.TelemetryRunSnapshotPositionAfter ||
+		service.getTelemetryRunSnapshotQuery.PageSize != 100 {
+		t.Fatalf("unexpected telemetry snapshot lookup: snapshot=%#v service=%#v", snapshot, service)
 	}
 
 	service.listTelemetryStepsResp = []domain.TelemetryStep{{StepID: "step:run:run-1"}}

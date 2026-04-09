@@ -16,10 +16,13 @@ import {
 } from '@/features/telemetry/graphModel';
 import { buildTraceSpansFromSteps, type TelemetryEventVM, type TraceSpanVM } from '@/features/telemetry/traceModel';
 import { controlClient } from '@/shared/api/controlClient';
+import { ControlApiError } from '@/shared/api/httpClient';
 import type {
   HTTPTelemetryEventDTO,
   HTTPActionRequestDTO,
   HTTPReviewConfigDTO,
+  SessionMessageDTO,
+  SessionMessagePageDTO,
 } from '@/shared/types/api';
 import '@/styles/registry-cards.css';
 
@@ -39,6 +42,7 @@ type PendingTelemetryInterrupt = {
   reviewConfigs: HTTPReviewConfigDTO[];
 };
 
+type SnapshotTab = 'after' | 'before';
 type TelemetryGroupMode = 'flat' | 'namespace' | 'stream_mode' | 'event_type';
 type TelemetryViewMode = 'trace' | 'graph' | 'debug';
 type TraceStatusFilter = 'all' | 'running' | 'completed' | 'failed' | 'interrupted' | 'observed';
@@ -71,8 +75,36 @@ function formatStatus(status: TelemetryStatus): { text: string; color: string } 
   }
 }
 
+function telemetryStatusFromRun(status?: string): TelemetryStatus {
+  switch ((status ?? '').trim()) {
+    case 'running': return 'streaming';
+    case 'completed': return 'completed';
+    case 'canceled': return 'canceled';
+    case 'failed': return 'failed';
+    default: return 'idle';
+  }
+}
+
 function isTelemetryEvent(payload: unknown): payload is HTTPTelemetryEventDTO {
   return typeof payload === 'object' && payload !== null && ('event_type' in payload || 'stream_mode' in payload || 'public_event' in payload);
+}
+
+function normalizeTelemetryEvent(
+  payload: HTTPTelemetryEventDTO,
+  fallbackId: string,
+): TelemetryEventVM {
+  return {
+    id: payload.event_id ?? fallbackId,
+    runId: payload.run_id ?? payload.public_event?.run_id,
+    agentName: payload.agent_name ?? payload.public_event?.agent_name,
+    timestamp: payload.timestamp ?? payload.public_event?.timestamp,
+    namespace: payload.namespace ?? [],
+    streamMode: payload.stream_mode ?? (payload.public_event ? 'lifecycle' : 'unknown'),
+    eventType: payload.event_type ?? 'unknown',
+    metadata: payload.metadata,
+    payload: payload.payload,
+    publicEvent: payload.public_event,
+  };
 }
 
 function formatCompactDateTime(value?: string): string {
@@ -536,10 +568,95 @@ function PendingApprovalBanner(props: {
   );
 }
 
+function snapshotRoleColor(role?: string): 'green' | 'arcoblue' | 'purple' | 'orange' {
+  switch ((role ?? '').toLowerCase()) {
+    case 'human': return 'green';
+    case 'ai': return 'arcoblue';
+    case 'tool': return 'orange';
+    default: return 'purple';
+  }
+}
+
+function snapshotMessageText(message: SessionMessageDTO): string {
+  return (message.content ?? message.text ?? '').trim() || '(empty)';
+}
+
+function SessionSnapshotCard(props: {
+  activeTab: SnapshotTab;
+  onTabChange: (value: SnapshotTab) => void;
+  beforeSnapshot?: SessionMessagePageDTO;
+  afterSnapshot?: SessionMessagePageDTO;
+  beforeUnavailable: boolean;
+  afterUnavailable: boolean;
+  loading: boolean;
+}) {
+  const activeSnapshot = props.activeTab === 'before' ? props.beforeSnapshot : props.afterSnapshot;
+  const unavailable = props.activeTab === 'before' ? props.beforeUnavailable : props.afterUnavailable;
+
+  return (
+    <div className='control-card flex min-h-0 flex-col overflow-hidden px-14px py-14px'>
+      <div className='mb-10px flex items-center justify-between gap-8px'>
+        <span className='block text-11px uppercase tracking-widest text-[var(--control-subtle)]'>session snapshot</span>
+        <SegmentedTabs
+          value={props.activeTab}
+          tabs={[
+            { value: 'after', label: 'After Run' },
+            { value: 'before', label: 'Before Run' },
+          ]}
+          onChange={(value) => props.onTabChange(value as SnapshotTab)}
+        />
+      </div>
+      <div className='mb-10px grid grid-cols-2 gap-x-10px gap-y-8px text-13px'>
+        <span className='text-[var(--control-subtle)]'>checkpoint</span>
+        <span className='truncate text-right'>{activeSnapshot?.resolved_checkpoint_id ?? '-'}</span>
+        <span className='text-[var(--control-subtle)]'>mode</span>
+        <span className='truncate text-right'>{activeSnapshot?.actual_mode ?? 'resume_view'}</span>
+        <span className='text-[var(--control-subtle)]'>messages</span>
+        <span className='truncate text-right'>{activeSnapshot?.total_message_count ?? 0}</span>
+      </div>
+      <div className='control-scroll control-scroll-strong min-h-0 flex-1 overflow-y-scroll overflow-x-hidden'>
+        {props.loading ? (
+          <div className='flex h-full items-center justify-center'>
+            <Spin loading />
+          </div>
+        ) : unavailable ? (
+          <Empty description={`No ${props.activeTab} snapshot available for this run`} />
+        ) : !activeSnapshot || (activeSnapshot.messages?.length ?? 0) === 0 ? (
+          <Empty description='No messages available in this snapshot' />
+        ) : (
+          <div className='flex flex-col gap-8px'>
+            {activeSnapshot.messages.map((message, index) => (
+              <div
+                key={`${props.activeTab}-${message.index ?? index}-${message.role ?? 'message'}`}
+                className='rd-10px border border-solid px-10px py-10px'
+                style={{ borderColor: 'rgba(0,240,255,0.08)', background: 'rgba(16,22,48,0.76)' }}
+              >
+                <div className='mb-6px flex items-center gap-8px'>
+                  <Tag size='small' color={snapshotRoleColor(message.role)}>{message.role ?? 'unknown'}</Tag>
+                  {message.tool_name ? <Tag size='small' color='orange'>{message.tool_name}</Tag> : null}
+                  {message.is_error ? <Tag size='small' color='red'>error</Tag> : null}
+                  <span className='ml-auto text-11px text-[var(--control-subtle)]'>
+                    #{message.index ?? index}
+                  </span>
+                </div>
+                <div className='text-12px leading-18px text-[var(--control-text)]'>
+                  {truncate(snapshotMessageText(message), 280)}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function TelemetryPage() {
   const navigate = useNavigate();
-  const params = useParams<{ agentName?: string }>();
+  const params = useParams<{ agentName?: string; runId?: string }>();
   const selectedAgentName = params.agentName;
+  const historyRunId = params.runId;
+  const historyMode = Boolean(historyRunId);
   const streamAbortRef = useRef<AbortController | null>(null);
   const traceStepsRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const nextEventIdRef = useRef(1);
@@ -581,6 +698,7 @@ export default function TelemetryPage() {
   const [selectedTraceId, setSelectedTraceId] = useState<string | undefined>(undefined);
   const [selectedGraphNodeId, setSelectedGraphNodeId] = useState<string | undefined>(undefined);
   const [pendingInterrupts, setPendingInterrupts] = useState<PendingTelemetryInterrupt[]>([]);
+  const [snapshotTab, setSnapshotTab] = useState<SnapshotTab>('after');
   const [selectedModes, setSelectedModes] = useState<string[]>([]);
   const [selectedEventTypes, setSelectedEventTypes] = useState<string[]>([]);
   const [namespaceFilter, setNamespaceFilter] = useState('');
@@ -604,20 +722,62 @@ export default function TelemetryPage() {
   const [graphNodePositions, setGraphNodePositions] = useState<Record<string, { x: number; y: number }>>({});
 
   const agentsQuery = useSWR('telemetry-agents', () => controlClient.agents.list({ pageSize: 100, pageNumber: 1 }));
-  const graphQuery = useSWR(
-    selectedAgentName ? ['telemetry-graph', selectedAgentName] : null,
-    () => controlClient.agents.getGraph(selectedAgentName!, 2),
-  );
-  const traceStepsQuery = useSWR(
-    currentRunId ? ['telemetry-steps', currentRunId] : null,
-    () => controlClient.runs.listTelemetrySteps(currentRunId!),
+  const runDetailQuery = useSWR(
+    historyRunId ? ['telemetry-run', historyRunId] : null,
+    () => controlClient.runs.getTelemetryRun(historyRunId!),
     {
       revalidateOnFocus: false,
       revalidateOnReconnect: false,
     },
   );
+  const effectiveAgentName = historyMode ? runDetailQuery.data?.agent_name : selectedAgentName;
+  const effectiveRunId = historyMode ? (runDetailQuery.data?.run_id ?? historyRunId) : currentRunId;
+  const effectiveThreadId = historyMode ? runDetailQuery.data?.thread_id : currentThreadId;
+  const effectiveStatus = historyMode ? telemetryStatusFromRun(runDetailQuery.data?.status) : status;
+  const graphQuery = useSWR(
+    effectiveAgentName ? ['telemetry-graph', effectiveAgentName] : null,
+    () => controlClient.agents.getGraph(effectiveAgentName!, 2),
+  );
+  const historyEventsQuery = useSWR(
+    historyMode && effectiveRunId ? ['telemetry-events', effectiveRunId] : null,
+    () => controlClient.runs.listTelemetryEvents(effectiveRunId!, { pageSize: 1000, pageNumber: 1 }),
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+    },
+  );
+  const traceStepsQuery = useSWR(
+    effectiveRunId ? ['telemetry-steps', effectiveRunId] : null,
+    () => controlClient.runs.listTelemetrySteps(effectiveRunId!),
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+    },
+  );
+  const afterSnapshotQuery = useSWR(
+    historyMode && effectiveRunId ? ['telemetry-snapshot', effectiveRunId, 'after'] : null,
+    () => controlClient.runs.getTelemetryRunSnapshot(effectiveRunId!, 'after', { pageSize: 200 }),
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      shouldRetryOnError: false,
+    },
+  );
+  const beforeSnapshotQuery = useSWR(
+    historyMode && effectiveRunId && runDetailQuery.data?.start_checkpoint_id
+      ? ['telemetry-snapshot', effectiveRunId, 'before'] : null,
+    () => controlClient.runs.getTelemetryRunSnapshot(effectiveRunId!, 'before', { pageSize: 200 }),
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      shouldRetryOnError: false,
+    },
+  );
   const deferredNamespaceFilter = useDeferredValue(namespaceFilter);
   const deferredSearchFilter = useDeferredValue(searchFilter);
+  const beforeSnapshotUnavailable = beforeSnapshotQuery.error instanceof ControlApiError && beforeSnapshotQuery.error.status === 404;
+  const afterSnapshotUnavailable = afterSnapshotQuery.error instanceof ControlApiError && afterSnapshotQuery.error.status === 404;
+  const pageLoading = historyMode ? (runDetailQuery.isLoading || historyEventsQuery.isLoading) : agentsQuery.isLoading;
 
   useEffect(() => {
     if (viewMode === 'graph') return;
@@ -625,6 +785,27 @@ export default function TelemetryPage() {
     if (!viewport) return;
     viewport.scrollTop = viewport.scrollHeight;
   }, [events, viewMode]);
+
+  useEffect(() => {
+    if (!historyMode) return;
+    streamAbortRef.current?.abort();
+    setRunSessionId(undefined);
+    setPendingInterrupts([]);
+  }, [historyMode]);
+
+  useEffect(() => {
+    if (!historyMode) return;
+    const historyEvents = historyEventsQuery.data?.events ?? [];
+    setEvents(historyEvents.map((event, index) => normalizeTelemetryEvent(event, `history-event-${index}`)));
+  }, [historyEventsQuery.data?.events, historyMode]);
+
+  useEffect(() => {
+    if (!historyMode) return;
+    if (runDetailQuery.data?.start_checkpoint_id) return;
+    if (snapshotTab !== 'after') {
+      setSnapshotTab('after');
+    }
+  }, [historyMode, runDetailQuery.data?.start_checkpoint_id, snapshotTab]);
 
   useEffect(() => () => {
     streamAbortRef.current?.abort();
@@ -1098,7 +1279,7 @@ export default function TelemetryPage() {
   }
 
   function scheduleTraceStepsRefresh(runId: string | undefined, immediate = false): void {
-    if (!runId || runId !== currentRunId) return;
+    if (!runId || runId !== effectiveRunId) return;
     if (immediate) {
       stopTraceStepsRefresh();
       void traceStepsQuery.mutate();
@@ -1112,18 +1293,10 @@ export default function TelemetryPage() {
   }
 
   const appendTelemetryEvent = useEffectEvent((payload: HTTPTelemetryEventDTO, eventName: string) => {
-    const normalized: TelemetryEventVM = {
-      id: payload.event_id ?? `telemetry-${nextEventIdRef.current++}`,
-      runId: payload.run_id ?? payload.public_event?.run_id,
-      agentName: payload.agent_name ?? payload.public_event?.agent_name,
-      timestamp: payload.timestamp ?? payload.public_event?.timestamp,
-      namespace: payload.namespace ?? [],
-      streamMode: payload.stream_mode ?? (payload.public_event ? 'lifecycle' : 'unknown'),
-      eventType: payload.event_type ?? eventName,
-      metadata: payload.metadata,
-      payload: payload.payload,
-      publicEvent: payload.public_event,
-    };
+    const normalized = normalizeTelemetryEvent(payload, `telemetry-${nextEventIdRef.current++}`);
+    if (!payload.event_type) {
+      normalized.eventType = eventName;
+    }
 
     setEvents((prev) => [...prev, normalized]);
     setSelectedEventId(normalized.id);
@@ -1245,7 +1418,7 @@ export default function TelemetryPage() {
       });
       setPendingInterrupts((prev) => prev.filter((item) => item.interruptId !== interrupt.interruptId));
       setStatus((prev) => (prev === 'waiting_hitl' ? 'streaming' : prev));
-      scheduleTraceStepsRefresh(currentRunId, true);
+      scheduleTraceStepsRefresh(effectiveRunId, true);
       Message.success(`${type} submitted`);
     } catch (error) {
       Message.error(error instanceof Error ? error.message : 'submit hitl decision failed');
@@ -1306,7 +1479,7 @@ export default function TelemetryPage() {
 
   return (
     <div className='telemetry-page flex min-h-0 flex-1 flex-col overflow-hidden'>
-      <Spin loading={agentsQuery.isLoading} className='telemetry-page-spin flex min-h-0 flex-1 flex-col overflow-hidden'>
+      <Spin loading={pageLoading} className='telemetry-page-spin flex min-h-0 flex-1 flex-col overflow-hidden'>
         <div className='flex min-h-0 flex-1 flex-col gap-12px overflow-hidden'>
         <div className='flex items-center justify-between gap-16px'>
           <div className='flex items-center gap-12px'>
@@ -1352,8 +1525,22 @@ export default function TelemetryPage() {
                 Debug
               </Button>
             </div>
-            <StatusPill status={status} />
-            <Button size='small' onClick={() => void navigate(links.chatRoot())}>
+            <StatusPill status={effectiveStatus} />
+            {historyMode && effectiveRunId ? (
+              <Button size='small' onClick={() => void navigate(links.telemetryAgent(effectiveAgentName ?? ''))} disabled={!effectiveAgentName}>
+                Live
+              </Button>
+            ) : null}
+            <Button
+              size='small'
+              onClick={() => {
+                if (effectiveAgentName && effectiveThreadId) {
+                  void navigate(links.chatThread(effectiveAgentName, effectiveThreadId));
+                  return;
+                }
+                void navigate(links.chatRoot());
+              }}
+            >
               Chat
             </Button>
           </div>
@@ -1370,58 +1557,88 @@ export default function TelemetryPage() {
           style={desktopLayoutStyle}
         >
           <div className='control-scroll control-scroll-strong flex min-h-0 h-full flex-col gap-12px overflow-y-scroll overflow-x-hidden'>
-            <div className='control-card px-14px py-14px'>
-              <span className='mb-8px block text-11px uppercase tracking-widest text-[var(--control-subtle)]'>run config</span>
-              <div className='flex flex-col gap-10px'>
-                <Select
-                  allowClear
-                  placeholder='Select agent'
-                  options={agentOptions}
-                  value={selectedAgentName}
-                  onChange={handleAgentChange}
-                />
-                <TextArea
-                  autoSize={{ minRows: 4, maxRows: 8 }}
-                  placeholder='Prompt to execute with telemetry'
-                  value={prompt}
-                  onChange={setPrompt}
-                />
-                <div className='flex gap-8px'>
-                  <Button
-                    type='primary'
-                    className='min-w-0 flex-1'
-                    icon={<PlayOne theme='outline' size='14' fill='currentColor' />}
-                    disabled={!selectedAgentName || status === 'starting' || status === 'streaming' || status === 'waiting_hitl' || status === 'canceling'}
-                    onClick={() => void startTelemetry()}
-                  >
-                    Start
-                  </Button>
-                  <Button
-                    status='warning'
-                    className='min-w-0 flex-1'
-                    disabled={!runSessionId || status === 'canceling'}
-                    onClick={() => void cancelTelemetry()}
-                  >
-                    Cancel
-                  </Button>
+            {historyMode ? (
+              <div className='control-card px-14px py-14px'>
+                <span className='mb-8px block text-11px uppercase tracking-widest text-[var(--control-subtle)]'>history mode</span>
+                <Typography.Text className='block text-12px leading-20px text-[var(--control-subtle)]'>
+                  This view replays one persisted telemetry run and resolves thread state through run-bound checkpoints.
+                </Typography.Text>
+              </div>
+            ) : (
+              <div className='control-card px-14px py-14px'>
+                <span className='mb-8px block text-11px uppercase tracking-widest text-[var(--control-subtle)]'>run config</span>
+                <div className='flex flex-col gap-10px'>
+                  <Select
+                    allowClear
+                    placeholder='Select agent'
+                    options={agentOptions}
+                    value={selectedAgentName}
+                    onChange={handleAgentChange}
+                  />
+                  <TextArea
+                    autoSize={{ minRows: 4, maxRows: 8 }}
+                    placeholder='Prompt to execute with telemetry'
+                    value={prompt}
+                    onChange={setPrompt}
+                  />
+                  <div className='flex gap-8px'>
+                    <Button
+                      type='primary'
+                      className='min-w-0 flex-1'
+                      icon={<PlayOne theme='outline' size='14' fill='currentColor' />}
+                      disabled={!selectedAgentName || status === 'starting' || status === 'streaming' || status === 'waiting_hitl' || status === 'canceling'}
+                      onClick={() => void startTelemetry()}
+                    >
+                      Start
+                    </Button>
+                    <Button
+                      status='warning'
+                      className='min-w-0 flex-1'
+                      disabled={!runSessionId || status === 'canceling'}
+                      onClick={() => void cancelTelemetry()}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
             <div className='control-card px-14px py-14px'>
               <div className='mb-10px flex items-center justify-between gap-8px'>
                 <span className='block text-11px uppercase tracking-widest text-[var(--control-subtle)]'>run summary</span>
-                <StatusPill status={status} />
+                <div className='flex items-center gap-8px'>
+                  {effectiveRunId ? (
+                    <Button
+                      size='mini'
+                      type='text'
+                      className='control-quiet-icon-button'
+                      disabled={historyMode}
+                      onClick={() => void navigate(links.telemetryRun(effectiveRunId))}
+                    >
+                      Open Detail
+                    </Button>
+                  ) : null}
+                  <StatusPill status={effectiveStatus} />
+                </div>
               </div>
               <div className='grid grid-cols-2 gap-x-10px gap-y-8px text-13px'>
                 <span className='text-[var(--control-subtle)]'>agent</span>
-                <span className='truncate text-right'>{selectedAgentName ?? 'n/a'}</span>
+                <span className='truncate text-right'>{effectiveAgentName ?? 'n/a'}</span>
                 <span className='text-[var(--control-subtle)]'>thread</span>
-                <span className='truncate text-right'>{currentThreadId ?? 'pending'}</span>
+                <span className='truncate text-right'>{effectiveThreadId ?? 'pending'}</span>
                 <span className='text-[var(--control-subtle)]'>session</span>
-                <span className='truncate text-right'>{runSessionId ?? '-'}</span>
+                <span className='truncate text-right'>{historyMode ? 'persisted' : (runSessionId ?? '-')}</span>
                 <span className='text-[var(--control-subtle)]'>run</span>
-                <span className='truncate text-right'>{currentRunId ?? '-'}</span>
+                <span className='truncate text-right'>{effectiveRunId ?? '-'}</span>
+                {historyMode ? (
+                  <>
+                    <span className='text-[var(--control-subtle)]'>started</span>
+                    <span className='truncate text-right'>{formatCompactDateTime(runDetailQuery.data?.started_at)}</span>
+                    <span className='text-[var(--control-subtle)]'>finished</span>
+                    <span className='truncate text-right'>{formatCompactDateTime(runDetailQuery.data?.finished_at)}</span>
+                  </>
+                ) : null}
               </div>
               <div className='mt-12px'>
                 <span className='mb-8px block text-11px uppercase tracking-widest text-[var(--control-subtle)]'>stream modes</span>
@@ -1490,7 +1707,7 @@ export default function TelemetryPage() {
                   <ScrollableViewport viewportRef={listViewportRef} viewportClassName='px-10px py-10px'>
                     {traceSpans.length === 0 ? (
                       <div className='flex h-full items-center justify-center'>
-                        <Empty description='Start a telemetry run to inspect the execution trace' />
+                        <Empty description={historyMode ? 'No persisted trace events were found for this run' : 'Start a telemetry run to inspect the execution trace'} />
                       </div>
                     ) : filteredTraceSpans.length === 0 ? (
                       <div className='flex h-full items-center justify-center'>
@@ -1578,6 +1795,18 @@ export default function TelemetryPage() {
                     <Typography.Text className='text-12px text-[var(--control-subtle)]'>No step selected</Typography.Text>
                   )}
                 </div>
+
+                {historyMode ? (
+                  <SessionSnapshotCard
+                    activeTab={snapshotTab}
+                    onTabChange={setSnapshotTab}
+                    beforeSnapshot={beforeSnapshotQuery.data}
+                    afterSnapshot={afterSnapshotQuery.data}
+                    beforeUnavailable={beforeSnapshotUnavailable}
+                    afterUnavailable={afterSnapshotUnavailable}
+                    loading={beforeSnapshotQuery.isLoading || afterSnapshotQuery.isLoading}
+                  />
+                ) : null}
 
                 {selectedTrace ? (
                   <div className='control-card flex min-h-0 flex-1 flex-col overflow-hidden px-14px py-14px'>
@@ -1754,9 +1983,9 @@ export default function TelemetryPage() {
                     <div className='flex h-full items-center justify-center'>
                       <Spin loading />
                     </div>
-                  ) : !selectedAgentName ? (
+                  ) : !effectiveAgentName ? (
                     <div className='flex h-full items-center justify-center'>
-                      <Empty description='Select an agent to load its graph' />
+                      <Empty description={historyMode ? 'Run detail is still loading its agent graph' : 'Select an agent to load its graph'} />
                     </div>
                   ) : graphNodes.length === 0 ? (
                     <div className='flex h-full items-center justify-center'>
@@ -2135,7 +2364,7 @@ export default function TelemetryPage() {
                   <ScrollableViewport viewportRef={listViewportRef} viewportClassName='px-10px py-10px'>
                     {events.length === 0 ? (
                       <div className='flex h-full items-center justify-center'>
-                        <Empty description='Start a telemetry run to inspect events' />
+                        <Empty description={historyMode ? 'No persisted telemetry events were found for this run' : 'Start a telemetry run to inspect events'} />
                       </div>
                     ) : filteredEvents.length === 0 ? (
                       <div className='flex h-full items-center justify-center'>

@@ -374,26 +374,29 @@ type httpTelemetryEvent struct {
 }
 
 type telemetryRunResponse struct {
-	RunID            string          `json:"run_id,omitempty"`
-	AgentName        string          `json:"agent_name,omitempty"`
-	ThreadID         string          `json:"thread_id,omitempty"`
-	RuntimeTarget    string          `json:"runtime_target,omitempty"`
-	Status           string          `json:"status,omitempty"`
-	RequestMetadata  json.RawMessage `json:"request_metadata,omitempty"`
-	TraceContext     json.RawMessage `json:"trace_context,omitempty"`
-	GraphSnapshotID  string          `json:"graph_snapshot_id,omitempty"`
-	ReasoningSummary string          `json:"reasoning_summary,omitempty"`
-	NodeStepCount    int32           `json:"node_step_count,omitempty"`
-	ModelStepCount   int32           `json:"model_step_count,omitempty"`
-	ToolStepCount    int32           `json:"tool_step_count,omitempty"`
-	HitlWaitCount    int32           `json:"hitl_wait_count,omitempty"`
-	ErrorCount       int32           `json:"error_count,omitempty"`
-	EventCount       int32           `json:"event_count,omitempty"`
-	StartedAt        string          `json:"started_at,omitempty"`
-	FinishedAt       string          `json:"finished_at,omitempty"`
-	LastEventAt      string          `json:"last_event_at,omitempty"`
-	CreatedAt        string          `json:"created_at,omitempty"`
-	UpdatedAt        string          `json:"updated_at,omitempty"`
+	RunID             string          `json:"run_id,omitempty"`
+	AgentName         string          `json:"agent_name,omitempty"`
+	ThreadID          string          `json:"thread_id,omitempty"`
+	TurnIndex         int32           `json:"turn_index,omitempty"`
+	StartCheckpointID string          `json:"start_checkpoint_id,omitempty"`
+	EndCheckpointID   string          `json:"end_checkpoint_id,omitempty"`
+	RuntimeTarget     string          `json:"runtime_target,omitempty"`
+	Status            string          `json:"status,omitempty"`
+	RequestMetadata   json.RawMessage `json:"request_metadata,omitempty"`
+	TraceContext      json.RawMessage `json:"trace_context,omitempty"`
+	GraphSnapshotID   string          `json:"graph_snapshot_id,omitempty"`
+	ReasoningSummary  string          `json:"reasoning_summary,omitempty"`
+	NodeStepCount     int32           `json:"node_step_count,omitempty"`
+	ModelStepCount    int32           `json:"model_step_count,omitempty"`
+	ToolStepCount     int32           `json:"tool_step_count,omitempty"`
+	HitlWaitCount     int32           `json:"hitl_wait_count,omitempty"`
+	ErrorCount        int32           `json:"error_count,omitempty"`
+	EventCount        int32           `json:"event_count,omitempty"`
+	StartedAt         string          `json:"started_at,omitempty"`
+	FinishedAt        string          `json:"finished_at,omitempty"`
+	LastEventAt       string          `json:"last_event_at,omitempty"`
+	CreatedAt         string          `json:"created_at,omitempty"`
+	UpdatedAt         string          `json:"updated_at,omitempty"`
 }
 
 type telemetryStepResponse struct {
@@ -507,6 +510,16 @@ type sessionListResponse struct {
 type sessionMessagesResponse struct {
 	Messages      []sessionMessageResponse `json:"messages"`
 	NextPageToken string                   `json:"next_page_token,omitempty"`
+}
+
+type telemetryRunsQuery struct {
+	Query domain.TelemetryRunQuery
+}
+
+type telemetryRunSnapshotQuery struct {
+	RunID        string
+	Position     domain.TelemetryRunSnapshotPosition
+	MessageQuery domain.SessionMessageQuery
 }
 
 type telemetryRunsListResponse struct {
@@ -882,6 +895,59 @@ func decodeSessionMessagePageQuery(c *gin.Context) (domain.SessionMessageQuery, 
 		PageSize:     pageSize,
 		PageToken:    strings.TrimSpace(c.Query("page_token")),
 		IncludeRaw:   includeRaw,
+	}, nil
+}
+
+func decodeTelemetryRunsQuery(r *http.Request) (domain.TelemetryRunQuery, error) {
+	pageQuery, err := decodeResourcePageQuery(r)
+	if err != nil {
+		return domain.TelemetryRunQuery{}, err
+	}
+	return domain.TelemetryRunQuery{
+		PageQuery: pageQuery,
+		AgentName: strings.TrimSpace(r.URL.Query().Get("agent_name")),
+		ThreadID:  strings.TrimSpace(r.URL.Query().Get("thread_id")),
+	}, nil
+}
+
+func decodeTelemetryRunSnapshotQuery(c *gin.Context) (telemetryRunSnapshotQuery, error) {
+	runID := strings.TrimSpace(c.Param("run_id"))
+	if runID == "" {
+		return telemetryRunSnapshotQuery{}, errors.New("run_id must not be empty")
+	}
+
+	mode, err := parseSessionHistoryMode(c.Query("mode"))
+	if err != nil {
+		return telemetryRunSnapshotQuery{}, err
+	}
+	pageSize, err := parsePageSize(c.Request, "page_size")
+	if err != nil {
+		return telemetryRunSnapshotQuery{}, err
+	}
+	includeRaw, err := parseOptionalBool(c.Request, "include_raw")
+	if err != nil {
+		return telemetryRunSnapshotQuery{}, err
+	}
+
+	position := domain.TelemetryRunSnapshotPosition(strings.TrimSpace(c.Query("position")))
+	if position == "" {
+		position = domain.TelemetryRunSnapshotPositionAfter
+	}
+	switch position {
+	case domain.TelemetryRunSnapshotPositionBefore, domain.TelemetryRunSnapshotPositionAfter:
+	default:
+		return telemetryRunSnapshotQuery{}, fmt.Errorf("unsupported position %q", position)
+	}
+
+	return telemetryRunSnapshotQuery{
+		RunID:    runID,
+		Position: position,
+		MessageQuery: domain.SessionMessageQuery{
+			Mode:       mode,
+			PageSize:   pageSize,
+			PageToken:  strings.TrimSpace(c.Query("page_token")),
+			IncludeRaw: includeRaw,
+		},
 	}, nil
 }
 
@@ -1315,7 +1381,7 @@ func writeJSONError(w http.ResponseWriter, statusCode int, err error) {
 
 func writeServiceError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, registrypkg.ErrNotFound), errors.Is(err, runtimeclient.ErrNotFound), errors.Is(err, telemetry.ErrRunNotFound):
+	case errors.Is(err, registrypkg.ErrNotFound), errors.Is(err, runtimeclient.ErrNotFound), errors.Is(err, telemetry.ErrRunNotFound), errors.Is(err, telemetry.ErrRunSnapshotUnavailable):
 		writeJSONError(w, http.StatusNotFound, err)
 	case errors.Is(err, registrypkg.ErrConflict):
 		writeJSONError(w, http.StatusConflict, err)
@@ -1435,26 +1501,29 @@ func newHTTPTelemetryEventRecord(event domain.TelemetryEventRecord) httpTelemetr
 
 func newHTTPTelemetryRunResponse(run domain.TelemetryRun) telemetryRunResponse {
 	return telemetryRunResponse{
-		RunID:            run.RunID,
-		AgentName:        run.AgentName,
-		ThreadID:         run.ThreadID,
-		RuntimeTarget:    run.RuntimeTarget,
-		Status:           string(run.Status),
-		RequestMetadata:  run.RequestMetadata,
-		TraceContext:     run.TraceContext,
-		GraphSnapshotID:  run.GraphSnapshotID,
-		ReasoningSummary: run.ReasoningSummary,
-		NodeStepCount:    run.NodeStepCount,
-		ModelStepCount:   run.ModelStepCount,
-		ToolStepCount:    run.ToolStepCount,
-		HitlWaitCount:    run.HitlWaitCount,
-		ErrorCount:       run.ErrorCount,
-		EventCount:       run.EventCount,
-		StartedAt:        formatOptionalTime(run.StartedAt),
-		FinishedAt:       formatOptionalTime(run.FinishedAt),
-		LastEventAt:      formatOptionalTime(run.LastEventAt),
-		CreatedAt:        formatOptionalTime(run.CreatedAt),
-		UpdatedAt:        formatOptionalTime(run.UpdatedAt),
+		RunID:             run.RunID,
+		AgentName:         run.AgentName,
+		ThreadID:          run.ThreadID,
+		TurnIndex:         run.TurnIndex,
+		StartCheckpointID: run.StartCheckpointID,
+		EndCheckpointID:   run.EndCheckpointID,
+		RuntimeTarget:     run.RuntimeTarget,
+		Status:            string(run.Status),
+		RequestMetadata:   run.RequestMetadata,
+		TraceContext:      run.TraceContext,
+		GraphSnapshotID:   run.GraphSnapshotID,
+		ReasoningSummary:  run.ReasoningSummary,
+		NodeStepCount:     run.NodeStepCount,
+		ModelStepCount:    run.ModelStepCount,
+		ToolStepCount:     run.ToolStepCount,
+		HitlWaitCount:     run.HitlWaitCount,
+		ErrorCount:        run.ErrorCount,
+		EventCount:        run.EventCount,
+		StartedAt:         formatOptionalTime(run.StartedAt),
+		FinishedAt:        formatOptionalTime(run.FinishedAt),
+		LastEventAt:       formatOptionalTime(run.LastEventAt),
+		CreatedAt:         formatOptionalTime(run.CreatedAt),
+		UpdatedAt:         formatOptionalTime(run.UpdatedAt),
 	}
 }
 

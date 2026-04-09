@@ -18,27 +18,45 @@ const (
 
 // TelemetryRun captures one persisted telemetry run summary.
 type TelemetryRun struct {
-	RunID            string
-	AgentName        string
-	ThreadID         string
-	RuntimeTarget    string
-	Status           TelemetryRunStatus
-	RequestMetadata  json.RawMessage
-	TraceContext     json.RawMessage
-	GraphSnapshotID  string
-	ReasoningSummary string
-	NodeStepCount    int32
-	ModelStepCount   int32
-	ToolStepCount    int32
-	HitlWaitCount    int32
-	ErrorCount       int32
-	EventCount       int32
-	StartedAt        time.Time
-	FinishedAt       time.Time
-	LastEventAt      time.Time
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	RunID             string
+	AgentName         string
+	ThreadID          string
+	TurnIndex         int32
+	StartCheckpointID string
+	EndCheckpointID   string
+	RuntimeTarget     string
+	Status            TelemetryRunStatus
+	RequestMetadata   json.RawMessage
+	TraceContext      json.RawMessage
+	GraphSnapshotID   string
+	ReasoningSummary  string
+	NodeStepCount     int32
+	ModelStepCount    int32
+	ToolStepCount     int32
+	HitlWaitCount     int32
+	ErrorCount        int32
+	EventCount        int32
+	StartedAt         time.Time
+	FinishedAt        time.Time
+	LastEventAt       time.Time
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
+
+// TelemetryRunQuery describes one telemetry run page query with optional filters.
+type TelemetryRunQuery struct {
+	PageQuery
+	AgentName string
+	ThreadID  string
+}
+
+// TelemetryRunSnapshotPosition describes which run-bound snapshot to resolve.
+type TelemetryRunSnapshotPosition string
+
+const (
+	TelemetryRunSnapshotPositionBefore TelemetryRunSnapshotPosition = "before"
+	TelemetryRunSnapshotPositionAfter  TelemetryRunSnapshotPosition = "after"
+)
 
 // TelemetryEventRecord captures one persisted telemetry event.
 type TelemetryEventRecord struct {

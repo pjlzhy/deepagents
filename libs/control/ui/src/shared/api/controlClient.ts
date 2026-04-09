@@ -42,6 +42,11 @@ type NumberPageQuery = {
   pageNumber: number;
 };
 
+type TelemetryRunsQuery = NumberPageQuery & {
+  agentName?: string;
+  threadId?: string;
+};
+
 type CursorPageQuery = {
   pageSize: number;
   pageToken?: string;
@@ -51,6 +56,15 @@ function resourceQuery(params: NumberPageQuery): Record<string, number> {
   return {
     page_size: params.pageSize,
     page_number: params.pageNumber,
+  };
+}
+
+function telemetryRunsQuery(params: TelemetryRunsQuery): Record<string, string | number | undefined> {
+  return {
+    page_size: params.pageSize,
+    page_number: params.pageNumber,
+    agent_name: params.agentName,
+    thread_id: params.threadId,
   };
 }
 
@@ -276,11 +290,32 @@ export const controlClient = {
         handlers,
       );
     },
-    listTelemetryRuns(params: NumberPageQuery) {
-      return httpClient.get<TelemetryRunsListDTO>('/api/v1/telemetry/runs', resourceQuery(params));
+    listTelemetryRuns(params: TelemetryRunsQuery) {
+      return httpClient.get<TelemetryRunsListDTO>('/api/v1/telemetry/runs', telemetryRunsQuery(params));
     },
     getTelemetryRun(runId: string) {
       return httpClient.get<HTTPTelemetryRunDTO>(`/api/v1/telemetry/runs/${encodeURIComponent(runId)}`);
+    },
+    getTelemetryRunSnapshot(
+      runId: string,
+      position: 'before' | 'after',
+      params: {
+        pageSize?: number;
+        pageToken?: string;
+        mode?: string;
+        includeRaw?: boolean;
+      } = {},
+    ) {
+      return httpClient.get<SessionMessagePageDTO>(
+        `/api/v1/telemetry/runs/${encodeURIComponent(runId)}/snapshot`,
+        {
+          position,
+          page_size: params.pageSize,
+          page_token: params.pageToken,
+          mode: params.mode,
+          include_raw: params.includeRaw ? 'true' : undefined,
+        },
+      );
     },
     listTelemetrySteps(runId: string) {
       return httpClient.get<TelemetryStepsListDTO>(`/api/v1/telemetry/runs/${encodeURIComponent(runId)}/steps`);

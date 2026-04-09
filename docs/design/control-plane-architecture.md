@@ -1,7 +1,7 @@
 # Control Layer Architecture Design
 
 > 状态：当前范围完成
-> 最后更新：2026-03-27
+> 最后更新：2026-04-07
 > 目标实现语言：Go
 > 当前实现范围：single `default_target`
 
@@ -25,7 +25,9 @@ control layer 的目标是：
 - 作为 model configs、skills、MCP configs、AgentSpecs 的 authoritative registry
 - 负责 authored resources 的引用解析和 runtime-ready packaging
 - 负责 `install / compile / execute / cancel / uninstall` 的 southbound 编排
+- 作为所有 agent 调用的统一 gateway
 - 负责 northbound HTTP / SSE API
+- 负责 telemetry / audit 的统一 ingress boundary 与 northbound read boundary
 - 对上暴露稳定的资源管理、执行、查询接口
 
 ## 3. 非目标
@@ -50,7 +52,9 @@ control layer 负责：
 - registry CRUD
 - rich `AgentSpec` packaging
 - install / compile / uninstall orchestration
-- run stream proxy
+- gateway admission / routing
+- run / telemetry northbound API
+- telemetry ingest / read boundary
 - northbound API
 
 data layer 负责：
@@ -60,14 +64,16 @@ data layer 负责：
 - agent-scoped MCP runtime / sandbox runtime
 - run-scoped execution state
 - checkpoint / session state
+- live telemetry fact 生成与发送
 
 ### 4.2 协议边界
 
-control layer 只通过以下 southbound gRPC service 与 data layer 通信：
+control layer 当前 southbound gRPC 边界包括：
 
 - `ResourceSync`
 - `AgentExecutor`
 - `SessionQuery`
+- `AgentTelemetry`
 
 其中：
 
@@ -76,6 +82,9 @@ control layer 只通过以下 southbound gRPC service 与 data layer 通信：
 - `Assemble` 承担 compile 语义
 - `RemoveResource` 承担 uninstall/delete 语义
 - `SessionQuery` 提供 runtime-local session 查询和删除能力
+- `AgentTelemetry.RunTelemetry` 仅作为 live debug / live tap 路径存在
+  - 不承担历史查询
+  - 不承担 telemetry store ownership
 
 ## 5. 总体架构
 
@@ -83,7 +92,7 @@ control layer 只通过以下 southbound gRPC service 与 data layer 通信：
 
 ```text
 HTTP / SSE northbound
-    -> API
+    -> API / Gateway
         -> Orchestrator
             -> Registry
             -> Resolver
@@ -92,13 +101,25 @@ HTTP / SSE northbound
                 -> ResourceSync
                 -> AgentExecutor
                 -> SessionQuery
+                -> AgentTelemetry (live tap)
                     -> Data Plane
+```
+
+同时，下一阶段 telemetry 的目标链路应收敛为：
+
+```text
+runtime
+    -> MQ
+        -> control gateway ingest
+            -> TelemetryEvent ledger
+            -> TelemetryRun / TelemetryStep / TelemetryGraphSnapshot
+                -> northbound telemetry query / SSE
 ```
 
 一句话定义：
 
 ```text
-deepagents-control = Registry + Resolver + Packager + Orchestrator + HTTP API
+deepagents-control = Registry + Resolver + Packager + Gateway + Orchestrator + Telemetry Read Boundary
 ```
 
 ## 6. Go 模块拆分
@@ -129,6 +150,8 @@ libs/control/
 
 - `pkg/router/` 当前保留为后续 multi-target 扩展预留
 - 当前 runnable 主路径已经不依赖 `pkg/router/`
+- 当前 telemetry 相关逻辑仍分散在 `pkg/api`、`pkg/runtimeclient`、`pkg/streamproxy`
+- 后续若引入 MQ ingest、event persistence、step projection，再考虑独立 `pkg/telemetry`
 
 各模块职责如下。
 
@@ -196,11 +219,12 @@ authoritative resource registry。
 
 对 southbound gRPC 的薄封装。
 
-建议拆成三个 client：
+建议拆成四个 client：
 
 - `ResourceSyncClient`
 - `AgentExecutorClient`
 - `SessionQueryClient`
+- `AgentTelemetryClient`
 
 要求：
 
@@ -218,6 +242,8 @@ control layer 的核心 service 层。
 - `RunAgent`
 - `Health`
 - session 查询 / 删除
+- telemetry run / event / step / graph snapshot 查询
+- telemetry step projection 与 run summary 聚合
 - 对 northbound 资源 CRUD / 分页查询的 service 封装
 
 ### 6.7 `pkg/api`
@@ -228,6 +254,7 @@ northbound API。
 
 - 管理类接口使用 HTTP
 - 流式执行使用 SSE
+- live telemetry 也通过 SSE 暴露给 northbound UI
 
 ### 6.8 `pkg/streamproxy`
 
@@ -239,7 +266,13 @@ northbound API。
 - `AgentEvent` 原样转发
 - `HITLRequest` / `HITLDecision` 关联
 - `CancelRequest` 转发
-- run 审计记录
+- gateway 侧 run 审计事件发射
+- 当前 live telemetry stream 的 northbound 适配
+
+不负责：
+
+- telemetry event ledger 持久化 ownership
+- 历史 telemetry 查询
 
 ## 7. 核心领域模型
 
@@ -260,7 +293,7 @@ northbound API。
 |------|----------|------|
 | `RuntimeTarget` | 预留 / bootstrap 使用 | 当前只记录默认 target 元数据 |
 | `Deployment` | 预留 | 为未来 multi-target agent -> target 绑定保留 |
-| `Operation` | 预留 | 为 operation journal / audit 保留 |
+| `Operation` | 预留 | 为 operation journal / gateway audit 保留 |
 
 ### 7.2 状态模型
 
@@ -300,7 +333,7 @@ northbound API。
 | `agent_specs` | authored agent specs |
 | `runtime_targets` | 默认 target bootstrap 元数据与未来扩展预留 |
 | `deployments` | future multi-target 绑定预留 |
-| `operations` | operation journal / audit 预留 |
+| `operations` | operation journal / gateway audit 预留 |
 
 说明：
 
@@ -386,7 +419,30 @@ control layer 内部建议提供 `EnsureRunnable(agent_name)`：
 - control layer 不重做 parser state machine
 - event 扩展应优先通过 proto 扩展，而不是在 control layer 写死逻辑
 
-## 11. Session 与 Health 设计
+### 10.4 `RunTelemetry` 与 telemetry ingress
+
+当前 northbound telemetry live 调试链路可以通过 southbound `AgentTelemetry.RunTelemetry` 建立。
+
+它的定位应收敛为：
+
+- live debug / live tap
+- Telemetry UI 的开发期或在线调试观察路径
+- 对 runtime 原始 stream 的旁路观测
+
+它不代表最终 telemetry 持久化 ownership 位于 runtime。
+
+control layer 下的长期 telemetry 边界应定义为：
+
+- 所有 northbound agent 调用都经过 control gateway
+- runtime 在执行时产生 telemetry event
+- telemetry durable path 走 `runtime -> MQ -> control gateway`
+- control gateway 负责 `TelemetryEvent` 账本、`TelemetryRun`/`TelemetryStep`/`TelemetryGraphSnapshot` 投影，以及历史查询
+
+因此，`RunTelemetry` 只能视为 southbound live stream，而不能视为 telemetry query / audit 的权威路径。
+
+## 11. Session / Health / Telemetry 设计
+
+### 11.1 Session 与 Health
 
 当前把 session 与 health 视为 runtime query，而不是 control-owned state。
 
@@ -407,6 +463,42 @@ control layer 提供 northbound 查询接口，但 southbound 直接代理：
 
 当前 northbound HTTP 仍保留以 `thread_id` 为 path 的资源路径，但 thread-scoped 查询 / 删除必须额外提供 `agent_name` query 参数。也就是说，control layer 对外的 session detail / history / delete 已经与 data plane southbound 一起收缩为 `agent_name + thread_id` 双键定位。
 
+### 11.2 Telemetry
+
+Telemetry 不应与 `SessionQuery` 复用同一语义模型。
+
+control layer 对 telemetry 的定位是：
+
+- gateway / ingest boundary
+- northbound read boundary
+- UI 与外部系统的统一查询入口
+
+data layer 对 telemetry 的定位是：
+
+- live execution fact producer
+- raw `StreamPart` 的最近来源
+- MQ 上游 sender
+
+关键原则：
+
+- control layer 不从 UI live stream 反推 telemetry 持久化
+- runtime 不拥有 telemetry history query
+- telemetry store 不与 `sessions.db` 混表
+- telemetry 账本允许追加 gateway 自身的 audit event
+- 产品 Trace 由 control 侧 `TelemetryStep` 投影提供，而不是 runtime 直接提供 span 树
+- graph 查询必须逐步切换到 run-bound `TelemetryGraphSnapshot`
+
+当前已存在的 northbound telemetry 接口包括：
+
+- `POST /api/v1/agents/{agent}/telemetry/stream`
+- `GET /api/v1/agents/{agent}/graph`
+
+说明：
+
+- 当前 live Telemetry UI 仍会复用 `GET /api/v1/agents/{agent}/graph` 作为 agent current graph
+- 下一阶段 telemetry history / detail 必须切到 run-bound graph snapshot，而不是继续复用 agent current graph
+- 历史 telemetry read API 继续挂在 control gateway 下，而不是回到 runtime southbound query
+
 ## 12. Routing 与 Deployment 设计
 
 ### 12.1 第一阶段
@@ -423,6 +515,7 @@ control layer 提供 northbound 查询接口，但 southbound 直接代理：
 - 本地开发
 - 单机部署
 - 基础 CLI / gateway 流程
+- 当前单 gateway 版本的 telemetry read / live tap
 
 ### 12.2 后续扩展
 
@@ -490,7 +583,23 @@ control layer 提供 northbound 查询接口，但 southbound 直接代理：
 - `message_page` 额外支持 `checkpoint_id`、`mode`、`page_size`、`page_token`、`include_raw`
 - `messages` 额外支持 `mode`、`page_size`、`page_token`
 
-### 13.4 当前未暴露的接口
+### 13.4 Telemetry 接口
+
+当前已经暴露：
+
+- `POST /api/v1/agents/{agent}/telemetry/stream`
+- `GET /api/v1/agents/{agent}/graph`
+
+下一阶段建议补齐：
+
+- `GET /api/v1/telemetry/runs`
+- `GET /api/v1/telemetry/runs/{run_id}`
+- `GET /api/v1/telemetry/runs/{run_id}/events`
+- `GET /api/v1/telemetry/runs/{run_id}/steps`
+- `GET /api/v1/telemetry/runs/{run_id}/graph`
+- `GET /api/v1/telemetry/runs/{run_id}/stream`
+
+### 13.5 当前未暴露的接口
 
 - northbound gRPC
 - `deployment` CRUD
@@ -505,14 +614,20 @@ control layer 提供 northbound 查询接口，但 southbound 直接代理：
 - southbound gRPC 请求日志
 - northbound HTTP / SSE 行为测试
 - run stream proxy 行为测试
+- telemetry SSE / graph API 主链
 - registry / resolver / orchestrator / runtime client 单元测试
 
 后续补齐项：
 
 - operation journal 接入主链路
-- run 审计日志落地
+- gateway audit event 持久化
+- MQ ingest / dedup / ordering
+- telemetry event ledger / step projection / run summary
+- run-bound graph snapshot
+- resumable telemetry SSE
 - target health cache
 - northbound request tracing
+- trace context propagation (`traceparent` / `tracestate`)
 
 关键指标建议包括：
 
@@ -523,6 +638,10 @@ control layer 提供 northbound 查询接口，但 southbound 直接代理：
 - `hitl_pending_count`
 - `runtime_target_health`
 - `session_query_latency`
+- `telemetry_ingest_lag`
+- `telemetry_events_ingested`
+- `telemetry_dedup_hits`
+- `telemetry_query_latency`
 
 ## 15. 安全与一致性原则
 
@@ -579,7 +698,7 @@ control layer 提供 northbound 查询接口，但 southbound 直接代理：
 - 实现 HITL / cancel 转发
 - 补齐 run audit
 
-### Phase 6：Query 面与初版 API
+### Phase 6：Query 面、初版 API 与 Live Telemetry
 
 状态：已完成
 
@@ -587,8 +706,19 @@ control layer 提供 northbound 查询接口，但 southbound 直接代理：
 - 提供 northbound HTTP / SSE 资源管理 / 生命周期 / 查询接口
 - 提供资源列表的 `page_size / page_number` 分页能力
 - 将 thread-scoped session 查询 / 删除统一收敛为 `agent_name + thread_id`
+- 提供 northbound telemetry SSE 与 graph 查询
 
-### Phase 7：Routing 与调度扩展
+### Phase 7：Telemetry Gateway 化与持久化
+
+状态：设计完成，待实现
+
+- 明确 telemetry ownership 在 control gateway
+- telemetry durable path 收敛为 `runtime -> MQ -> control gateway`
+- 引入 `TelemetryEvent` 账本、`TelemetryRun`/`TelemetryStep`/`TelemetryGraphSnapshot`
+- 支持 live/history 统一查询与 resumable stream
+- 保留 `RunTelemetry` 作为 live tap，而非 history query
+
+### Phase 8：Routing 与调度扩展
 
 状态：backlog
 
@@ -604,7 +734,8 @@ control layer 提供 northbound 查询接口，但 southbound 直接代理：
 - authored resources 的 authoritative control plane
 - runtime-ready `AgentSpec` 的统一 packager
 - install / compile / execute / cancel / uninstall 的统一编排入口
-- northbound HTTP / SSE 的统一入口
+- northbound HTTP / SSE 的统一 gateway
+- telemetry / audit 的统一 ingress 与 read boundary
 
 与此同时，data layer 继续保持为：
 
@@ -612,5 +743,6 @@ control layer 提供 northbound 查询接口，但 southbound 直接代理：
 - execution owner
 - session / checkpoint owner
 - MCP / sandbox runtime owner
+- telemetry live event producer
 
 后续若进入 multi-target / deployment orchestration，再在当前 single-target 边界之上扩展，而不是回退当前主链路。

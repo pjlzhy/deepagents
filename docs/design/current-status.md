@@ -1,7 +1,7 @@
 # Agent OS 当前状态
 
-> 快照日期：2026-03-27
-> 状态：单机版主闭环完成，control/data 文档与协议口径已同步
+> 快照日期：2026-04-07
+> 状态：单机版主闭环完成，telemetry 正在从 live 调试链路收敛为 event-first 产品模型
 
 ## 1. 结论
 
@@ -56,6 +56,7 @@
 - `AgentExecutor.Run` northbound run stream
 - `SessionQuery` / `Health` 接入
 - HTTP / SSE northbound API
+- telemetry SSE 与 graph 查询 northbound API
 
 当前 northbound contract 已覆盖：
 
@@ -72,6 +73,7 @@
 
 - `models / skills / mcps / agents` 的 list API 已统一支持 `page_size / page_number`
 - thread-scoped session detail / message / delete 已要求 `agent_name + thread_id`
+- telemetry 当前已完成 live stream、agent graph 查询与 Telemetry UI 原型；history、step projection、run-bound graph snapshot 仍在下一阶段
 
 对应状态基准以 [control-plane-architecture.md](./control-plane-architecture.md) 为准。
 
@@ -98,6 +100,7 @@
 
 ### 4.2 Control Plane Backlog
 
+- telemetry event ledger / step projection / run-bound graph snapshot
 - 多 target 路由
 - scheduler / cron
 - deployment orchestration
@@ -108,9 +111,10 @@
 当前这轮主闭环已经完成协议和文档收口。仍需留意的事项如下：
 
 - 当前 working tree 仍需正式入库
-- backlog 优先级仍需在“部署验证 / multi-target / UI”之间排定
+- backlog 优先级仍需在“telemetry event-first phase / 部署验证 / multi-target / UI”之间排定
 - UI 文档本轮未纳入同步范围
-- telemetry / 监控 southbound 扩展已进入设计阶段，见 [runtime-agent-telemetry-design.md](./runtime-agent-telemetry-design.md)
+- telemetry 当前已完成 live 链路，下一阶段聚焦 `TelemetryRun / TelemetryEvent / TelemetryStep / TelemetryGraphSnapshot`，见 [runtime-agent-telemetry-design.md](./runtime-agent-telemetry-design.md)
+- telemetry history、run detail、chat 收敛与 turn 级关联的实施顺序，见 [telemetry-run-history-chat-unification-plan.md](./telemetry-run-history-chat-unification-plan.md)
 
 这一阶段的重点已经不再是补当前交互主链协议，而是决定下一轮 backlog 的推进顺序，并为监控扩展预留稳定边界。
 
@@ -120,7 +124,7 @@
 
 1. 完成当前 working tree 改动的正式入库。
 2. 补真实 `client -> server` gRPC 下的 `HITL / cancel / timeout` 深度回归。
-3. 再在 `multi-target`、`scheduler`、`UI` 之间确定下一轮优先级。
+3. 在 `telemetry event-first phase`、`multi-target`、`scheduler`、`UI` 之间确定下一轮优先级。
 
 ## 7. 当前判断
 

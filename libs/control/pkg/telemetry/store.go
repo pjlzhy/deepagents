@@ -10,7 +10,7 @@ import (
 // Store persists telemetry facts and serves northbound history queries.
 type Store interface {
 	RecordEvent(ctx context.Context, event runtimeclient.TelemetryEvent) error
-	ListRuns(ctx context.Context, query domain.PageQuery) (domain.ResourcePage[domain.TelemetryRun], error)
+	ListRuns(ctx context.Context, query domain.TelemetryRunQuery) (domain.ResourcePage[domain.TelemetryRun], error)
 	GetRun(ctx context.Context, runID string) (domain.TelemetryRun, error)
 	LoadEvents(ctx context.Context, runID string) ([]domain.TelemetryEventRecord, error)
 	ListEvents(

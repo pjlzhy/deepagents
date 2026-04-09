@@ -44,10 +44,11 @@ Agent OS uses a unified separated architecture: control plane and data plane are
 ```text
 +---------------------------+        gRPC         +---------------------------+
 | Control Plane             | <----------------> | Data Plane                |
-| deepagents-control        |                    | deepagents-runtime        |
+| deepagents-control        |                    | agents-runtime        |
 |                           |                    |                           |
 | Registry / packaging      |                    | Compile / execution       |
-| Lifecycle / northbound API|                    | Agent runtime / session state |
+| Gateway / northbound API  |                    | Agent runtime / session state |
+| Telemetry read boundary   |                    | Telemetry event producer  |
 | Shared runtime client     |                    | Session / checkpoint      |
 +---------------------------+                    +---------------------------+
 ```
@@ -57,9 +58,9 @@ Agent OS uses a unified separated architecture: control plane and data plane are
 | Layer | Responsibility | Knows about |
 |-------|---------------|-------------|
 | **SDK** (`deepagents`) | Build agent graphs from components | Models, tools, backends, middleware |
-| **Control Plane** (`deepagents-control`) | Own registry, package resources, and orchestrate runtime lifecycle | Registry, packaging, HTTP/SSE API, southbound orchestration |
-| **Data Plane** (`deepagents-runtime`) | Consume rich `AgentSpec` inputs, assemble agents, execute runs | Assembly, orchestration, sandbox, MCP, sessions |
-| **gRPC Protocol** (`proto/`) | Control <-> Data plane communication | `AgentExecutor`, `ResourceSync`, `SessionQuery` |
+| **Control Plane** (`deepagents-control`) | Own registry, package resources, orchestrate runtime lifecycle, and act as gateway / telemetry read boundary | Registry, packaging, HTTP/SSE API, southbound orchestration, telemetry run/event/step/graph query |
+| **Data Plane** (`agents-runtime`) | Consume rich `AgentSpec` inputs, assemble agents, execute runs, and emit execution telemetry facts | Assembly, orchestration, sandbox, MCP, sessions, telemetry emission |
+| **gRPC Protocol** (`proto/`) | Control <-> Data plane communication | `AgentExecutor`, `ResourceSync`, `SessionQuery`, `AgentTelemetry` |
 
 ### 2.2 Unified Runtime Code
 
@@ -94,6 +95,8 @@ The control plane is responsible for:
 - `SyncAgentSpec -> Assemble -> Run` orchestration
 - lifecycle and status management
 - HTTP / SSE northbound API
+- gateway admission / routing
+- telemetry query / read boundary
 
 ### 3.2 Data Plane Responsibilities
 
@@ -105,6 +108,7 @@ The data plane is responsible for:
 - managing agent-scoped runtime resources such as MCP runtime and sandbox owners
 - managing run-scoped execution state such as checkpoints and execution context
 - exposing health and runtime status to the control plane
+- emitting live execution telemetry
 
 ### 3.3 Communication Protocol
 
@@ -113,6 +117,13 @@ All control-plane to data-plane communication uses gRPC:
 - `AgentExecutor.Run`: bidirectional streaming agent invocation with HITL support
 - `ResourceSync.*`: unary RPCs for syncing rich `AgentSpec` inputs and runtime directives
 - `SessionQuery.*`: runtime-local session / health read APIs and session delete
+- `AgentTelemetry.RunTelemetry`: live telemetry / debug tap path
+
+Durable telemetry is not modeled as a runtime history query API. The long-term ownership boundary is:
+
+- runtime emits telemetry facts
+- telemetry durable path flows as `runtime -> MQ -> control gateway`
+- control gateway owns telemetry ingest, run/event/step/graph projection, and audit-facing queries
 
 `SyncAgentSpec` is the primary sync unit. `SyncSkill` and `SyncMcp` are compatibility RPCs and are not the preferred packaging path for new flows.
 
@@ -266,6 +277,7 @@ All communication between control plane and data plane uses `proto/runtime.proto
 | `AgentExecutor` | Control -> Data | Agent invocation with bidirectional streaming |
 | `ResourceSync` | Control -> Data | Sync rich `AgentSpec` inputs and runtime directives |
 | `SessionQuery` | Control -> Data | Health and checkpoint-backed session query / delete |
+| `AgentTelemetry` | Control -> Data | Live telemetry / debug tap |
 
 ### 8.2 `AgentExecutor.Run`
 
@@ -312,6 +324,8 @@ The current control plane exposes a northbound API rather than a workspace-centr
 
 - management APIs use HTTP for model / skill / MCP / agent CRUD, paginated resource lists, and session queries
 - execution uses SSE over a shared southbound `AgentExecutor.Run` bridge
+- telemetry uses control-plane northbound SSE / query APIs; durable telemetry does not query runtime directly
+- product trace is derived from control-owned `TelemetryStep` projection, not from runtime-owned span trees
 - all runnable requests currently flow through the bootstrapped `default_target`
 
 For thread-scoped session detail / history / delete, the current contract uses `agent_name + thread_id` together, even though `thread_id` remains the stable session identifier.
@@ -354,6 +368,23 @@ Control Plane Registry
                     - attach mcp_servers / subagents / sandbox spec
                     - create agent-scoped MCP / sandbox runtime resources
                     -> compiled runtime
+```
+
+### 11.3 Telemetry Flow
+
+```text
+Caller / UI
+  -> Control Plane Gateway
+      -> Data Plane run
+      -> read telemetry APIs
+
+Data Plane
+  -> emit telemetry events
+      -> MQ
+          -> Control Plane telemetry ingest
+              -> TelemetryEvent ledger
+                  -> TelemetryRun / TelemetryStep / TelemetryGraphSnapshot
+                      -> UI / replay / exporter query
 ```
 
 ---

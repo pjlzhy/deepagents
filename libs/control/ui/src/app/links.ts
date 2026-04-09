@@ -14,5 +14,6 @@ export const links = {
   chatThread: (agentName: string, threadId: string) =>
     `/chat/${encodeURIComponent(agentName)}/${encodeURIComponent(threadId)}`,
   telemetryRoot: () => '/telemetry',
+  telemetryRun: (runId: string) => `/telemetry/runs/${encodeURIComponent(runId)}`,
   telemetryAgent: (agentName: string) => `/telemetry/${encodeURIComponent(agentName)}`,
 };

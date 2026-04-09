@@ -13,7 +13,10 @@ import (
 	"agentctl/pkg/runtimeclient"
 )
 
-var ErrRunNotFound = errors.New("telemetry run not found")
+var (
+	ErrRunNotFound            = errors.New("telemetry run not found")
+	ErrRunSnapshotUnavailable = errors.New("telemetry run snapshot unavailable")
+)
 
 // SQLiteStore persists telemetry history into the control SQLite database.
 type SQLiteStore struct {
@@ -72,7 +75,7 @@ func (s *SQLiteStore) RecordEvent(ctx context.Context, event runtimeclient.Telem
 // ListRuns returns one page of telemetry runs ordered by latest activity.
 func (s *SQLiteStore) ListRuns(
 	ctx context.Context,
-	query domain.PageQuery,
+	query domain.TelemetryRunQuery,
 ) (domain.ResourcePage[domain.TelemetryRun], error) {
 	if err := ctx.Err(); err != nil {
 		return domain.ResourcePage[domain.TelemetryRun]{}, err
@@ -81,19 +84,25 @@ func (s *SQLiteStore) ListRuns(
 		return domain.ResourcePage[domain.TelemetryRun]{}, errors.New("telemetry store is not initialized")
 	}
 
-	pageSize, pageNumber := normalizePage(query)
-	totalSize, err := s.countRuns(ctx)
+	pageSize, pageNumber := normalizePage(query.PageQuery)
+	filters, args := telemetryRunListFilter(query)
+	totalSize, err := s.countRuns(ctx, filters, args)
 	if err != nil {
 		return domain.ResourcePage[domain.TelemetryRun]{}, err
 	}
 	offset := (pageNumber - 1) * pageSize
 
+	listArgs := append(append([]any{}, args...), pageSize, offset)
+
 	rows, err := s.db.QueryContext(
 		ctx,
-		`SELECT
+		fmt.Sprintf(`SELECT
 			run_id,
 			agent_name,
 			thread_id,
+			turn_index,
+			start_checkpoint_id,
+			end_checkpoint_id,
 			runtime_target,
 			status,
 			request_metadata_json,
@@ -112,12 +121,12 @@ func (s *SQLiteStore) ListRuns(
 			created_at,
 			updated_at
 		FROM telemetry_runs
+		%s
 		ORDER BY
 			CASE WHEN last_event_at = '' THEN created_at ELSE last_event_at END DESC,
 			run_id DESC
-		LIMIT ? OFFSET ?`,
-		pageSize,
-		offset,
+		LIMIT ? OFFSET ?`, filters),
+		listArgs...,
 	)
 	if err != nil {
 		return domain.ResourcePage[domain.TelemetryRun]{}, fmt.Errorf("list telemetry runs: %w", err)
@@ -166,6 +175,9 @@ func (s *SQLiteStore) GetRun(ctx context.Context, runID string) (domain.Telemetr
 			run_id,
 			agent_name,
 			thread_id,
+			turn_index,
+			start_checkpoint_id,
+			end_checkpoint_id,
 			runtime_target,
 			status,
 			request_metadata_json,
@@ -349,6 +361,11 @@ func (s *SQLiteStore) upsertRunSummary(
 	if event.PublicEvent != nil {
 		threadID = strings.TrimSpace(event.PublicEvent.ThreadID)
 	}
+	startCheckpointID, endCheckpointID := extractTelemetryRunCheckpoints(event)
+	turnIndex, err := s.allocateTurnIndex(ctx, tx, event.RunID, event.AgentName, threadID)
+	if err != nil {
+		return err
+	}
 	status := runStatusFromEvent(event.EventType)
 	if status == "" {
 		status = string(domain.TelemetryRunStatusRunning)
@@ -364,12 +381,15 @@ func (s *SQLiteStore) upsertRunSummary(
 		errorIncrement = 1
 	}
 
-	_, err := tx.ExecContext(
+	_, err = tx.ExecContext(
 		ctx,
 		`INSERT INTO telemetry_runs (
 			run_id,
 			agent_name,
 			thread_id,
+			turn_index,
+			start_checkpoint_id,
+			end_checkpoint_id,
 			runtime_target,
 			status,
 			request_metadata_json,
@@ -387,7 +407,7 @@ func (s *SQLiteStore) upsertRunSummary(
 			last_event_at,
 			created_at,
 			updated_at
-		) VALUES (?, ?, ?, '', ?, '{}', '{}', '', '', 0, 0, 0, 0, ?, 1, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, '', ?, '{}', '{}', '', '', 0, 0, 0, 0, ?, 1, ?, ?, ?, ?, ?)
 		ON CONFLICT(run_id) DO UPDATE SET
 			agent_name = CASE
 				WHEN excluded.agent_name <> '' THEN excluded.agent_name
@@ -396,6 +416,18 @@ func (s *SQLiteStore) upsertRunSummary(
 			thread_id = CASE
 				WHEN telemetry_runs.thread_id = '' AND excluded.thread_id <> '' THEN excluded.thread_id
 				ELSE telemetry_runs.thread_id
+			END,
+			turn_index = CASE
+				WHEN telemetry_runs.turn_index = 0 AND excluded.turn_index <> 0 THEN excluded.turn_index
+				ELSE telemetry_runs.turn_index
+			END,
+			start_checkpoint_id = CASE
+				WHEN telemetry_runs.start_checkpoint_id = '' AND excluded.start_checkpoint_id <> '' THEN excluded.start_checkpoint_id
+				ELSE telemetry_runs.start_checkpoint_id
+			END,
+			end_checkpoint_id = CASE
+				WHEN excluded.end_checkpoint_id <> '' THEN excluded.end_checkpoint_id
+				ELSE telemetry_runs.end_checkpoint_id
 			END,
 			status = CASE
 				WHEN telemetry_runs.status IN ('completed', 'canceled', 'failed') AND excluded.status = 'running' THEN telemetry_runs.status
@@ -420,6 +452,9 @@ func (s *SQLiteStore) upsertRunSummary(
 		event.RunID,
 		event.AgentName,
 		threadID,
+		turnIndex,
+		startCheckpointID,
+		endCheckpointID,
 		status,
 		errorIncrement,
 		startedAt,
@@ -503,9 +538,53 @@ func (s *SQLiteStore) insertEvent(
 	return rowsAffected > 0, nil
 }
 
-func (s *SQLiteStore) countRuns(ctx context.Context) (int32, error) {
+func (s *SQLiteStore) allocateTurnIndex(
+	ctx context.Context,
+	tx *sql.Tx,
+	runID string,
+	agentName string,
+	threadID string,
+) (int32, error) {
+	if strings.TrimSpace(agentName) == "" || strings.TrimSpace(threadID) == "" {
+		return 0, nil
+	}
+
+	var existing int32
+	err := tx.QueryRowContext(
+		ctx,
+		`SELECT turn_index FROM telemetry_runs WHERE run_id = ?`,
+		runID,
+	).Scan(&existing)
+	switch {
+	case err == nil && existing > 0:
+		return existing, nil
+	case err != nil && !errors.Is(err, sql.ErrNoRows):
+		return 0, fmt.Errorf("load telemetry turn index for run %q: %w", runID, err)
+	}
+
+	var nextIndex int32
+	if err := tx.QueryRowContext(
+		ctx,
+		`SELECT COALESCE(MAX(turn_index), 0) + 1
+		FROM telemetry_runs
+		WHERE agent_name = ? AND thread_id = ? AND run_id <> ?`,
+		agentName,
+		threadID,
+		runID,
+	).Scan(&nextIndex); err != nil {
+		return 0, fmt.Errorf("allocate telemetry turn index for run %q: %w", runID, err)
+	}
+	return nextIndex, nil
+}
+
+func (s *SQLiteStore) countRuns(
+	ctx context.Context,
+	filters string,
+	args []any,
+) (int32, error) {
 	var total int32
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM telemetry_runs`).Scan(&total); err != nil {
+	query := fmt.Sprintf(`SELECT COUNT(*) FROM telemetry_runs %s`, filters)
+	if err := s.db.QueryRowContext(ctx, query, args...).Scan(&total); err != nil {
 		return 0, fmt.Errorf("count telemetry runs: %w", err)
 	}
 	return total, nil
@@ -543,6 +622,9 @@ func scanTelemetryRun(scanner telemetryRunScanner) (domain.TelemetryRun, error) 
 		&run.RunID,
 		&run.AgentName,
 		&run.ThreadID,
+		&run.TurnIndex,
+		&run.StartCheckpointID,
+		&run.EndCheckpointID,
 		&run.RuntimeTarget,
 		&status,
 		&requestMetadata,
@@ -622,6 +704,67 @@ func scanTelemetryEvent(scanner telemetryEventScanner) (domain.TelemetryEventRec
 	event.Payload = normalizeRawJSON(json.RawMessage(payloadJSON))
 	event.PublicEvent = normalizeRawJSON(json.RawMessage(publicEvent))
 	return event, nil
+}
+
+func telemetryRunListFilter(query domain.TelemetryRunQuery) (string, []any) {
+	clauses := make([]string, 0, 2)
+	args := make([]any, 0, 2)
+
+	if agentName := strings.TrimSpace(query.AgentName); agentName != "" {
+		clauses = append(clauses, "agent_name = ?")
+		args = append(args, agentName)
+	}
+	if threadID := strings.TrimSpace(query.ThreadID); threadID != "" {
+		clauses = append(clauses, "thread_id = ?")
+		args = append(args, threadID)
+	}
+	if len(clauses) == 0 {
+		return "", args
+	}
+	return "WHERE " + strings.Join(clauses, " AND "), args
+}
+
+func extractTelemetryRunCheckpoints(event runtimeclient.TelemetryEvent) (string, string) {
+	if strings.TrimSpace(event.EventType) != "checkpoint" {
+		return "", ""
+	}
+	payload := decodeRawObjectMap(event.Payload)
+	if len(payload) == 0 {
+		return "", ""
+	}
+	return nestedCheckpointID(payload, "parent_config"), nestedCheckpointID(payload, "config")
+}
+
+func nestedCheckpointID(payload map[string]any, key string) string {
+	rawConfig, ok := payload[key]
+	if !ok {
+		return ""
+	}
+	config, ok := rawConfig.(map[string]any)
+	if !ok {
+		return ""
+	}
+	rawConfigurable, ok := config["configurable"]
+	if !ok {
+		return ""
+	}
+	configurable, ok := rawConfigurable.(map[string]any)
+	if !ok {
+		return ""
+	}
+	checkpointID, _ := configurable["checkpoint_id"].(string)
+	return strings.TrimSpace(checkpointID)
+}
+
+func decodeRawObjectMap(raw json.RawMessage) map[string]any {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return nil
+	}
+	return decoded
 }
 
 func normalizePage(query domain.PageQuery) (int32, int32) {
