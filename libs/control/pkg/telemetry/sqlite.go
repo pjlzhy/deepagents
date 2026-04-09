@@ -725,14 +725,19 @@ func telemetryRunListFilter(query domain.TelemetryRunQuery) (string, []any) {
 }
 
 func extractTelemetryRunCheckpoints(event runtimeclient.TelemetryEvent) (string, string) {
-	if strings.TrimSpace(event.EventType) != "checkpoint" {
-		return "", ""
-	}
 	payload := decodeRawObjectMap(event.Payload)
 	if len(payload) == 0 {
 		return "", ""
 	}
-	return nestedCheckpointID(payload, "parent_config"), nestedCheckpointID(payload, "config")
+
+	switch strings.TrimSpace(event.EventType) {
+	case "checkpoint":
+		return nestedCheckpointID(payload, "parent_config"), nestedCheckpointID(payload, "config")
+	case "run_ended":
+		return strings.TrimSpace(stringValueFromMap(payload, "start_checkpoint_id")), strings.TrimSpace(stringValueFromMap(payload, "end_checkpoint_id"))
+	default:
+		return "", ""
+	}
 }
 
 func nestedCheckpointID(payload map[string]any, key string) string {
@@ -765,6 +770,14 @@ func decodeRawObjectMap(raw json.RawMessage) map[string]any {
 		return nil
 	}
 	return decoded
+}
+
+func stringValueFromMap(payload map[string]any, key string) string {
+	if payload == nil {
+		return ""
+	}
+	value, _ := payload[key].(string)
+	return value
 }
 
 func normalizePage(query domain.PageQuery) (int32, int32) {

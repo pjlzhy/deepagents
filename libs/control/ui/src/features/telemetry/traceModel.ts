@@ -5,9 +5,15 @@ export type TelemetryEventVM = {
   runId?: string;
   agentName?: string;
   timestamp?: string;
+  nodeName?: string;
   namespace: string[];
   streamMode: string;
   eventType: string;
+  taskId?: string;
+  modelCallId?: string;
+  toolCallId?: string;
+  interruptId?: string;
+  messageId?: string;
   metadata?: unknown;
   payload?: unknown;
   publicEvent?: {
@@ -39,11 +45,13 @@ export type TraceSpanVM = {
   error?: string;
   triggers: string[];
   reasoning: string[];
+  reasoningEncrypted: boolean;
   messages: string[];
+  toolCalls: string[];
   updates: unknown[];
   custom: unknown[];
   events: TelemetryEventVM[];
-  relatedEventIDs: string[];
+  eventCount: number;
   order: number;
   synthetic: boolean;
 };
@@ -166,11 +174,13 @@ function makeSyntheticSpan(event: TelemetryEventVM, nodeName: string, order: num
     startedAt: event.timestamp,
     triggers: [],
     reasoning: [],
+    reasoningEncrypted: false,
     messages: [],
+    toolCalls: [],
     updates: [],
     custom: [],
     events: [],
-    relatedEventIDs: [],
+    eventCount: 0,
     order,
     synthetic: true,
   };
@@ -246,11 +256,13 @@ export function buildTraceSpans(events: TelemetryEventVM[]): TraceSpanVM[] {
           ? payload.triggers.map((value) => String(value))
           : [],
         reasoning: [],
+        reasoningEncrypted: false,
         messages: [],
+        toolCalls: [],
         updates: [],
         custom: [],
         events: [],
-        relatedEventIDs: [],
+        eventCount: 0,
         order: spans.length,
         synthetic: false,
       };
@@ -277,7 +289,7 @@ export function buildTraceSpans(events: TelemetryEventVM[]): TraceSpanVM[] {
     if (!span) continue;
 
     span.events.push(event);
-    span.relatedEventIDs.push(event.id);
+    span.eventCount += 1;
     span.step = span.step ?? traceStep(event);
 
     if (event.eventType === 'reasoning') {
@@ -286,6 +298,18 @@ export function buildTraceSpans(events: TelemetryEventVM[]): TraceSpanVM[] {
         event.payload,
         reasoningIndex(reasoningIndexBySpan, span.id),
       );
+      const payloadRecord = asRecord(event.payload);
+      if ((payloadRecord?.encrypted_content as string | undefined) && span.reasoning.length === 0) {
+        span.reasoningEncrypted = true;
+      }
+    }
+
+    if (isModelToolCallEvent(event)) {
+      const payloadRecord = asRecord(event.payload);
+      const toolName = asString(payloadRecord?.tool_name) ?? asString(payloadRecord?.name);
+      if (toolName && !span.toolCalls.includes(toolName)) {
+        span.toolCalls.push(toolName);
+      }
     }
 
     const text = textPayload(event.payload) ?? asString(event.publicEvent?.text);
@@ -334,14 +358,9 @@ export function buildTraceSpansFromSteps(
   steps: HTTPTelemetryStepDTO[],
   events: TelemetryEventVM[],
 ): TraceSpanVM[] {
-  const eventByID = new Map(events.map((event) => [event.id, event]));
-
   return [...steps]
     .map((step, index) => {
-      const relatedEventIDs = step.related_event_ids ?? [];
-      const relatedEvents = relatedEventIDs
-        .map((eventID) => eventByID.get(eventID))
-        .filter((event): event is TelemetryEventVM => Boolean(event));
+      const relatedEvents = events.filter((event) => matchesStepEvent(step, event));
       const start = parseDate(step.started_at);
       const end = parseDate(step.finished_at);
 
@@ -362,11 +381,13 @@ export function buildTraceSpansFromSteps(
         error: step.error,
         triggers: step.triggers ?? [],
         reasoning: step.reasoning ?? [],
+        reasoningEncrypted: step.reasoning_encrypted ?? false,
         messages: step.messages ?? [],
+        toolCalls: step.tool_calls ?? [],
         updates: step.updates ?? [],
         custom: step.custom ?? [],
         events: relatedEvents,
-        relatedEventIDs,
+        eventCount: step.event_count ?? relatedEvents.length,
         order: step.order ?? index,
         synthetic: step.synthetic ?? false,
       } satisfies TraceSpanVM;
@@ -377,4 +398,46 @@ export function buildTraceSpansFromSteps(
       if (ls !== rs) return ls - rs;
       return left.order - right.order;
     });
+}
+
+function isModelToolCallEvent(event: TelemetryEventVM): boolean {
+  return ['tool_call', 'tool_call_chunk', 'tool_call_start', 'function_call', 'function_call_chunk'].includes(event.eventType);
+}
+
+function matchesStepEvent(step: HTTPTelemetryStepDTO, event: TelemetryEventVM): boolean {
+  if (step.run_id && event.runId && step.run_id !== event.runId) return false;
+
+  switch (step.kind) {
+    case 'run':
+      return event.streamMode === 'lifecycle';
+    case 'model':
+      return Boolean(step.model_call_id) && event.modelCallId === step.model_call_id;
+    case 'tool':
+      return Boolean(step.tool_call_id) && event.toolCallId === step.tool_call_id;
+    case 'hitl':
+      return Boolean(step.interrupt_id) && event.interruptId === step.interrupt_id;
+    case 'node':
+      if (step.task_id && event.taskId === step.task_id) return true;
+      if (event.streamMode === 'messages' || event.streamMode === 'lifecycle') return false;
+      if (event.eventType === 'interrupt' || event.eventType === 'hitl_request') return false;
+      if (!sameNamespace(step.namespace ?? [], event.namespace)) return false;
+      return eventWithinStep(step, event);
+    default:
+      return false;
+  }
+}
+
+function sameNamespace(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
+}
+
+function eventWithinStep(step: HTTPTelemetryStepDTO, event: TelemetryEventVM): boolean {
+  const eventTime = parseDate(event.timestamp);
+  if (eventTime === undefined) return false;
+  const start = parseDate(step.started_at);
+  const end = parseDate(step.finished_at);
+  if (start !== undefined && eventTime < start) return false;
+  if (end !== undefined && eventTime > end) return false;
+  return true;
 }

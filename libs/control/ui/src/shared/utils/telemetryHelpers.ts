@@ -79,9 +79,15 @@ export function normalizeTelemetryEvent(
     runId: payload.run_id ?? payload.public_event?.run_id,
     agentName: payload.agent_name ?? payload.public_event?.agent_name,
     timestamp: payload.timestamp ?? payload.public_event?.timestamp,
+    nodeName: payload.node_name,
     namespace: payload.namespace ?? [],
     streamMode: payload.stream_mode ?? (payload.public_event ? 'lifecycle' : 'unknown'),
     eventType: payload.event_type ?? 'unknown',
+    taskId: payload.task_id,
+    modelCallId: payload.model_call_id,
+    toolCallId: payload.tool_call_id,
+    interruptId: payload.interrupt_id,
+    messageId: payload.message_id,
     metadata: payload.metadata,
     payload: payload.payload,
     publicEvent: payload.public_event,
@@ -182,6 +188,8 @@ export function traceSummary(span: TraceSpanVM): string {
     const fullReasoning = span.reasoning.join('').trim();
     if (fullReasoning.length > 1) return truncate(fullReasoning);
   }
+  if (span.toolCalls.length > 0) return truncate(`tool call: ${span.toolCalls.join(', ')}`);
+  if (span.reasoningEncrypted) return 'reasoning hidden';
   if (typeof span.output === 'string' && span.output.trim()) return truncate(span.output);
   if (typeof span.input === 'string' && span.input.trim()) return truncate(span.input);
   return truncate(`${span.nodeName} ${span.synthetic ? 'observed' : 'executed'}`);
@@ -222,7 +230,7 @@ export function graphNodeSummary(node: GraphNodeVM, spans: TraceSpanVM[]): strin
   }
   const failed = related.find((span) => span.status === 'failed');
   if (failed?.error) return truncate(failed.error);
-  const completed = related.find((span) => span.messages.length > 0 || span.reasoning.length > 0);
+  const completed = related.find((span) => span.messages.length > 0 || span.reasoning.length > 0 || span.toolCalls.length > 0 || span.reasoningEncrypted);
   if (completed) return traceSummary(completed);
   return truncate(`${related.length} related span${related.length === 1 ? '' : 's'}`);
 }

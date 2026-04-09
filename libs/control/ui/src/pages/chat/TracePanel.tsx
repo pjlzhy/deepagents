@@ -151,9 +151,11 @@ export default function TracePanel(props: TracePanelProps) {
                         {traceSummary(span)}
                       </div>
                       <div className='mt-8px flex flex-wrap gap-6px'>
-                        <Tag size='small' color='green'>events {span.events.length}</Tag>
+                        <Tag size='small' color='green'>events {span.eventCount}</Tag>
                         {span.messages.length > 0 ? <Tag size='small' color='arcoblue'>messages {span.messages.length}</Tag> : null}
                         {span.reasoning.length > 0 ? <Tag size='small' color='magenta'>reasoning {span.reasoning.length}</Tag> : null}
+                        {span.reasoningEncrypted && span.reasoning.length === 0 ? <Tag size='small' color='magenta'>reasoning hidden</Tag> : null}
+                        {span.toolCalls.length > 0 ? <Tag size='small' color='purple'>tool calls {span.toolCalls.length}</Tag> : null}
                       </div>
                     </button>
                   );

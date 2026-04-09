@@ -400,28 +400,35 @@ type telemetryRunResponse struct {
 }
 
 type telemetryStepResponse struct {
-	StepID          string            `json:"step_id,omitempty"`
-	RunID           string            `json:"run_id,omitempty"`
-	ParentStepID    string            `json:"parent_step_id,omitempty"`
-	Kind            string            `json:"kind,omitempty"`
-	Title           string            `json:"title,omitempty"`
-	Namespace       []string          `json:"namespace,omitempty"`
-	Status          string            `json:"status,omitempty"`
-	StartedAt       string            `json:"started_at,omitempty"`
-	FinishedAt      string            `json:"finished_at,omitempty"`
-	Depth           int32             `json:"depth,omitempty"`
-	Step            int32             `json:"step,omitempty"`
-	Input           json.RawMessage   `json:"input,omitempty"`
-	Output          json.RawMessage   `json:"output,omitempty"`
-	Error           string            `json:"error,omitempty"`
-	Triggers        []string          `json:"triggers,omitempty"`
-	Reasoning       []string          `json:"reasoning,omitempty"`
-	Messages        []string          `json:"messages,omitempty"`
-	Updates         []json.RawMessage `json:"updates,omitempty"`
-	Custom          []json.RawMessage `json:"custom,omitempty"`
-	RelatedEventIDs []string          `json:"related_event_ids,omitempty"`
-	Order           int32             `json:"order,omitempty"`
-	Synthetic       bool              `json:"synthetic,omitempty"`
+	StepID             string            `json:"step_id,omitempty"`
+	RunID              string            `json:"run_id,omitempty"`
+	ParentStepID       string            `json:"parent_step_id,omitempty"`
+	Kind               string            `json:"kind,omitempty"`
+	Title              string            `json:"title,omitempty"`
+	Namespace          []string          `json:"namespace,omitempty"`
+	Status             string            `json:"status,omitempty"`
+	StartedAt          string            `json:"started_at,omitempty"`
+	FinishedAt         string            `json:"finished_at,omitempty"`
+	Depth              int32             `json:"depth,omitempty"`
+	Step               int32             `json:"step,omitempty"`
+	TaskID             string            `json:"task_id,omitempty"`
+	ModelCallID        string            `json:"model_call_id,omitempty"`
+	ToolCallID         string            `json:"tool_call_id,omitempty"`
+	InterruptID        string            `json:"interrupt_id,omitempty"`
+	MessageID          string            `json:"message_id,omitempty"`
+	Input              json.RawMessage   `json:"input,omitempty"`
+	Output             json.RawMessage   `json:"output,omitempty"`
+	Error              string            `json:"error,omitempty"`
+	Triggers           []string          `json:"triggers,omitempty"`
+	Reasoning          []string          `json:"reasoning,omitempty"`
+	ReasoningEncrypted bool              `json:"reasoning_encrypted,omitempty"`
+	Messages           []string          `json:"messages,omitempty"`
+	ToolCalls          []string          `json:"tool_calls,omitempty"`
+	Updates            []json.RawMessage `json:"updates,omitempty"`
+	Custom             []json.RawMessage `json:"custom,omitempty"`
+	EventCount         int32             `json:"event_count,omitempty"`
+	Order              int32             `json:"order,omitempty"`
+	Synthetic          bool              `json:"synthetic,omitempty"`
 }
 
 type httpActionRequest struct {
@@ -1529,28 +1536,35 @@ func newHTTPTelemetryRunResponse(run domain.TelemetryRun) telemetryRunResponse {
 
 func newHTTPTelemetryStepResponse(step domain.TelemetryStep) telemetryStepResponse {
 	return telemetryStepResponse{
-		StepID:          step.StepID,
-		RunID:           step.RunID,
-		ParentStepID:    step.ParentStepID,
-		Kind:            string(step.Kind),
-		Title:           step.Title,
-		Namespace:       step.Namespace,
-		Status:          string(step.Status),
-		StartedAt:       formatOptionalTime(step.StartedAt),
-		FinishedAt:      formatOptionalTime(step.FinishedAt),
-		Depth:           step.Depth,
-		Step:            step.Step,
-		Input:           step.Input,
-		Output:          step.Output,
-		Error:           step.Error,
-		Triggers:        step.Triggers,
-		Reasoning:       step.Reasoning,
-		Messages:        step.Messages,
-		Updates:         step.Updates,
-		Custom:          step.Custom,
-		RelatedEventIDs: step.RelatedEventIDs,
-		Order:           step.Order,
-		Synthetic:       step.Synthetic,
+		StepID:             step.StepID,
+		RunID:              step.RunID,
+		ParentStepID:       step.ParentStepID,
+		Kind:               string(step.Kind),
+		Title:              step.Title,
+		Namespace:          step.Namespace,
+		Status:             string(step.Status),
+		StartedAt:          formatOptionalTime(step.StartedAt),
+		FinishedAt:         formatOptionalTime(step.FinishedAt),
+		Depth:              step.Depth,
+		Step:               step.Step,
+		TaskID:             step.TaskID,
+		ModelCallID:        step.ModelCallID,
+		ToolCallID:         step.ToolCallID,
+		InterruptID:        step.InterruptID,
+		MessageID:          step.MessageID,
+		Input:              step.Input,
+		Output:             step.Output,
+		Error:              step.Error,
+		Triggers:           step.Triggers,
+		Reasoning:          step.Reasoning,
+		ReasoningEncrypted: step.ReasoningEncrypted,
+		Messages:           step.Messages,
+		ToolCalls:          step.ToolCalls,
+		Updates:            step.Updates,
+		Custom:             step.Custom,
+		EventCount:         step.EventCount,
+		Order:              step.Order,
+		Synthetic:          step.Synthetic,
 	}
 }
 

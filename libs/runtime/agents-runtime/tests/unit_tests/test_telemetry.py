@@ -28,9 +28,7 @@ def test_parse_telemetry_stream_part_keeps_non_root_reasoning_blocks() -> None:
                 content=[
                     {
                         "type": "reasoning",
-                        "summary": [
-                            {"type": "summary_text", "text": "thinking..."}
-                        ],
+                        "summary": [{"type": "summary_text", "text": "thinking..."}],
                         "id": "rs_1",
                     }
                 ]
@@ -65,9 +63,7 @@ def test_parse_telemetry_stream_part_uses_one_model_call_id_per_ai_message() -> 
                 content=[
                     {
                         "type": "reasoning",
-                        "summary": [
-                            {"type": "summary_text", "text": "thinking..."}
-                        ],
+                        "summary": [{"type": "summary_text", "text": "thinking..."}],
                         "id": "rs_1",
                     },
                     {
@@ -97,9 +93,7 @@ def test_parse_telemetry_stream_part_emits_state_update_and_interrupt() -> None:
     interrupt = SimpleNamespace(
         id="interrupt-1",
         value={
-            "action_requests": [
-                {"name": "execute", "args": {"command": "pwd"}}
-            ],
+            "action_requests": [{"name": "execute", "args": {"command": "pwd"}}],
             "review_configs": [],
         },
     )
@@ -165,6 +159,67 @@ def test_parse_telemetry_stream_part_emits_tool_result_projection() -> None:
     assert parsed.events[1].public_event is not None
 
 
+def test_parse_telemetry_stream_part_tracks_checkpoint_bounds_without_emitting() -> (
+    None
+):
+    """Debug checkpoints should update run bounds without producing raw events."""
+
+    state = TelemetryParserState(run_id="run-debug", agent_name="demo-agent")
+    part = {
+        "type": "debug",
+        "ns": (),
+        "data": {
+            "type": "checkpoint",
+            "payload": {
+                "config": {"configurable": {"checkpoint_id": "cp-002"}},
+                "parent_config": {"configurable": {"checkpoint_id": "cp-001"}},
+            },
+        },
+    }
+
+    parsed = parse_telemetry_stream_part(part, state)
+
+    assert parsed.events == []
+    assert state.start_checkpoint_id == "cp-001"
+    assert state.end_checkpoint_id == "cp-002"
+
+
+def test_parse_telemetry_stream_part_deduplicates_debug_tasks_and_compacts_state() -> (
+    None
+):
+    """Repeated debug task starts should collapse to one compact task event."""
+
+    state = TelemetryParserState(run_id="run-debug", agent_name="demo-agent")
+    part = {
+        "type": "debug",
+        "ns": ("task:worker",),
+        "data": {
+            "type": "task",
+            "payload": {
+                "id": "task-1",
+                "name": "worker",
+                "input": {
+                    "messages": [{"role": "user", "content": "hello"}],
+                    "memory_contents": {".runtime/memory/AGENTS.md": "content"},
+                    "skills_metadata": [{"name": "pcap-analyzer"}],
+                },
+                "triggers": ["messages"],
+            },
+        },
+    }
+
+    first = parse_telemetry_stream_part(part, state)
+    second = parse_telemetry_stream_part(part, state)
+
+    assert len(first.events) == 1
+    assert second.events == []
+    event = first.events[0]
+    assert event.event_type == "task"
+    assert event.payload["input"]["messages"]["count"] == 1
+    assert event.payload["input"]["memory_contents"]["count"] == 1
+    assert event.payload["input"]["skills_metadata"]["count"] == 1
+
+
 def test_telemetry_event_to_proto_preserves_public_event_and_namespace() -> None:
     """Telemetry protobuf mapping should preserve namespace and embedded public event."""
 
@@ -177,9 +232,7 @@ def test_telemetry_event_to_proto_preserves_public_event_and_namespace() -> None
         ns=("task:root",),
     )
 
-    proto = telemetry_event_to_proto(
-        finalize_telemetry_event(event, attempt=1, seq=1)
-    )
+    proto = telemetry_event_to_proto(finalize_telemetry_event(event, attempt=1, seq=1))
 
     assert list(proto.ns) == ["task:root"]
     assert proto.stream_mode == "lifecycle"

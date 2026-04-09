@@ -45,9 +45,7 @@ class RuntimeEvent:
 # ── Convenience Constructors ──
 
 
-def text_delta(
-    text: str, *, run_id: str = "", agent_name: str = ""
-) -> RuntimeEvent:
+def text_delta(text: str, *, run_id: str = "", agent_name: str = "") -> RuntimeEvent:
     return RuntimeEvent(
         type=RuntimeEventType.TEXT_DELTA,
         data={"text": text},
@@ -148,9 +146,7 @@ def hitl_request(
     )
 
 
-def run_start(
-    *, run_id: str, agent_name: str, thread_id: str = ""
-) -> RuntimeEvent:
+def run_start(*, run_id: str, agent_name: str, thread_id: str = "") -> RuntimeEvent:
     return RuntimeEvent(
         type=RuntimeEventType.RUN_START,
         data={"thread_id": thread_id},
@@ -164,10 +160,17 @@ def run_end(
     run_id: str,
     agent_name: str,
     stats: dict[str, Any] | None = None,
+    start_checkpoint_id: str = "",
+    end_checkpoint_id: str = "",
 ) -> RuntimeEvent:
+    data: dict[str, Any] = {"stats": stats or {}}
+    if start_checkpoint_id:
+        data["start_checkpoint_id"] = start_checkpoint_id
+    if end_checkpoint_id:
+        data["end_checkpoint_id"] = end_checkpoint_id
     return RuntimeEvent(
         type=RuntimeEventType.RUN_END,
-        data={"stats": stats or {}},
+        data=data,
         run_id=run_id,
         agent_name=agent_name,
     )

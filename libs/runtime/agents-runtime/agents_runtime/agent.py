@@ -137,7 +137,7 @@ class AgentFilesystemView:
 # Default system prompt (hardcoded)
 # ---------------------------------------------------------------------------
 
-DEFAULT_SYSTEM_PROMPT = '''\
+DEFAULT_SYSTEM_PROMPT = """\
 # Core Behavior
 
 - Be concise and direct. Answer in fewer than 4 lines unless detail is requested.
@@ -303,7 +303,7 @@ When using the write_todos tool:
 5. For simple 1-step tasks, just do them directly
 6. When first creating a todo list for a task, ALWAYS ask the user if the plan looks good before starting work
 7. Update todo status promptly as you complete each item
-'''
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -312,11 +312,11 @@ When using the write_todos tool:
 
 
 def get_system_prompt(
-        agent_name: str,
-        *,
-        prompt: str,
-        model: ModelResult,
-        filesystem_view: AgentFilesystemView,
+    agent_name: str,
+    *,
+    prompt: str,
+    model: ModelResult,
+    filesystem_view: AgentFilesystemView,
 ) -> str:
     """Build the full system prompt.
 
@@ -373,7 +373,9 @@ def get_system_prompt(
 
 
 def _format_write_file_description(
-        tool_call: ToolCall, _state: AgentState[Any], _runtime: Runtime[Any],
+    tool_call: ToolCall,
+    _state: AgentState[Any],
+    _runtime: Runtime[Any],
 ) -> str:
     args = tool_call["args"]
     file_path = args.get("file_path", "unknown")
@@ -384,7 +386,9 @@ def _format_write_file_description(
 
 
 def _format_edit_file_description(
-        tool_call: ToolCall, _state: AgentState[Any], _runtime: Runtime[Any],
+    tool_call: ToolCall,
+    _state: AgentState[Any],
+    _runtime: Runtime[Any],
 ) -> str:
     args = tool_call["args"]
     file_path = args.get("file_path", "unknown")
@@ -394,7 +398,9 @@ def _format_edit_file_description(
 
 
 def _format_web_search_description(
-        tool_call: ToolCall, _state: AgentState[Any], _runtime: Runtime[Any],
+    tool_call: ToolCall,
+    _state: AgentState[Any],
+    _runtime: Runtime[Any],
 ) -> str:
     args = tool_call["args"]
     query = args.get("query", "unknown")
@@ -406,7 +412,9 @@ def _format_web_search_description(
 
 
 def _format_fetch_url_description(
-        tool_call: ToolCall, _state: AgentState[Any], _runtime: Runtime[Any],
+    tool_call: ToolCall,
+    _state: AgentState[Any],
+    _runtime: Runtime[Any],
 ) -> str:
     args = tool_call["args"]
     url = args.get("url", "unknown")
@@ -418,7 +426,9 @@ def _format_fetch_url_description(
 
 
 def _format_task_description(
-        tool_call: ToolCall, _state: AgentState[Any], _runtime: Runtime[Any],
+    tool_call: ToolCall,
+    _state: AgentState[Any],
+    _runtime: Runtime[Any],
 ) -> str:
     args = tool_call["args"]
     description = args.get("description", "unknown")
@@ -435,14 +445,13 @@ def _format_task_description(
 
 
 def _format_execute_description(
-        tool_call: ToolCall, _state: AgentState[Any], _runtime: Runtime[Any],
+    tool_call: ToolCall,
+    _state: AgentState[Any],
+    _runtime: Runtime[Any],
 ) -> str:
     args = tool_call["args"]
     command = args.get("command", "N/A")
-    return (
-        f"Execute Command: {command}\n"
-        f"Working Directory: current thread workspace"
-    )
+    return f"Execute Command: {command}\nWorking Directory: current thread workspace"
 
 
 # ---------------------------------------------------------------------------
@@ -498,10 +507,10 @@ class RuntimeAgent:
     """Manager-owned runtime bookkeeping per agent."""
 
     def __init__(
-            self,
-            *,
-            spec: AgentSpec,
-            reg: Registry,
+        self,
+        *,
+        spec: AgentSpec,
+        reg: Registry,
     ):
         self.spec: AgentSpec = spec
 
@@ -560,16 +569,18 @@ class RuntimeAgent:
         """Create the runtime-visible filesystem layout for this agent."""
         runtime_root = self.registry.runtime_dir(self.spec.name)
         runtime_root.mkdir(parents=True, exist_ok=True)
-        self.registry.shared_skills_dir(self.spec.name).mkdir(parents=True, exist_ok=True)
+        self.registry.shared_skills_dir(self.spec.name).mkdir(
+            parents=True, exist_ok=True
+        )
         memory_file = self.registry.shared_memory_file(self.spec.name)
         memory_file.parent.mkdir(parents=True, exist_ok=True)
         memory_file.touch(exist_ok=True)
         self.registry.threads_dir(self.spec.name).mkdir(parents=True, exist_ok=True)
 
     def _build_filesystem_view(
-            self,
-            *,
-            spec: SandboxSpec | dict[str, Any] | None,
+        self,
+        *,
+        spec: SandboxSpec | dict[str, Any] | None,
     ) -> AgentFilesystemView:
         """Describe the agent-visible filesystem for the selected backend."""
         self._ensure_runtime_filesystem()
@@ -579,15 +590,20 @@ class RuntimeAgent:
         backend = normalized_spec.backend if normalized_spec is not None else None
 
         backend_root_path = (
-            "/agent" if isinstance(backend, (DockerSandboxSpec, KubernetesSandboxSpec))
+            "/agent"
+            if isinstance(backend, (DockerSandboxSpec, KubernetesSandboxSpec))
             else ""
         )
 
         return AgentFilesystemView(
             host_runtime_dir=host_runtime_dir,
             host_threads_dir=self.registry.threads_dir(self.spec.name).resolve(),
-            host_shared_memory_file=self.registry.shared_memory_file(self.spec.name).resolve(),
-            host_shared_skills_dir=self.registry.shared_skills_dir(self.spec.name).resolve(),
+            host_shared_memory_file=self.registry.shared_memory_file(
+                self.spec.name
+            ).resolve(),
+            host_shared_skills_dir=self.registry.shared_skills_dir(
+                self.spec.name
+            ).resolve(),
             backend_root_path=backend_root_path,
             visible_workspace_path=".",
             visible_skills_path=".runtime/skills",
@@ -596,9 +612,9 @@ class RuntimeAgent:
         )
 
     def _build_local_backend(
-            self,
-            *,
-            filesystem_view: AgentFilesystemView,
+        self,
+        *,
+        filesystem_view: AgentFilesystemView,
     ) -> LocalShellBackend:
         """Create the local shell backend rooted at the agent runtime root."""
         return LocalShellBackend(
@@ -608,10 +624,10 @@ class RuntimeAgent:
         )
 
     async def _build_sandbox_backend(
-            self,
-            *,
-            spec: SandboxSpec | dict[str, Any],
-            filesystem_view: AgentFilesystemView,
+        self,
+        *,
+        spec: SandboxSpec | dict[str, Any],
+        filesystem_view: AgentFilesystemView,
     ) -> Any:
         """Create the concrete backend selected by the sandbox spec."""
         normalized_spec = parse_sandbox_spec(spec)
@@ -682,7 +698,9 @@ class RuntimeAgent:
             pass
 
         config = getattr(tool_runtime, "config", {})
-        configurable = config.get("configurable", {}) if isinstance(config, dict) else {}
+        configurable = (
+            config.get("configurable", {}) if isinstance(config, dict) else {}
+        )
         thread_id = str(configurable.get("thread_id", "")).strip()
         if not thread_id:
             msg = "thread_id is required to resolve runtime workspace"
@@ -690,10 +708,10 @@ class RuntimeAgent:
         return self._make_thread_backend(thread_id)
 
     async def _run_sandbox_setup_commands(
-            self,
-            *,
-            spec: SandboxSpec | dict[str, Any],
-            sandbox_backend: Any,
+        self,
+        *,
+        spec: SandboxSpec | dict[str, Any],
+        sandbox_backend: Any,
     ) -> None:
         """Execute sandbox setup commands exactly once for a new backend."""
         normalized_spec = parse_sandbox_spec(spec)
@@ -702,7 +720,9 @@ class RuntimeAgent:
         if not normalized_spec.setup_commands:
             return
         if not isinstance(sandbox_backend, SandboxBackendProtocol):
-            msg = "sandbox backend does not support command execution for setup_commands"
+            msg = (
+                "sandbox backend does not support command execution for setup_commands"
+            )
             raise RuntimeError(msg)
 
         timeout = (
@@ -723,10 +743,10 @@ class RuntimeAgent:
                 raise RuntimeError(msg)
 
     async def _create_sandbox_runtime(
-            self,
-            *,
-            spec: SandboxSpec | dict[str, Any],
-            filesystem_view: AgentFilesystemView,
+        self,
+        *,
+        spec: SandboxSpec | dict[str, Any],
+        filesystem_view: AgentFilesystemView,
     ) -> SandboxRuntime:
         """Create the agent-scoped sandbox runtime owner."""
         normalized_spec = parse_sandbox_spec(spec)
@@ -763,10 +783,10 @@ class RuntimeAgent:
                 logger.warning("Error cleaning up sandbox", exc_info=True)
 
     async def upload_workspace_files(
-            self,
-            *,
-            thread_id: str,
-            files: list[tuple[str, bytes]],
+        self,
+        *,
+        thread_id: str,
+        files: list[tuple[str, bytes]],
     ) -> list[FileUploadResponse]:
         """Upload files into one thread workspace."""
         if not files:
@@ -780,10 +800,10 @@ class RuntimeAgent:
             return thread_backend.upload_files(normalized_files)
 
     async def download_workspace_files(
-            self,
-            *,
-            thread_id: str,
-            paths: list[str],
+        self,
+        *,
+        thread_id: str,
+        paths: list[str],
     ) -> list[FileDownloadResponse]:
         """Download files from one thread workspace."""
         if not paths:
@@ -793,10 +813,10 @@ class RuntimeAgent:
             return thread_backend.download_files(paths)
 
     async def list_workspace_files(
-            self,
-            *,
-            thread_id: str,
-            path: str = ".",
+        self,
+        *,
+        thread_id: str,
+        path: str = ".",
     ) -> list[FileInfo]:
         """List files in one thread workspace directory."""
         async with self._workspace_locks.setdefault(thread_id, asyncio.Lock()):
@@ -816,20 +836,22 @@ class RuntimeAgent:
                 if env_val:
                     extra_kwargs["api_key"] = env_val
             if self.spec.model_config.get("extra_params"):
-                extra_kwargs.update({
-                    key: _parse_model_extra_param(value)
-                    for key, value in self.spec.model_config["extra_params"].items()
-                })
+                extra_kwargs.update(
+                    {
+                        key: _parse_model_extra_param(value)
+                        for key, value in self.spec.model_config["extra_params"].items()
+                    }
+                )
         return extra_kwargs
 
     @asynccontextmanager
     async def _runtime_phase(
-            self,
-            *,
-            blocked_states: tuple[str, ...],
-            enter_state: str,
-            success_state: str | None,
-            block_active_runs: bool = False,
+        self,
+        *,
+        blocked_states: tuple[str, ...],
+        enter_state: str,
+        success_state: str | None,
+        block_active_runs: bool = False,
     ) -> AsyncIterator[None]:
         """Transition runtime state with automatic rollback on failure."""
         async with self._runtime_lock:
@@ -894,22 +916,22 @@ class RuntimeAgent:
                 self._active_threads.discard(thread_id)
 
     async def assemble(
-            self,
-            *,
-            checkpointer: Any = None,
+        self,
+        *,
+        checkpointer: Any = None,
     ):
         async with self._runtime_phase(
-                blocked_states=("assembling", "releasing"),
-                enter_state="assembling",
-                success_state="assembled",
-                block_active_runs=True,
+            blocked_states=("assembling", "releasing"),
+            enter_state="assembling",
+            success_state="assembled",
+            block_active_runs=True,
         ):
             await self._assemble_impl(checkpointer=checkpointer)
 
     async def _assemble_impl(
-            self,
-            *,
-            checkpointer: Any = None,
+        self,
+        *,
+        checkpointer: Any = None,
     ) -> None:
         """Build compiled runtime resources for the current agent spec.
 
@@ -931,9 +953,11 @@ class RuntimeAgent:
         result = create_model(self.spec.model, extra_kwargs=extra_kwargs or None)
 
         # 2. Load MCP tools and stage releasable runtime resources.
-        mcp_tools, mcp_session_manager, mcp_server_infos = (
-            await load_mcp_tools_from_configs(self.spec.mcp_servers)
-        )
+        (
+            mcp_tools,
+            mcp_session_manager,
+            mcp_server_infos,
+        ) = await load_mcp_tools_from_configs(self.spec.mcp_servers)
         mcp_runtime = None
         if mcp_session_manager is not None:
             mcp_runtime = MCPRuntime(
@@ -946,7 +970,9 @@ class RuntimeAgent:
         if mcp_tools:
             logger.info(
                 "Loaded %d MCP tool(s) for agent '%s' from %d server(s)",
-                len(mcp_tools), self.spec.name, len(mcp_server_infos),
+                len(mcp_tools),
+                self.spec.name,
+                len(mcp_server_infos),
             )
 
         desired_sandbox_spec = self.spec.sandbox
@@ -1004,9 +1030,7 @@ class RuntimeAgent:
             history_path_prefix=filesystem_view.visible_history_path_prefix,
             truncate_args_settings=summarization_defaults["truncate_args_settings"],
         )
-        agent_middleware.append(
-            SummarizationToolMiddleware(summarization_middleware)
-        )
+        agent_middleware.append(SummarizationToolMiddleware(summarization_middleware))
 
         # 4. Build the final system prompt.
         prompt_system = self.spec.prompt.get("system", "") if self.spec.prompt else ""
@@ -1066,33 +1090,34 @@ class RuntimeAgent:
         if replace_sandbox_runtime and existing_sandbox_runtime is not None:
             await self._cleanup_sandbox_backend(existing_sandbox_runtime.backend)
 
-    async def astream(self,
-                      *,
-                      context: Any = None,
-                      message: str,
-                      config: RunnableConfig,
-                      hitl_handler: HITLHandler | None = None,
-                      ) -> AsyncIterator[RuntimeEvent]:
+    async def astream(
+        self,
+        *,
+        context: Any = None,
+        message: str,
+        config: RunnableConfig,
+        hitl_handler: HITLHandler | None = None,
+    ) -> AsyncIterator[RuntimeEvent]:
         run_id, thread_id = self._resolve_run_identifiers(config)
         async with self._run_phase(thread_id):
             self._materialize_thread_filesystem(thread_id)
             async for event in self._astream_impl(
-                    context=context,
-                    message=message,
-                    config=config,
-                    run_id=run_id,
-                    thread_id=thread_id,
-                    hitl_handler=hitl_handler,
+                context=context,
+                message=message,
+                config=config,
+                run_id=run_id,
+                thread_id=thread_id,
+                hitl_handler=hitl_handler,
             ):
                 yield event
 
     async def atelemetry(
-            self,
-            *,
-            context: Any = None,
-            message: str,
-            config: RunnableConfig,
-            hitl_handler: HITLHandler | None = None,
+        self,
+        *,
+        context: Any = None,
+        message: str,
+        config: RunnableConfig,
+        hitl_handler: HITLHandler | None = None,
     ) -> AsyncIterator[TelemetryEvent]:
         """Stream one invocation as telemetry events."""
 
@@ -1100,18 +1125,18 @@ class RuntimeAgent:
         async with self._run_phase(thread_id):
             self._materialize_thread_filesystem(thread_id)
             async for event in self._atelemetry_impl(
-                    context=context,
-                    message=message,
-                    config=config,
-                    run_id=run_id,
-                    thread_id=thread_id,
-                    hitl_handler=hitl_handler,
+                context=context,
+                message=message,
+                config=config,
+                run_id=run_id,
+                thread_id=thread_id,
+                hitl_handler=hitl_handler,
             ):
                 yield event
 
     def _resolve_run_identifiers(
-            self,
-            config: RunnableConfig,
+        self,
+        config: RunnableConfig,
     ) -> tuple[str, str]:
         """Resolve the run and thread identifiers for one invocation."""
 
@@ -1127,15 +1152,16 @@ class RuntimeAgent:
             thread_id = uuid.uuid4().hex[:8]
         return run_id, thread_id
 
-    async def _astream_impl(self,
-                            *,
-                            context: Any = None,
-                            message: str,
-                            config: RunnableConfig,
-                            run_id: str,
-                            thread_id: str,
-                            hitl_handler: HITLHandler | None = None,
-                            ) -> AsyncIterator[RuntimeEvent]:
+    async def _astream_impl(
+        self,
+        *,
+        context: Any = None,
+        message: str,
+        config: RunnableConfig,
+        run_id: str,
+        thread_id: str,
+        hitl_handler: HITLHandler | None = None,
+    ) -> AsyncIterator[RuntimeEvent]:
         """Stream one invocation as RuntimeEvents."""
         if self._graph is None:
             msg = f"Agent '{self.spec.name}' has not been assembled"
@@ -1162,12 +1188,12 @@ class RuntimeAgent:
             pending_interrupts: dict[str, Any] = {}
 
             async for part in self._graph.astream(
-                    stream_input,
-                    config=config,
-                    context=runtime_context,
-                    stream_mode=["messages", "updates"],
-                    subgraphs=True,
-                    version="v2",
+                stream_input,
+                config=config,
+                context=runtime_context,
+                stream_mode=["messages", "updates"],
+                subgraphs=True,
+                version="v2",
             ):
                 parsed = parse_stream_part(part, parser_state)
                 pending_interrupts.update(parsed.interrupts)
@@ -1196,8 +1222,7 @@ class RuntimeAgent:
                     interrupt_id=interrupt_id,
                     action_requests=[dict(ar) for ar in action_requests],
                     review_configs=[
-                        dict(config)
-                        for config in request.get("review_configs", [])
+                        dict(config) for config in request.get("review_configs", [])
                     ]
                     if isinstance(request, dict)
                     else [],
@@ -1206,15 +1231,17 @@ class RuntimeAgent:
                 )
 
                 if hitl_handler is not None:
-                    decisions = await hitl_handler({
-                        "interrupt_id": interrupt_id,
-                        "action_requests": action_requests,
-                        "review_configs": (
-                            request.get("review_configs", [])
-                            if isinstance(request, dict)
-                            else []
-                        ),
-                    })
+                    decisions = await hitl_handler(
+                        {
+                            "interrupt_id": interrupt_id,
+                            "action_requests": action_requests,
+                            "review_configs": (
+                                request.get("review_configs", [])
+                                if isinstance(request, dict)
+                                else []
+                            ),
+                        }
+                    )
                 else:
                     decisions = [{"type": "approve"} for _ in action_requests]
 
@@ -1246,14 +1273,14 @@ class RuntimeAgent:
         return
 
     async def _atelemetry_impl(
-            self,
-            *,
-            context: Any = None,
-            message: str,
-            config: RunnableConfig,
-            run_id: str,
-            thread_id: str,
-            hitl_handler: HITLHandler | None = None,
+        self,
+        *,
+        context: Any = None,
+        message: str,
+        config: RunnableConfig,
+        run_id: str,
+        thread_id: str,
+        hitl_handler: HITLHandler | None = None,
     ) -> AsyncIterator[TelemetryEvent]:
         """Stream one invocation as telemetry events."""
 
@@ -1284,12 +1311,12 @@ class RuntimeAgent:
             pending_interrupts: dict[str, dict[str, Any]] = {}
 
             async for part in self._graph.astream(
-                    stream_input,
-                    config=config,
-                    context=runtime_context,
-                    stream_mode=["messages", "updates", "debug", "custom"],
-                    subgraphs=True,
-                    version="v2",
+                stream_input,
+                config=config,
+                context=runtime_context,
+                stream_mode=["messages", "updates", "debug", "custom"],
+                subgraphs=True,
+                version="v2",
             ):
                 parsed = parse_telemetry_stream_part(part, parser_state)
                 pending_interrupts.update(parsed.interrupts)
@@ -1319,8 +1346,7 @@ class RuntimeAgent:
                         interrupt_id=interrupt_id,
                         action_requests=[dict(ar) for ar in action_requests],
                         review_configs=[
-                            dict(config)
-                            for config in request.get("review_configs", [])
+                            dict(config) for config in request.get("review_configs", [])
                         ]
                         if isinstance(request, dict)
                         else [],
@@ -1330,15 +1356,17 @@ class RuntimeAgent:
                 )
 
                 if hitl_handler is not None:
-                    decisions = await hitl_handler({
-                        "interrupt_id": interrupt_id,
-                        "action_requests": action_requests,
-                        "review_configs": (
-                            request.get("review_configs", [])
-                            if isinstance(request, dict)
-                            else []
-                        ),
-                    })
+                    decisions = await hitl_handler(
+                        {
+                            "interrupt_id": interrupt_id,
+                            "action_requests": action_requests,
+                            "review_configs": (
+                                request.get("review_configs", [])
+                                if isinstance(request, dict)
+                                else []
+                            ),
+                        }
+                    )
                 else:
                     decisions = [{"type": "approve"} for _ in action_requests]
 
@@ -1369,6 +1397,8 @@ class RuntimeAgent:
                     "output_tokens": parser_state.stats.output_tokens,
                     "wall_time_seconds": round(wall_time, 2),
                 },
+                start_checkpoint_id=parser_state.start_checkpoint_id,
+                end_checkpoint_id=parser_state.end_checkpoint_id,
             )
         )
         return
@@ -1390,10 +1420,10 @@ class RuntimeAgent:
 
     async def release(self):
         async with self._runtime_phase(
-                blocked_states=("releasing", "assembling"),
-                enter_state="releasing",
-                success_state="released",
-                block_active_runs=True,
+            blocked_states=("releasing", "assembling"),
+            enter_state="releasing",
+            success_state="released",
+            block_active_runs=True,
         ):
             await self._release_impl()
 

@@ -105,26 +105,33 @@ const (
 
 // TelemetryStep captures one control-projected trace step.
 type TelemetryStep struct {
-	StepID          string
-	RunID           string
-	ParentStepID    string
-	Kind            TelemetryStepKind
-	Title           string
-	Namespace       []string
-	Status          TelemetryStepStatus
-	StartedAt       time.Time
-	FinishedAt      time.Time
-	Depth           int32
-	Step            int32
-	Input           json.RawMessage
-	Output          json.RawMessage
-	Error           string
-	Triggers        []string
-	Reasoning       []string
-	Messages        []string
-	Updates         []json.RawMessage
-	Custom          []json.RawMessage
-	RelatedEventIDs []string
-	Order           int32
-	Synthetic       bool
+	StepID             string
+	RunID              string
+	ParentStepID       string
+	Kind               TelemetryStepKind
+	Title              string
+	Namespace          []string
+	Status             TelemetryStepStatus
+	StartedAt          time.Time
+	FinishedAt         time.Time
+	Depth              int32
+	Step               int32
+	TaskID             string
+	ModelCallID        string
+	ToolCallID         string
+	InterruptID        string
+	MessageID          string
+	Input              json.RawMessage
+	Output             json.RawMessage
+	Error              string
+	Triggers           []string
+	Reasoning          []string
+	ReasoningEncrypted bool
+	Messages           []string
+	ToolCalls          []string
+	Updates            []json.RawMessage
+	Custom             []json.RawMessage
+	EventCount         int32
+	Order              int32
+	Synthetic          bool
 }

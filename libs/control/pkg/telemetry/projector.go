@@ -40,14 +40,17 @@ func BuildSteps(events []domain.TelemetryEventRecord) []domain.TelemetryStep {
 	})
 
 	var (
-		steps                 []*domain.TelemetryStep
-		stepByID              = map[string]*domain.TelemetryStep{}
-		activeNodeByTaskID    = map[string]*domain.TelemetryStep{}
-		latestNodeByNamespace = map[string]*domain.TelemetryStep{}
-		modelStepByID         = map[string]*domain.TelemetryStep{}
-		toolStepByID          = map[string]*domain.TelemetryStep{}
-		hitlStepByID          = map[string]*domain.TelemetryStep{}
-		runStep               *domain.TelemetryStep
+		steps                  []*domain.TelemetryStep
+		stepByID               = map[string]*domain.TelemetryStep{}
+		activeNodeByTaskID     = map[string]*domain.TelemetryStep{}
+		latestNodeByNamespace  = map[string]*domain.TelemetryStep{}
+		latestModelByNamespace = map[string]*domain.TelemetryStep{}
+		modelStepByID          = map[string]*domain.TelemetryStep{}
+		toolStepByID           = map[string]*domain.TelemetryStep{}
+		hitlStepByID           = map[string]*domain.TelemetryStep{}
+		runStep                *domain.TelemetryStep
+		reasoningIndexByStep   = map[string]map[string]int{}
+		messageIndexByStep     = map[string]map[string]int{}
 	)
 
 	appendStep := func(step domain.TelemetryStep) *domain.TelemetryStep {
@@ -132,20 +135,49 @@ func BuildSteps(events []domain.TelemetryEventRecord) []domain.TelemetryStep {
 
 		switch {
 		case event.EventType == "task":
-			step := appendStep(domain.TelemetryStep{
-				StepID:       fmt.Sprintf("step:node:%s", event.TaskID),
-				RunID:        event.RunID,
-				ParentStepID: parentNodeStepID(event.Namespace, latestNodeByNamespace, run.StepID),
-				Kind:         domain.TelemetryStepKindNode,
-				Title:        firstNonEmpty(stringValue(payload["name"]), event.NodeName, "node"),
-				Namespace:    cloneStrings(event.Namespace),
-				Status:       domain.TelemetryStepStatusRunning,
-				StartedAt:    event.Timestamp,
-				Depth:        int32(len(event.Namespace)),
-				Step:         int32(numberValue(metadata["langgraph_step"], metadata["step"])),
-				Input:        rawJSONValue(payload["input"]),
-				Triggers:     stringSliceValue(payload["triggers"]),
-			})
+			stepID := fmt.Sprintf("step:node:%s", event.TaskID)
+			step := stepByID[stepID]
+			if step == nil {
+				step = appendStep(domain.TelemetryStep{
+					StepID:       stepID,
+					RunID:        event.RunID,
+					ParentStepID: parentNodeStepID(event.Namespace, latestNodeByNamespace, run.StepID),
+					Kind:         domain.TelemetryStepKindNode,
+					Title:        firstNonEmpty(stringValue(payload["name"]), event.NodeName, "node"),
+					Namespace:    cloneStrings(event.Namespace),
+					Status:       domain.TelemetryStepStatusRunning,
+					StartedAt:    event.Timestamp,
+					Depth:        int32(len(event.Namespace)),
+					Step:         int32(numberValue(metadata["langgraph_step"], metadata["step"])),
+					TaskID:       event.TaskID,
+					Input:        rawJSONValue(payload["input"]),
+					Triggers:     stringSliceValue(payload["triggers"]),
+				})
+			} else {
+				step.ParentStepID = firstNonEmpty(
+					step.ParentStepID,
+					parentNodeStepID(event.Namespace, latestNodeByNamespace, run.StepID),
+				)
+				step.Title = firstNonEmpty(step.Title, stringValue(payload["name"]), event.NodeName, "node")
+				step.Namespace = cloneStrings(event.Namespace)
+				step.Depth = int32(len(event.Namespace))
+				step.Status = domain.TelemetryStepStatusRunning
+				step.FinishedAt = time.Time{}
+				if step.StartedAt.IsZero() || event.Timestamp.Before(step.StartedAt) {
+					step.StartedAt = event.Timestamp
+				}
+				if step.Step == 0 {
+					step.Step = int32(numberValue(metadata["langgraph_step"], metadata["step"]))
+				}
+				if input := rawJSONValue(payload["input"]); len(input) > 0 {
+					step.Input = input
+				}
+				if triggers := stringSliceValue(payload["triggers"]); len(triggers) > 0 {
+					step.Triggers = triggers
+				}
+				step.TaskID = firstNonEmpty(step.TaskID, event.TaskID)
+				step.Synthetic = false
+			}
 			appendRelatedEvent(step, event.EventID)
 			if event.TaskID != "" {
 				activeNodeByTaskID[event.TaskID] = step
@@ -185,6 +217,7 @@ func BuildSteps(events []domain.TelemetryEventRecord) []domain.TelemetryStep {
 					Status:       domain.TelemetryStepStatusRunning,
 					StartedAt:    event.Timestamp,
 					Depth:        int32(len(event.Namespace) + 1),
+					ToolCallID:   event.ToolCallID,
 				},
 			)
 			if step == nil {
@@ -221,6 +254,7 @@ func BuildSteps(events []domain.TelemetryEventRecord) []domain.TelemetryStep {
 					Status:       domain.TelemetryStepStatusInterrupted,
 					StartedAt:    event.Timestamp,
 					Depth:        int32(len(event.Namespace) + 1),
+					InterruptID:  event.InterruptID,
 					Input:        normalizeRaw(event.Payload),
 				},
 			)
@@ -229,7 +263,7 @@ func BuildSteps(events []domain.TelemetryEventRecord) []domain.TelemetryStep {
 			}
 
 		case event.StreamMode == "messages":
-			parentNode := latestNodeByNamespace[namespaceLabel(event.Namespace)]
+			modelTitle := telemetryModelTitle(metadata)
 			step := ensureChildStep(
 				modelStepByID,
 				stepByID,
@@ -241,31 +275,29 @@ func BuildSteps(events []domain.TelemetryEventRecord) []domain.TelemetryStep {
 					RunID:        event.RunID,
 					ParentStepID: parentActiveNodeStepID(event.Namespace, latestNodeByNamespace, activeNodeByTaskID, run.StepID),
 					Kind:         domain.TelemetryStepKindModel,
-					Title:        "model",
+					Title:        modelTitle,
 					Namespace:    cloneStrings(event.Namespace),
 					Status:       domain.TelemetryStepStatusRunning,
 					StartedAt:    event.Timestamp,
 					Depth:        int32(len(event.Namespace) + 1),
+					ModelCallID:  event.ModelCallID,
+					MessageID:    event.MessageID,
 				},
 			)
 			if step == nil {
 				continue
 			}
+			step.Title = firstNonEmpty(modelTitle, step.Title, "model")
 			appendRelatedEvent(step, event.EventID)
-			appendRelatedEvent(parentNode, event.EventID)
-			appendReasoning(step, payload)
-			appendReasoning(parentNode, payload)
+			step.MessageID = firstNonEmpty(step.MessageID, event.MessageID)
+			latestModelByNamespace[namespaceLabel(event.Namespace)] = step
+			appendReasoning(step, payload, reasoningIndexByStep)
+			appendModelToolCall(step, event, payload)
 			if text := firstNonEmpty(stringValue(payload["text"]), stringValue(payload["content"])); text != "" &&
 				(event.EventType == "text" || event.EventType == "text_done") {
-				step.Messages = append(step.Messages, text)
-				if parentNode != nil {
-					parentNode.Messages = append(parentNode.Messages, text)
-				}
+				appendMessage(step, event, text, messageIndexByStep)
 				if event.EventType == "text_done" {
 					step.Output = rawJSONValue(text)
-					if parentNode != nil {
-						parentNode.Output = rawJSONValue(text)
-					}
 				}
 			}
 			if event.EventType == "text_done" {
@@ -282,6 +314,11 @@ func BuildSteps(events []domain.TelemetryEventRecord) []domain.TelemetryStep {
 			appendRelatedEvent(step, event.EventID)
 			if event.EventType == "state_update" {
 				step.Updates = append(step.Updates, normalizeRaw(event.Payload))
+				backfillModelStepFromStateUpdate(
+					payload,
+					event.Namespace,
+					latestModelByNamespace,
+				)
 			}
 			if event.EventType == "custom" {
 				step.Custom = append(step.Custom, normalizeRaw(event.Payload))
@@ -375,11 +412,21 @@ func appendRelatedEvent(step *domain.TelemetryStep, eventID string) {
 	if step == nil || eventID == "" {
 		return
 	}
-	step.RelatedEventIDs = append(step.RelatedEventIDs, eventID)
+	step.EventCount += 1
 }
 
-func appendReasoning(step *domain.TelemetryStep, payload map[string]any) {
+func appendReasoning(
+	step *domain.TelemetryStep,
+	payload map[string]any,
+	indexByStep map[string]map[string]int,
+) {
+	if step == nil {
+		return
+	}
 	blockID := firstNonEmpty(stringValue(payload["id"]), fmt.Sprintf("%v", payload["index"]))
+	if len(step.Reasoning) == 0 && stringValue(payload["encrypted_content"]) != "" {
+		step.ReasoningEncrypted = true
+	}
 	if summary, ok := payload["summary"].([]any); ok {
 		for _, item := range summary {
 			record, ok := item.(map[string]any)
@@ -391,21 +438,228 @@ func appendReasoning(step *domain.TelemetryStep, payload map[string]any) {
 				continue
 			}
 			key := fmt.Sprintf("summary:%s:%v", blockID, record["index"])
-			appendReasoningText(step, key, text)
+			appendReasoningText(step, key, text, indexByStep)
 		}
 		return
 	}
 	if text := stringValue(payload["reasoning"]); text != "" {
-		appendReasoningText(step, "reasoning:"+blockID, text)
+		appendReasoningText(step, "reasoning:"+blockID, text, indexByStep)
 	}
 }
 
-func appendReasoningText(step *domain.TelemetryStep, key string, text string) {
-	_ = key
+func appendModelToolCall(
+	step *domain.TelemetryStep,
+	event domain.TelemetryEventRecord,
+	payload map[string]any,
+) {
+	if step == nil {
+		return
+	}
+	switch event.EventType {
+	case "tool_call", "tool_call_chunk", "tool_call_start", "function_call", "function_call_chunk":
+	default:
+		return
+	}
+
+	name := firstNonEmpty(stringValue(payload["tool_name"]), stringValue(payload["name"]))
+	if name == "" {
+		return
+	}
+	appendUniqueString(&step.ToolCalls, name)
+}
+
+func appendReasoningText(
+	step *domain.TelemetryStep,
+	key string,
+	text string,
+	indexByStep map[string]map[string]int,
+) {
 	if step == nil || text == "" {
 		return
 	}
+	index := messageOrReasoningIndex(indexByStep, step.StepID)
+	if existing, ok := index[key]; ok {
+		step.Reasoning[existing] += text
+		return
+	}
+	index[key] = len(step.Reasoning)
 	step.Reasoning = append(step.Reasoning, text)
+}
+
+func appendMessage(
+	step *domain.TelemetryStep,
+	event domain.TelemetryEventRecord,
+	text string,
+	indexByStep map[string]map[string]int,
+) {
+	if step == nil || text == "" {
+		return
+	}
+	key := firstNonEmpty(event.MessageID, event.ModelCallID, event.EventType)
+	index := messageOrReasoningIndex(indexByStep, step.StepID)
+	if existing, ok := index[key]; ok {
+		if event.EventType == "text_done" {
+			step.Messages[existing] = text
+			return
+		}
+		step.Messages[existing] += text
+		return
+	}
+	index[key] = len(step.Messages)
+	step.Messages = append(step.Messages, text)
+}
+
+func appendUniqueString(target *[]string, value string) {
+	if target == nil || value == "" {
+		return
+	}
+	for _, existing := range *target {
+		if existing == value {
+			return
+		}
+	}
+	*target = append(*target, value)
+}
+
+func telemetryModelTitle(metadata map[string]any) string {
+	provider := stringValue(metadata["ls_provider"])
+	modelName := firstNonEmpty(
+		stringValue(metadata["ls_model_name"]),
+		stringValue(metadata["model_name"]),
+	)
+	switch {
+	case provider != "" && modelName != "":
+		return provider + "/" + modelName
+	case modelName != "":
+		return modelName
+	default:
+		return "model"
+	}
+}
+
+func backfillModelStepFromStateUpdate(
+	payload map[string]any,
+	namespace []string,
+	latestModelByNamespace map[string]*domain.TelemetryStep,
+) {
+	if len(payload) == 0 {
+		return
+	}
+	step := latestModelByNamespace[namespaceLabel(namespace)]
+	if step == nil {
+		return
+	}
+
+	container := stateUpdateMessageContainer(payload)
+	if len(container) == 0 {
+		return
+	}
+
+	messagesValue, ok := container["messages"].([]any)
+	if !ok || len(messagesValue) == 0 {
+		return
+	}
+
+	reasoning, reasoningEncrypted, text, toolCalls := extractModelMessageSummary(messagesValue)
+	if len(reasoning) > 0 {
+		step.Reasoning = reasoning
+		step.ReasoningEncrypted = false
+	} else if reasoningEncrypted {
+		step.ReasoningEncrypted = true
+	}
+	if text != "" {
+		step.Messages = []string{text}
+		step.Output = rawJSONValue(text)
+	}
+	if len(toolCalls) > 0 {
+		step.ToolCalls = toolCalls
+	}
+}
+
+func stateUpdateMessageContainer(payload map[string]any) map[string]any {
+	if len(payload) == 0 {
+		return nil
+	}
+	for _, value := range payload {
+		record, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		if _, hasMessages := record["messages"]; hasMessages {
+			return record
+		}
+	}
+	return nil
+}
+
+func extractModelMessageSummary(messages []any) ([]string, bool, string, []string) {
+	var (
+		reasoning          []string
+		reasoningEncrypted bool
+		textParts          []string
+		toolCalls          []string
+	)
+
+	for _, rawMessage := range messages {
+		record, ok := rawMessage.(map[string]any)
+		if !ok {
+			continue
+		}
+		content, ok := record["content"].([]any)
+		if !ok {
+			continue
+		}
+
+		reasoning = reasoning[:0]
+		reasoningEncrypted = false
+		textParts = textParts[:0]
+		toolCalls = toolCalls[:0]
+
+		for _, rawPart := range content {
+			part, ok := rawPart.(map[string]any)
+			if !ok {
+				continue
+			}
+			switch stringValue(part["type"]) {
+			case "reasoning":
+				if summaries, ok := part["summary"].([]any); ok {
+					for _, rawSummary := range summaries {
+						summary, ok := rawSummary.(map[string]any)
+						if !ok {
+							continue
+						}
+						text := stringValue(summary["text"])
+						if text == "" {
+							continue
+						}
+						reasoning = append(reasoning, text)
+					}
+				}
+				if len(reasoning) == 0 && stringValue(part["encrypted_content"]) != "" {
+					reasoningEncrypted = true
+				}
+			case "text", "output_text":
+				if text := stringValue(part["text"]); text != "" {
+					textParts = append(textParts, text)
+				}
+			case "function_call", "tool_call":
+				if name := firstNonEmpty(stringValue(part["name"]), stringValue(part["tool_name"])); name != "" {
+					appendUniqueString(&toolCalls, name)
+				}
+			}
+		}
+	}
+
+	return reasoning, reasoningEncrypted, strings.TrimSpace(strings.Join(textParts, "")), toolCalls
+}
+
+func messageOrReasoningIndex(indexByStep map[string]map[string]int, stepID string) map[string]int {
+	if existing := indexByStep[stepID]; existing != nil {
+		return existing
+	}
+	created := map[string]int{}
+	indexByStep[stepID] = created
+	return created
 }
 
 func decodeRawObject(raw json.RawMessage) map[string]any {

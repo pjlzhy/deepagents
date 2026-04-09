@@ -187,6 +187,65 @@ func TestSQLiteStoreProjectsRunCheckpointBoundsAndFilters(t *testing.T) {
 	}
 }
 
+func TestSQLiteStoreProjectsRunCheckpointBoundsFromRunEndedPayload(t *testing.T) {
+	ctx := context.Background()
+	sqliteStore, err := store.OpenSQLite(ctx, store.SQLiteConfig{Path: filepath.Join(t.TempDir(), "telemetry.sqlite")})
+	if err != nil {
+		t.Fatalf("open sqlite store: %v", err)
+	}
+	defer func() { _ = sqliteStore.Close() }()
+
+	telemetryStore, err := NewSQLiteStore(sqliteStore.DB())
+	if err != nil {
+		t.Fatalf("new telemetry store: %v", err)
+	}
+
+	startedAt := time.Unix(1710000200, 0).UTC()
+	if err := telemetryStore.RecordEvent(ctx, runtimeclient.TelemetryEvent{
+		RunID:      "run-ended-checkpoints",
+		AgentName:  "assistant",
+		Timestamp:  startedAt,
+		EventID:    "run-ended-checkpoints:1:1",
+		Attempt:    1,
+		Seq:        1,
+		StreamMode: "lifecycle",
+		EventType:  "run_started",
+		NodeName:   "run",
+		PublicEvent: &runtimeclient.AgentEvent{
+			Type:      runtimeclient.AgentEventTypeRunStarted,
+			RunID:     "run-ended-checkpoints",
+			AgentName: "assistant",
+			ThreadID:  "thread-run-ended",
+			Timestamp: startedAt,
+		},
+	}); err != nil {
+		t.Fatalf("record run_started: %v", err)
+	}
+
+	if err := telemetryStore.RecordEvent(ctx, runtimeclient.TelemetryEvent{
+		RunID:      "run-ended-checkpoints",
+		AgentName:  "assistant",
+		Timestamp:  startedAt.Add(time.Second),
+		EventID:    "run-ended-checkpoints:1:2",
+		Attempt:    1,
+		Seq:        2,
+		StreamMode: "lifecycle",
+		EventType:  "run_ended",
+		NodeName:   "run",
+		Payload:    json.RawMessage(`{"stats":{"request_count":1},"start_checkpoint_id":"cp-before","end_checkpoint_id":"cp-after"}`),
+	}); err != nil {
+		t.Fatalf("record run_ended: %v", err)
+	}
+
+	run, err := telemetryStore.GetRun(ctx, "run-ended-checkpoints")
+	if err != nil {
+		t.Fatalf("get run: %v", err)
+	}
+	if run.StartCheckpointID != "cp-before" || run.EndCheckpointID != "cp-after" {
+		t.Fatalf("unexpected run-ended checkpoint bounds: %#v", run)
+	}
+}
+
 func TestSQLiteStoreAssignsTurnIndexPerThread(t *testing.T) {
 	ctx := context.Background()
 	sqliteStore, err := store.OpenSQLite(ctx, store.SQLiteConfig{Path: filepath.Join(t.TempDir(), "telemetry.sqlite")})

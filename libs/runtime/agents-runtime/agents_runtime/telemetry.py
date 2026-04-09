@@ -70,6 +70,9 @@ class TelemetryParserState:
     stats: SessionStats = field(default_factory=SessionStats)
     run_id: str = ""
     agent_name: str = ""
+    start_checkpoint_id: str = ""
+    end_checkpoint_id: str = ""
+    emitted_task_keys: set[tuple[tuple[str, ...], str]] = field(default_factory=set)
 
 
 @dataclass
@@ -153,11 +156,7 @@ def parse_telemetry_stream_part(
     if not isinstance(part, dict):
         return TelemetryParseResult()
 
-    ns = tuple(
-        str(item)
-        for item in part.get("ns", ())
-        if isinstance(item, str)
-    )
+    ns = tuple(str(item) for item in part.get("ns", ()) if isinstance(item, str))
     stream_mode = part.get("type")
     data = part.get("data")
 
@@ -241,7 +240,11 @@ def _parse_ai_message(
 
         block_type = str(block.get("type", "message_block"))
         payload = _normalize_json_like(block)
-        if isinstance(payload, dict) and model_call_id and block_type not in {"tool_call", "tool_call_chunk"}:
+        if (
+            isinstance(payload, dict)
+            and model_call_id
+            and block_type not in {"tool_call", "tool_call_chunk"}
+        ):
             payload["model_call_id"] = model_call_id
         timestamp = time.time()
         public_event: RuntimeEvent | None = None
@@ -361,13 +364,17 @@ def _maybe_emit_tool_call_start(
     buffer["started"] = True
     tool_call_id = str(buffer["id"] or buffer_key)
     args = _buffer_args(buffer)
-    public_event = events.tool_call_start(
-        tool_name=str(chunk_name),
-        tool_call_id=tool_call_id,
-        args=args,
-        run_id=state.run_id,
-        agent_name=state.agent_name,
-    ) if not ns else None
+    public_event = (
+        events.tool_call_start(
+            tool_name=str(chunk_name),
+            tool_call_id=tool_call_id,
+            args=args,
+            run_id=state.run_id,
+            agent_name=state.agent_name,
+        )
+        if not ns
+        else None
+    )
     return [
         TelemetryEvent(
             stream_mode="messages",
@@ -621,6 +628,24 @@ def _parse_debug_part(
         metadata["step"] = _normalize_json_like(data["step"])
     timestamp = _timestamp_from_debug(data.get("timestamp")) or time.time()
 
+    if event_type == "checkpoint":
+        _update_checkpoint_bounds(payload, state)
+        return TelemetryParseResult()
+
+    if event_type == "task":
+        payload_dict = payload if isinstance(payload, dict) else {}
+        task_id = _telemetry_string(payload_dict.get("id"))
+        if task_id:
+            task_key = (ns, task_id)
+            if task_key in state.emitted_task_keys:
+                return TelemetryParseResult()
+            state.emitted_task_keys.add(task_key)
+        payload = _compact_debug_task_payload(payload_dict)
+    elif event_type == "task_result":
+        payload = _compact_debug_task_result_payload(payload)
+    else:
+        return TelemetryParseResult()
+
     return TelemetryParseResult(
         events=[
             TelemetryEvent(
@@ -635,6 +660,84 @@ def _parse_debug_part(
             )
         ]
     )
+
+
+def _update_checkpoint_bounds(payload: Any, state: TelemetryParserState) -> None:
+    """Track checkpoint boundaries without emitting raw checkpoint events."""
+
+    if not isinstance(payload, dict):
+        return
+
+    parent_checkpoint_id = _nested_checkpoint_id(payload.get("parent_config"))
+    checkpoint_id = _nested_checkpoint_id(payload.get("config"))
+
+    if not state.start_checkpoint_id and parent_checkpoint_id:
+        state.start_checkpoint_id = parent_checkpoint_id
+    if checkpoint_id:
+        state.end_checkpoint_id = checkpoint_id
+
+
+def _nested_checkpoint_id(config_value: Any) -> str:
+    """Read one checkpoint ID from a LangGraph debug checkpoint config blob."""
+
+    if not isinstance(config_value, dict):
+        return ""
+    configurable = config_value.get("configurable")
+    if not isinstance(configurable, dict):
+        return ""
+    return _telemetry_string(configurable.get("checkpoint_id"))
+
+
+def _compact_debug_task_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Drop repeated thread-state blobs from one debug task payload."""
+
+    compact: dict[str, Any] = {}
+    for key in ("id", "name", "triggers"):
+        if key in payload:
+            compact[key] = _normalize_json_like(payload[key])
+    if "input" in payload:
+        compact["input"] = _compact_debug_state(payload["input"])
+    return compact
+
+
+def _compact_debug_task_result_payload(payload: Any) -> dict[str, Any]:
+    """Drop repeated thread-state blobs from one debug task_result payload."""
+
+    if not isinstance(payload, dict):
+        return {}
+
+    compact: dict[str, Any] = {}
+    for key in ("id", "error", "interrupts"):
+        if key in payload:
+            compact[key] = _normalize_json_like(payload[key])
+    if "result" in payload:
+        compact["result"] = _compact_debug_state(payload["result"])
+    return compact
+
+
+def _compact_debug_state(value: Any) -> Any:
+    """Summarize bulky checkpoint-backed state carried inside debug task payloads."""
+
+    normalized = _normalize_json_like(value)
+    if not isinstance(normalized, dict):
+        return normalized
+
+    compact: dict[str, Any] = {}
+    for key, item in normalized.items():
+        if key == "messages" and isinstance(item, list):
+            compact[key] = {"count": len(item)}
+            continue
+        if key == "memory_contents" and isinstance(item, dict):
+            compact[key] = {"count": len(item)}
+            continue
+        if key == "skills_metadata" and isinstance(item, list):
+            compact[key] = {"count": len(item)}
+            continue
+        if isinstance(item, dict):
+            compact[key] = _compact_debug_state(item)
+            continue
+        compact[key] = item
+    return compact
 
 
 def _telemetry_event_type_from_runtime_event(
@@ -732,7 +835,13 @@ def _derive_model_call_id(
         return ""
     if event.stream_mode != "messages":
         return ""
-    if event.event_type in {"tool_call", "tool_call_chunk", "tool_call_start", "tool_call_done", "tool_result"}:
+    if event.event_type in {
+        "tool_call",
+        "tool_call_chunk",
+        "tool_call_start",
+        "tool_call_done",
+        "tool_result",
+    }:
         return ""
     return message_id
 
@@ -758,10 +867,7 @@ def _normalize_metadata(value: Any) -> dict[str, Any]:
 
     if not isinstance(value, dict):
         return {}
-    return {
-        str(key): _normalize_json_like(item)
-        for key, item in value.items()
-    }
+    return {str(key): _normalize_json_like(item) for key, item in value.items()}
 
 
 def _normalize_json_like(value: Any) -> Any:
@@ -782,10 +888,7 @@ def _normalize_json_like(value: Any) -> Any:
     if isinstance(value, list):
         return [_normalize_json_like(item) for item in value]
     if isinstance(value, dict):
-        return {
-            str(key): _normalize_json_like(item)
-            for key, item in value.items()
-        }
+        return {str(key): _normalize_json_like(item) for key, item in value.items()}
     return str(value)
 
 
