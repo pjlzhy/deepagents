@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -41,11 +42,12 @@ func (*stubBootstrapRuntimeClient) UploadWorkspaceFiles(
 	return domain.WorkspaceUploadResponse{}, nil
 }
 
-func (*stubBootstrapRuntimeClient) DownloadWorkspaceFiles(
+func (*stubBootstrapRuntimeClient) DownloadWorkspaceFile(
 	context.Context,
-	domain.WorkspaceDownloadRequest,
-) (domain.WorkspaceDownloadResponse, error) {
-	return domain.WorkspaceDownloadResponse{}, nil
+	domain.WorkspaceFileDownloadRequest,
+	io.Writer,
+) error {
+	return nil
 }
 
 func (*stubBootstrapRuntimeClient) ListWorkspaceFiles(
