@@ -10,7 +10,6 @@ import (
 	"agentctl/pkg/telemetry"
 	"context"
 	"crypto/rand"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -287,17 +286,6 @@ type workspaceUploadResponse struct {
 	Files    []workspaceUploadFileResponse `json:"files"`
 }
 
-type workspaceDownloadFileResponse struct {
-	Path          string `json:"path,omitempty"`
-	ContentBase64 string `json:"content_base64,omitempty"`
-	Error         string `json:"error,omitempty"`
-}
-
-type workspaceDownloadResponse struct {
-	ThreadID string                          `json:"thread_id,omitempty"`
-	Files    []workspaceDownloadFileResponse `json:"files"`
-}
-
 type workspaceFileInfoResponse struct {
 	Path       string `json:"path,omitempty"`
 	IsDir      bool   `json:"is_dir,omitempty"`
@@ -456,12 +444,25 @@ type decodedHITLDecisionRequest struct {
 }
 
 type healthResponse struct {
-	Status              string  `json:"status,omitempty"`
-	AssembledAgentCount int32   `json:"assembled_agent_count,omitempty"`
-	InstalledAgentCount int32   `json:"installed_agent_count,omitempty"`
-	RunningAgentCount   int32   `json:"running_agent_count,omitempty"`
-	UptimeSeconds       float32 `json:"uptime_seconds,omitempty"`
-	Ready               bool    `json:"ready"`
+	Status              string                `json:"status,omitempty"`
+	AssembledAgentCount int32                 `json:"assembled_agent_count,omitempty"`
+	InstalledAgentCount int32                 `json:"installed_agent_count,omitempty"`
+	RunningAgentCount   int32                 `json:"running_agent_count,omitempty"`
+	RunningThreadCount  int32                 `json:"running_thread_count,omitempty"`
+	UptimeSeconds       float32               `json:"uptime_seconds,omitempty"`
+	Ready               bool                  `json:"ready"`
+	Agents              []healthAgentResponse `json:"agents,omitempty"`
+}
+
+type healthAgentResponse struct {
+	Name              string   `json:"name,omitempty"`
+	Version           string   `json:"version,omitempty"`
+	Description       string   `json:"description,omitempty"`
+	Tags              []string `json:"tags,omitempty"`
+	Status            string   `json:"status,omitempty"`
+	ActiveThreadCount int32    `json:"active_thread_count,omitempty"`
+	ActiveThreadIDs   []string `json:"active_thread_ids,omitempty"`
+	LastInvokedAt     string   `json:"last_invoked_at,omitempty"`
 }
 
 type sessionSummaryResponse struct {
@@ -1051,14 +1052,15 @@ func decodeSkillPackageUploadRequest(r *http.Request) (decodedSkillPackageUpload
 	}, nil
 }
 
-func decodeWorkspaceUploadRequest(r *http.Request) (domain.WorkspaceUploadRequest, error) {
+func decodeWorkspaceUploadRequest(r *http.Request) (domain.WorkspaceUploadRequest, func(), error) {
 	if err := r.ParseMultipartForm(64 << 20); err != nil {
-		return domain.WorkspaceUploadRequest{}, fmt.Errorf("parse multipart form: %w", err)
+		return domain.WorkspaceUploadRequest{}, nil, fmt.Errorf("parse multipart form: %w", err)
 	}
+	cleanup := func() {}
 	if r.MultipartForm != nil {
-		defer func() {
+		cleanup = func() {
 			_ = r.MultipartForm.RemoveAll()
-		}()
+		}
 	}
 
 	uploadedFiles := make([]domain.WorkspaceUploadFile, 0)
@@ -1067,35 +1069,27 @@ func decodeWorkspaceUploadRequest(r *http.Request) (domain.WorkspaceUploadReques
 			for _, header := range r.MultipartForm.File[field] {
 				item, err := newWorkspaceUploadFile(header)
 				if err != nil {
-					return domain.WorkspaceUploadRequest{}, err
+					cleanup()
+					return domain.WorkspaceUploadRequest{}, nil, err
 				}
 				uploadedFiles = append(uploadedFiles, item)
 			}
 		}
 	}
 	if len(uploadedFiles) == 0 {
-		return domain.WorkspaceUploadRequest{}, errors.New("multipart field \"files\" must contain at least one file")
+		cleanup()
+		return domain.WorkspaceUploadRequest{}, nil, errors.New("multipart field \"files\" must contain at least one file")
 	}
 
 	return domain.WorkspaceUploadRequest{
 		ThreadID: strings.TrimSpace(r.FormValue("thread_id")),
 		Files:    uploadedFiles,
-	}, nil
+	}, cleanup, nil
 }
 
 func newWorkspaceUploadFile(header *multipart.FileHeader) (domain.WorkspaceUploadFile, error) {
 	if header == nil {
 		return domain.WorkspaceUploadFile{}, errors.New("workspace upload file header must not be nil")
-	}
-	file, err := header.Open()
-	if err != nil {
-		return domain.WorkspaceUploadFile{}, fmt.Errorf("open workspace upload: %w", err)
-	}
-	defer file.Close()
-
-	content, err := io.ReadAll(file)
-	if err != nil {
-		return domain.WorkspaceUploadFile{}, fmt.Errorf("read workspace upload: %w", err)
 	}
 
 	name := strings.TrimSpace(filepath.Base(header.Filename))
@@ -1103,8 +1097,15 @@ func newWorkspaceUploadFile(header *multipart.FileHeader) (domain.WorkspaceUploa
 		return domain.WorkspaceUploadFile{}, errors.New("uploaded file must have a valid filename")
 	}
 	return domain.WorkspaceUploadFile{
-		Path:    name,
-		Content: content,
+		Path: name,
+		Size: header.Size,
+		Open: func() (io.ReadCloser, error) {
+			file, err := header.Open()
+			if err != nil {
+				return nil, fmt.Errorf("open workspace upload: %w", err)
+			}
+			return file, nil
+		},
 	}, nil
 }
 
@@ -1485,13 +1486,28 @@ func newHTTPTelemetryStepResponse(step domain.TelemetryStep) telemetryStepRespon
 }
 
 func newHTTPHealthResponse(resp runtimeclient.HealthResponse) healthResponse {
+	agents := make([]healthAgentResponse, 0, len(resp.Agents))
+	for _, agent := range resp.Agents {
+		agents = append(agents, healthAgentResponse{
+			Name:              agent.Name,
+			Version:           agent.Version,
+			Description:       agent.Description,
+			Tags:              append([]string(nil), agent.Tags...),
+			Status:            string(agent.Status),
+			ActiveThreadCount: agent.ActiveThreadCount,
+			ActiveThreadIDs:   append([]string(nil), agent.ActiveThreadIDs...),
+			LastInvokedAt:     formatOptionalTime(agent.LastInvokedAt),
+		})
+	}
 	return healthResponse{
 		Status:              resp.Status,
 		AssembledAgentCount: resp.AssembledAgentCount,
 		InstalledAgentCount: resp.InstalledAgentCount,
 		RunningAgentCount:   resp.RunningAgentCount,
+		RunningThreadCount:  resp.RunningThreadCount,
 		UptimeSeconds:       resp.UptimeSeconds,
 		Ready:               resp.Ready,
+		Agents:              agents,
 	}
 }
 
@@ -1504,25 +1520,6 @@ func newHTTPWorkspaceUploadResponse(resp domain.WorkspaceUploadResponse) workspa
 		})
 	}
 	return workspaceUploadResponse{
-		ThreadID: resp.ThreadID,
-		Files:    files,
-	}
-}
-
-func newHTTPWorkspaceDownloadResponse(resp domain.WorkspaceDownloadResponse) workspaceDownloadResponse {
-	files := make([]workspaceDownloadFileResponse, 0, len(resp.Files))
-	for _, item := range resp.Files {
-		encoded := ""
-		if item.Content != nil {
-			encoded = base64.StdEncoding.EncodeToString(item.Content)
-		}
-		files = append(files, workspaceDownloadFileResponse{
-			Path:          item.Path,
-			ContentBase64: encoded,
-			Error:         item.Error,
-		})
-	}
-	return workspaceDownloadResponse{
 		ThreadID: resp.ThreadID,
 		Files:    files,
 	}

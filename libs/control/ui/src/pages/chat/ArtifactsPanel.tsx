@@ -61,20 +61,7 @@ function formatSize(bytes?: number): string {
 }
 
 async function downloadFile(agentName: string, threadId: string, path: string, filename: string): Promise<void> {
-  const response = await controlClient.agents.downloadWorkspaceFiles(agentName, threadId, [path]);
-  const file = response.files?.[0];
-  if (!file || file.error) {
-    throw new Error(file?.error ?? 'download failed');
-  }
-  if (!file.content_base64) {
-    throw new Error('empty file content');
-  }
-  const binary = atob(file.content_base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  const blob = new Blob([bytes]);
+  const blob = await controlClient.agents.downloadWorkspaceFilesBlob(agentName, threadId, [path]);
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;

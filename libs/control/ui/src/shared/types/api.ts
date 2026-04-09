@@ -13,13 +13,26 @@ export type CursorPageMeta = {
   next_page_token?: string;
 };
 
+export type HealthAgentResponse = {
+  name?: string;
+  version?: string;
+  description?: string;
+  tags?: string[];
+  status?: string;
+  active_thread_count?: number;
+  active_thread_ids?: string[];
+  last_invoked_at?: string;
+};
+
 export type HealthResponse = {
   status?: string;
   assembled_agent_count?: number;
   installed_agent_count?: number;
   running_agent_count?: number;
+  running_thread_count?: number;
   uptime_seconds?: number;
   ready: boolean;
+  agents?: HealthAgentResponse[];
 };
 
 export type ModelConfigDTO = {
@@ -498,17 +511,6 @@ export type SubmitHitlDecisionsRequestDTO = {
 // ---------------------------------------------------------------------------
 // Workspace file operations
 // ---------------------------------------------------------------------------
-
-export type WorkspaceDownloadFileResultDTO = {
-  path?: string;
-  content_base64?: string;
-  error?: string;
-};
-
-export type WorkspaceDownloadResponseDTO = {
-  thread_id?: string;
-  files: WorkspaceDownloadFileResultDTO[];
-};
 
 export type WorkspaceFileInfoDTO = {
   path?: string;

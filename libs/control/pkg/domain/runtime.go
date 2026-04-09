@@ -2,6 +2,7 @@ package domain
 
 import (
 	"encoding/json"
+	"io"
 	"time"
 )
 
@@ -63,6 +64,8 @@ type RunRequest struct {
 type WorkspaceUploadFile struct {
 	Path    string
 	Content []byte
+	Size    int64
+	Open    func() (io.ReadCloser, error)
 }
 
 // WorkspaceUploadRequest is shared across northbound and southbound upload flows.
@@ -84,24 +87,11 @@ type WorkspaceUploadResponse struct {
 	Files    []WorkspaceUploadResult
 }
 
-// WorkspaceDownloadRequest is shared across northbound and southbound download flows.
-type WorkspaceDownloadRequest struct {
+// WorkspaceFileDownloadRequest identifies one file to stream from one thread workspace.
+type WorkspaceFileDownloadRequest struct {
 	AgentName string
 	ThreadID  string
-	Paths     []string
-}
-
-// WorkspaceDownloadResult captures one downloaded file outcome.
-type WorkspaceDownloadResult struct {
-	Path    string
-	Content []byte
-	Error   string
-}
-
-// WorkspaceDownloadResponse reports the resolved thread and per-file results.
-type WorkspaceDownloadResponse struct {
-	ThreadID string
-	Files    []WorkspaceDownloadResult
+	Path      string
 }
 
 // WorkspaceListRequest is shared across northbound and southbound list flows.

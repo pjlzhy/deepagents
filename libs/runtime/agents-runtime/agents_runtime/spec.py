@@ -1058,13 +1058,16 @@ class McpMeta:
 
 @dataclass(frozen=True)
 class AgentMeta:
-    """Lightweight agent metadata returned by list operations."""
+    """Agent metadata plus live runtime hints returned by list operations."""
 
     name: str
     version: str
     description: str
     tags: list[str]
     status: AgentStatus = AgentStatus.INSTALLED
+    active_thread_count: int = 0
+    active_thread_ids: list[str] = field(default_factory=list)
+    last_invoked_at: datetime | None = None
 
 
 # ──────────────────── Session / Thread Types ────────────────

@@ -3,6 +3,7 @@ package runtimeclient
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"time"
 
 	"agentctl/pkg/domain"
@@ -21,14 +22,28 @@ type AssembleResponse struct {
 	Status  string
 }
 
+// HealthAgent captures one runtime-side agent health snapshot.
+type HealthAgent struct {
+	Name              string
+	Version           string
+	Description       string
+	Tags              []string
+	Status            domain.ObservedRuntimeState
+	ActiveThreadCount int32
+	ActiveThreadIDs   []string
+	LastInvokedAt     time.Time
+}
+
 // HealthResponse 表示 data plane 健康状态快照。
 type HealthResponse struct {
 	Status              string
 	AssembledAgentCount int32
 	InstalledAgentCount int32
 	RunningAgentCount   int32
+	RunningThreadCount  int32
 	UptimeSeconds       float32
 	Ready               bool
+	Agents              []HealthAgent
 }
 
 // Action 表示一条可执行或可编辑的动作。
@@ -139,7 +154,7 @@ type ResourceSyncClient interface {
 	Assemble(ctx context.Context, agentName string) (AssembleResponse, error)
 	GetAgentGraph(ctx context.Context, agentName string, xrayDepth int32) (json.RawMessage, error)
 	UploadWorkspaceFiles(ctx context.Context, req domain.WorkspaceUploadRequest) (domain.WorkspaceUploadResponse, error)
-	DownloadWorkspaceFiles(ctx context.Context, req domain.WorkspaceDownloadRequest) (domain.WorkspaceDownloadResponse, error)
+	DownloadWorkspaceFile(ctx context.Context, req domain.WorkspaceFileDownloadRequest, writer io.Writer) error
 	ListWorkspaceFiles(ctx context.Context, req domain.WorkspaceListRequest) (domain.WorkspaceListResponse, error)
 	RemoveAgent(ctx context.Context, agentName string) (SyncResponse, error)
 	Health(ctx context.Context) (HealthResponse, error)

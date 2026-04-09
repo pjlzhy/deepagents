@@ -2,8 +2,11 @@ package api
 
 import (
 	"agentctl/pkg/domain"
+	"archive/zip"
 	"errors"
+	"fmt"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -67,11 +70,12 @@ func (h *HTTPHandler) handleGetAgentGraph(c *gin.Context) {
 
 func (h *HTTPHandler) handleUploadWorkspaceFiles(c *gin.Context) {
 	agentName := strings.TrimSpace(c.Param("name"))
-	request, err := decodeWorkspaceUploadRequest(c.Request)
+	request, cleanup, err := decodeWorkspaceUploadRequest(c.Request)
 	if err != nil {
 		writeJSONError(c.Writer, http.StatusBadRequest, err)
 		return
 	}
+	defer cleanup()
 	request.AgentName = agentName
 
 	response, err := h.service.UploadWorkspaceFiles(c.Request.Context(), request)
@@ -101,16 +105,15 @@ func (h *HTTPHandler) handleDownloadWorkspaceFiles(c *gin.Context) {
 		return
 	}
 
-	response, err := h.service.DownloadWorkspaceFiles(c.Request.Context(), domain.WorkspaceDownloadRequest{
-		AgentName: agentName,
-		ThreadID:  strings.TrimSpace(body.ThreadID),
-		Paths:     body.Paths,
-	})
-	if err != nil {
-		writeServiceError(c.Writer, err)
+	if len(body.Paths) == 1 {
+		h.streamSingleWorkspaceFileDownload(c, domain.WorkspaceFileDownloadRequest{
+			AgentName: agentName,
+			ThreadID:  strings.TrimSpace(body.ThreadID),
+			Path:      body.Paths[0],
+		})
 		return
 	}
-	writeJSON(c.Writer, http.StatusOK, newHTTPWorkspaceDownloadResponse(response))
+	h.streamWorkspaceArchiveDownload(c, agentName, strings.TrimSpace(body.ThreadID), body.Paths)
 }
 
 func (h *HTTPHandler) handleListWorkspaceFiles(c *gin.Context) {
@@ -135,4 +138,59 @@ func (h *HTTPHandler) handleListWorkspaceFiles(c *gin.Context) {
 		return
 	}
 	writeJSON(c.Writer, http.StatusOK, newHTTPWorkspaceListResponse(response))
+}
+
+func (h *HTTPHandler) streamSingleWorkspaceFileDownload(
+	c *gin.Context,
+	req domain.WorkspaceFileDownloadRequest,
+) {
+	filename := filepath.Base(req.Path)
+	if filename == "" || filename == "." || filename == ".." {
+		filename = "download"
+	}
+
+	c.Writer.Header().Set("Content-Type", "application/octet-stream")
+	c.Writer.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	if err := h.service.DownloadWorkspaceFile(c.Request.Context(), req, c.Writer); err != nil {
+		writeServiceError(c.Writer, err)
+		return
+	}
+}
+
+func (h *HTTPHandler) streamWorkspaceArchiveDownload(
+	c *gin.Context,
+	agentName string,
+	threadID string,
+	paths []string,
+) {
+	filename := fmt.Sprintf("workspace-%s.zip", threadID)
+	c.Writer.Header().Set("Content-Type", "application/zip")
+	c.Writer.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+
+	archive := zip.NewWriter(c.Writer)
+	defer archive.Close()
+
+	for _, path := range paths {
+		trimmedPath := strings.TrimSpace(path)
+		if trimmedPath == "" {
+			continue
+		}
+		entryWriter, err := archive.Create(trimmedPath)
+		if err != nil {
+			writeJSONError(c.Writer, http.StatusInternalServerError, err)
+			return
+		}
+		if err := h.service.DownloadWorkspaceFile(
+			c.Request.Context(),
+			domain.WorkspaceFileDownloadRequest{
+				AgentName: agentName,
+				ThreadID:  threadID,
+				Path:      trimmedPath,
+			},
+			entryWriter,
+		); err != nil {
+			writeServiceError(c.Writer, err)
+			return
+		}
+	}
 }

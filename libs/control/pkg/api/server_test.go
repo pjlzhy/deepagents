@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"io"
 	"testing"
 
 	"agentctl/pkg/domain"
@@ -42,9 +43,9 @@ type fakeAgentService struct {
 	uploadErr                error
 	uploadReq                domain.WorkspaceUploadRequest
 
-	downloadResp domain.WorkspaceDownloadResponse
-	downloadErr  error
-	downloadReq  domain.WorkspaceDownloadRequest
+	downloadErr         error
+	downloadReq         domain.WorkspaceFileDownloadRequest
+	downloadFileContent []byte
 
 	listFilesResp domain.WorkspaceListResponse
 	listFilesErr  error
@@ -218,12 +219,16 @@ func (f *fakeAgentService) UploadWorkspaceFiles(
 	return f.uploadResp, f.uploadErr
 }
 
-func (f *fakeAgentService) DownloadWorkspaceFiles(
+func (f *fakeAgentService) DownloadWorkspaceFile(
 	_ context.Context,
-	req domain.WorkspaceDownloadRequest,
-) (domain.WorkspaceDownloadResponse, error) {
+	req domain.WorkspaceFileDownloadRequest,
+	writer io.Writer,
+) error {
 	f.downloadReq = req
-	return f.downloadResp, f.downloadErr
+	if len(f.downloadFileContent) > 0 {
+		_, _ = writer.Write(f.downloadFileContent)
+	}
+	return f.downloadErr
 }
 
 func (f *fakeAgentService) ListWorkspaceFiles(

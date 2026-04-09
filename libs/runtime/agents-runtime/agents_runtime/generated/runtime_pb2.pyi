@@ -594,67 +594,49 @@ class GetAgentGraphResponse(_message.Message):
     graph: _struct_pb2.Value
     def __init__(self, graph: _Optional[_Union[_struct_pb2.Value, _Mapping]] = ...) -> None: ...
 
-class UploadWorkspaceFile(_message.Message):
-    __slots__ = ("path", "content")
-    PATH_FIELD_NUMBER: _ClassVar[int]
-    CONTENT_FIELD_NUMBER: _ClassVar[int]
-    path: str
-    content: bytes
-    def __init__(self, path: _Optional[str] = ..., content: _Optional[bytes] = ...) -> None: ...
-
-class UploadWorkspaceFilesRequest(_message.Message):
-    __slots__ = ("agent_name", "thread_id", "files")
+class UploadWorkspaceFileMetadata(_message.Message):
+    __slots__ = ("agent_name", "thread_id", "path")
     AGENT_NAME_FIELD_NUMBER: _ClassVar[int]
     THREAD_ID_FIELD_NUMBER: _ClassVar[int]
-    FILES_FIELD_NUMBER: _ClassVar[int]
+    PATH_FIELD_NUMBER: _ClassVar[int]
     agent_name: str
     thread_id: str
-    files: _containers.RepeatedCompositeFieldContainer[UploadWorkspaceFile]
-    def __init__(self, agent_name: _Optional[str] = ..., thread_id: _Optional[str] = ..., files: _Optional[_Iterable[_Union[UploadWorkspaceFile, _Mapping]]] = ...) -> None: ...
+    path: str
+    def __init__(self, agent_name: _Optional[str] = ..., thread_id: _Optional[str] = ..., path: _Optional[str] = ...) -> None: ...
 
-class UploadWorkspaceFileResult(_message.Message):
-    __slots__ = ("path", "error")
+class UploadWorkspaceFileStreamRequest(_message.Message):
+    __slots__ = ("metadata", "chunk")
+    METADATA_FIELD_NUMBER: _ClassVar[int]
+    CHUNK_FIELD_NUMBER: _ClassVar[int]
+    metadata: UploadWorkspaceFileMetadata
+    chunk: bytes
+    def __init__(self, metadata: _Optional[_Union[UploadWorkspaceFileMetadata, _Mapping]] = ..., chunk: _Optional[bytes] = ...) -> None: ...
+
+class UploadWorkspaceFileStreamResponse(_message.Message):
+    __slots__ = ("thread_id", "path", "error")
+    THREAD_ID_FIELD_NUMBER: _ClassVar[int]
     PATH_FIELD_NUMBER: _ClassVar[int]
     ERROR_FIELD_NUMBER: _ClassVar[int]
+    thread_id: str
     path: str
     error: str
-    def __init__(self, path: _Optional[str] = ..., error: _Optional[str] = ...) -> None: ...
+    def __init__(self, thread_id: _Optional[str] = ..., path: _Optional[str] = ..., error: _Optional[str] = ...) -> None: ...
 
-class UploadWorkspaceFilesResponse(_message.Message):
-    __slots__ = ("thread_id", "files")
-    THREAD_ID_FIELD_NUMBER: _ClassVar[int]
-    FILES_FIELD_NUMBER: _ClassVar[int]
-    thread_id: str
-    files: _containers.RepeatedCompositeFieldContainer[UploadWorkspaceFileResult]
-    def __init__(self, thread_id: _Optional[str] = ..., files: _Optional[_Iterable[_Union[UploadWorkspaceFileResult, _Mapping]]] = ...) -> None: ...
-
-class DownloadWorkspaceFilesRequest(_message.Message):
-    __slots__ = ("agent_name", "thread_id", "paths")
+class DownloadWorkspaceFileStreamRequest(_message.Message):
+    __slots__ = ("agent_name", "thread_id", "path")
     AGENT_NAME_FIELD_NUMBER: _ClassVar[int]
     THREAD_ID_FIELD_NUMBER: _ClassVar[int]
-    PATHS_FIELD_NUMBER: _ClassVar[int]
+    PATH_FIELD_NUMBER: _ClassVar[int]
     agent_name: str
     thread_id: str
-    paths: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, agent_name: _Optional[str] = ..., thread_id: _Optional[str] = ..., paths: _Optional[_Iterable[str]] = ...) -> None: ...
-
-class DownloadWorkspaceFileResult(_message.Message):
-    __slots__ = ("path", "content", "error")
-    PATH_FIELD_NUMBER: _ClassVar[int]
-    CONTENT_FIELD_NUMBER: _ClassVar[int]
-    ERROR_FIELD_NUMBER: _ClassVar[int]
     path: str
-    content: bytes
-    error: str
-    def __init__(self, path: _Optional[str] = ..., content: _Optional[bytes] = ..., error: _Optional[str] = ...) -> None: ...
+    def __init__(self, agent_name: _Optional[str] = ..., thread_id: _Optional[str] = ..., path: _Optional[str] = ...) -> None: ...
 
-class DownloadWorkspaceFilesResponse(_message.Message):
-    __slots__ = ("thread_id", "files")
-    THREAD_ID_FIELD_NUMBER: _ClassVar[int]
-    FILES_FIELD_NUMBER: _ClassVar[int]
-    thread_id: str
-    files: _containers.RepeatedCompositeFieldContainer[DownloadWorkspaceFileResult]
-    def __init__(self, thread_id: _Optional[str] = ..., files: _Optional[_Iterable[_Union[DownloadWorkspaceFileResult, _Mapping]]] = ...) -> None: ...
+class DownloadWorkspaceFileChunk(_message.Message):
+    __slots__ = ("content",)
+    CONTENT_FIELD_NUMBER: _ClassVar[int]
+    content: bytes
+    def __init__(self, content: _Optional[bytes] = ...) -> None: ...
 
 class ListWorkspaceFilesRequest(_message.Message):
     __slots__ = ("agent_name", "thread_id", "path")
@@ -706,21 +688,45 @@ class HealthRequest(_message.Message):
     __slots__ = ()
     def __init__(self) -> None: ...
 
+class AgentHealth(_message.Message):
+    __slots__ = ("name", "version", "description", "tags", "status", "active_thread_count", "active_thread_ids", "last_invoked_at")
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    VERSION_FIELD_NUMBER: _ClassVar[int]
+    DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
+    TAGS_FIELD_NUMBER: _ClassVar[int]
+    STATUS_FIELD_NUMBER: _ClassVar[int]
+    ACTIVE_THREAD_COUNT_FIELD_NUMBER: _ClassVar[int]
+    ACTIVE_THREAD_IDS_FIELD_NUMBER: _ClassVar[int]
+    LAST_INVOKED_AT_FIELD_NUMBER: _ClassVar[int]
+    name: str
+    version: str
+    description: str
+    tags: _containers.RepeatedScalarFieldContainer[str]
+    status: AgentRuntimeStatus
+    active_thread_count: int
+    active_thread_ids: _containers.RepeatedScalarFieldContainer[str]
+    last_invoked_at: _timestamp_pb2.Timestamp
+    def __init__(self, name: _Optional[str] = ..., version: _Optional[str] = ..., description: _Optional[str] = ..., tags: _Optional[_Iterable[str]] = ..., status: _Optional[_Union[AgentRuntimeStatus, str]] = ..., active_thread_count: _Optional[int] = ..., active_thread_ids: _Optional[_Iterable[str]] = ..., last_invoked_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
+
 class HealthResponse(_message.Message):
-    __slots__ = ("status", "assembled_agent_count", "uptime_seconds", "installed_agent_count", "running_agent_count", "ready")
+    __slots__ = ("status", "assembled_agent_count", "uptime_seconds", "installed_agent_count", "running_agent_count", "ready", "running_thread_count", "agents")
     STATUS_FIELD_NUMBER: _ClassVar[int]
     ASSEMBLED_AGENT_COUNT_FIELD_NUMBER: _ClassVar[int]
     UPTIME_SECONDS_FIELD_NUMBER: _ClassVar[int]
     INSTALLED_AGENT_COUNT_FIELD_NUMBER: _ClassVar[int]
     RUNNING_AGENT_COUNT_FIELD_NUMBER: _ClassVar[int]
     READY_FIELD_NUMBER: _ClassVar[int]
+    RUNNING_THREAD_COUNT_FIELD_NUMBER: _ClassVar[int]
+    AGENTS_FIELD_NUMBER: _ClassVar[int]
     status: str
     assembled_agent_count: int
     uptime_seconds: float
     installed_agent_count: int
     running_agent_count: int
     ready: bool
-    def __init__(self, status: _Optional[str] = ..., assembled_agent_count: _Optional[int] = ..., uptime_seconds: _Optional[float] = ..., installed_agent_count: _Optional[int] = ..., running_agent_count: _Optional[int] = ..., ready: bool = ...) -> None: ...
+    running_thread_count: int
+    agents: _containers.RepeatedCompositeFieldContainer[AgentHealth]
+    def __init__(self, status: _Optional[str] = ..., assembled_agent_count: _Optional[int] = ..., uptime_seconds: _Optional[float] = ..., installed_agent_count: _Optional[int] = ..., running_agent_count: _Optional[int] = ..., ready: bool = ..., running_thread_count: _Optional[int] = ..., agents: _Optional[_Iterable[_Union[AgentHealth, _Mapping]]] = ...) -> None: ...
 
 class ListSessionsRequest(_message.Message):
     __slots__ = ("agent_name", "page_size", "page_token")

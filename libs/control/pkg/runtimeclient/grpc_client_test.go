@@ -1,9 +1,11 @@
 package runtimeclient
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"reflect"
 	"testing"
@@ -35,8 +37,11 @@ type testRuntimeServer struct {
 	graphResponse    *runtimev1.GetAgentGraphResponse
 	graphRequest     *runtimev1.GetAgentGraphRequest
 
-	uploadResponse *runtimev1.UploadWorkspaceFilesResponse
-	uploadRequest  *runtimev1.UploadWorkspaceFilesRequest
+	uploadStreamResponse  *runtimev1.UploadWorkspaceFileStreamResponse
+	uploadStreamMetadata  *runtimev1.UploadWorkspaceFileMetadata
+	uploadStreamChunks    [][]byte
+	downloadStreamRequest *runtimev1.DownloadWorkspaceFileStreamRequest
+	downloadStreamChunks  [][]byte
 
 	removeResponse *runtimev1.SyncResponse
 	removeRequest  *runtimev1.RemoveResourceRequest
@@ -89,15 +94,46 @@ func (s *testRuntimeServer) GetAgentGraph(
 	return s.graphResponse, nil
 }
 
-func (s *testRuntimeServer) UploadWorkspaceFiles(
-	_ context.Context,
-	request *runtimev1.UploadWorkspaceFilesRequest,
-) (*runtimev1.UploadWorkspaceFilesResponse, error) {
-	s.uploadRequest = request
-	if s.uploadResponse == nil {
-		return &runtimev1.UploadWorkspaceFilesResponse{}, nil
+func (s *testRuntimeServer) UploadWorkspaceFileStream(
+	stream runtimev1.ResourceSync_UploadWorkspaceFileStreamServer,
+) error {
+	for {
+		request, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			if s.uploadStreamResponse == nil {
+				return stream.SendAndClose(&runtimev1.UploadWorkspaceFileStreamResponse{})
+			}
+			return stream.SendAndClose(s.uploadStreamResponse)
+		}
+		if err != nil {
+			return err
+		}
+		switch payload := request.Payload.(type) {
+		case *runtimev1.UploadWorkspaceFileStreamRequest_Metadata:
+			s.uploadStreamMetadata = payload.Metadata
+		case *runtimev1.UploadWorkspaceFileStreamRequest_Chunk:
+			s.uploadStreamChunks = append(s.uploadStreamChunks, append([]byte(nil), payload.Chunk...))
+		}
 	}
-	return s.uploadResponse, nil
+}
+
+func (s *testRuntimeServer) DownloadWorkspaceFileStream(
+	request *runtimev1.DownloadWorkspaceFileStreamRequest,
+	stream runtimev1.ResourceSync_DownloadWorkspaceFileStreamServer,
+) error {
+	s.downloadStreamRequest = request
+	chunks := s.downloadStreamChunks
+	if len(chunks) == 0 {
+		chunks = [][]byte{[]byte("downloaded")}
+	}
+	for _, chunk := range chunks {
+		if err := stream.Send(&runtimev1.DownloadWorkspaceFileChunk{
+			Content: append([]byte(nil), chunk...),
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *testRuntimeServer) RemoveResource(
@@ -426,19 +462,34 @@ func TestGRPCClientSyncAgentSpecHealthAndRemove(t *testing.T) {
 				},
 			}),
 		},
-		uploadResponse: &runtimev1.UploadWorkspaceFilesResponse{
+		uploadStreamResponse: &runtimev1.UploadWorkspaceFileStreamResponse{
 			ThreadId: "thread-upload",
-			Files: []*runtimev1.UploadWorkspaceFileResult{
-				{Path: "report.txt"},
-			},
+			Path:     "report.txt",
+		},
+		downloadStreamChunks: [][]byte{
+			[]byte("hello "),
+			[]byte("world"),
 		},
 		healthResponse: &runtimev1.HealthResponse{
 			Status:              "ok",
 			AssembledAgentCount: 2,
 			InstalledAgentCount: 3,
 			RunningAgentCount:   1,
+			RunningThreadCount:  2,
 			UptimeSeconds:       42.5,
 			Ready:               true,
+			Agents: []*runtimev1.AgentHealth{
+				{
+					Name:              "assistant",
+					Version:           "1.0.0",
+					Description:       "demo agent",
+					Tags:              []string{"prod"},
+					Status:            runtimev1.AgentRuntimeStatus_AGENT_RUNTIME_STATUS_RUNNING,
+					ActiveThreadCount: 2,
+					ActiveThreadIds:   []string{"thread-a", "thread-b"},
+					LastInvokedAt:     timestamppb.New(time.Unix(300, 0)),
+				},
+			},
 		},
 		removeResponse: &runtimev1.SyncResponse{Ok: true, Message: "removed"},
 	}
@@ -562,11 +613,34 @@ func TestGRPCClientSyncAgentSpecHealthAndRemove(t *testing.T) {
 	if uploadResponse.ThreadID != "thread-upload" || len(uploadResponse.Files) != 1 {
 		t.Fatalf("unexpected upload response: %#v", uploadResponse)
 	}
-	if server.uploadRequest == nil || server.uploadRequest.GetAgentName() != "assistant" {
-		t.Fatalf("unexpected upload request: %#v", server.uploadRequest)
+	if server.uploadStreamMetadata == nil || server.uploadStreamMetadata.GetAgentName() != "assistant" {
+		t.Fatalf("unexpected upload metadata: %#v", server.uploadStreamMetadata)
 	}
-	if server.uploadRequest.GetFiles()[0].GetPath() != "report.txt" {
-		t.Fatalf("unexpected upload file request: %#v", server.uploadRequest.GetFiles()[0])
+	if server.uploadStreamMetadata.GetPath() != "report.txt" {
+		t.Fatalf("unexpected upload file path: %#v", server.uploadStreamMetadata)
+	}
+	if !bytes.Equal(bytes.Join(server.uploadStreamChunks, nil), []byte("hello")) {
+		t.Fatalf("unexpected upload chunks: %#v", server.uploadStreamChunks)
+	}
+
+	var downloaded bytes.Buffer
+	err = client.DownloadWorkspaceFile(
+		context.Background(),
+		domain.WorkspaceFileDownloadRequest{
+			AgentName: "assistant",
+			ThreadID:  "thread-download",
+			Path:      "report.txt",
+		},
+		&downloaded,
+	)
+	if err != nil {
+		t.Fatalf("DownloadWorkspaceFile returned error: %v", err)
+	}
+	if server.downloadStreamRequest == nil || server.downloadStreamRequest.GetAgentName() != "assistant" {
+		t.Fatalf("unexpected download request: %#v", server.downloadStreamRequest)
+	}
+	if !bytes.Equal(downloaded.Bytes(), []byte("hello world")) {
+		t.Fatalf("unexpected download content: %q", downloaded.String())
 	}
 
 	health, err := client.Health(context.Background())
@@ -575,6 +649,15 @@ func TestGRPCClientSyncAgentSpecHealthAndRemove(t *testing.T) {
 	}
 	if !health.Ready || health.AssembledAgentCount != 2 || health.UptimeSeconds != 42.5 {
 		t.Fatalf("unexpected health response: %#v", health)
+	}
+	if health.RunningThreadCount != 2 || len(health.Agents) != 1 {
+		t.Fatalf("unexpected rich health response: %#v", health)
+	}
+	if health.Agents[0].Status != domain.ObservedRuntimeStateRunning ||
+		health.Agents[0].ActiveThreadCount != 2 ||
+		health.Agents[0].ActiveThreadIDs[1] != "thread-b" ||
+		!health.Agents[0].LastInvokedAt.Equal(time.Unix(300, 0)) {
+		t.Fatalf("unexpected health agent snapshot: %#v", health.Agents[0])
 	}
 
 	assembleResponse, err := client.Assemble(context.Background(), "assistant")

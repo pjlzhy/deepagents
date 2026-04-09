@@ -255,16 +255,16 @@ var AgentTelemetry_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	ResourceSync_SyncSkill_FullMethodName              = "/agents.runtime.v1.ResourceSync/SyncSkill"
-	ResourceSync_SyncMcp_FullMethodName                = "/agents.runtime.v1.ResourceSync/SyncMcp"
-	ResourceSync_SyncAgentSpec_FullMethodName          = "/agents.runtime.v1.ResourceSync/SyncAgentSpec"
-	ResourceSync_Assemble_FullMethodName               = "/agents.runtime.v1.ResourceSync/Assemble"
-	ResourceSync_GetAgentGraph_FullMethodName          = "/agents.runtime.v1.ResourceSync/GetAgentGraph"
-	ResourceSync_UploadWorkspaceFiles_FullMethodName   = "/agents.runtime.v1.ResourceSync/UploadWorkspaceFiles"
-	ResourceSync_DownloadWorkspaceFiles_FullMethodName = "/agents.runtime.v1.ResourceSync/DownloadWorkspaceFiles"
-	ResourceSync_ListWorkspaceFiles_FullMethodName     = "/agents.runtime.v1.ResourceSync/ListWorkspaceFiles"
-	ResourceSync_RemoveResource_FullMethodName         = "/agents.runtime.v1.ResourceSync/RemoveResource"
-	ResourceSync_Health_FullMethodName                 = "/agents.runtime.v1.ResourceSync/Health"
+	ResourceSync_SyncSkill_FullMethodName                   = "/agents.runtime.v1.ResourceSync/SyncSkill"
+	ResourceSync_SyncMcp_FullMethodName                     = "/agents.runtime.v1.ResourceSync/SyncMcp"
+	ResourceSync_SyncAgentSpec_FullMethodName               = "/agents.runtime.v1.ResourceSync/SyncAgentSpec"
+	ResourceSync_Assemble_FullMethodName                    = "/agents.runtime.v1.ResourceSync/Assemble"
+	ResourceSync_GetAgentGraph_FullMethodName               = "/agents.runtime.v1.ResourceSync/GetAgentGraph"
+	ResourceSync_UploadWorkspaceFileStream_FullMethodName   = "/agents.runtime.v1.ResourceSync/UploadWorkspaceFileStream"
+	ResourceSync_DownloadWorkspaceFileStream_FullMethodName = "/agents.runtime.v1.ResourceSync/DownloadWorkspaceFileStream"
+	ResourceSync_ListWorkspaceFiles_FullMethodName          = "/agents.runtime.v1.ResourceSync/ListWorkspaceFiles"
+	ResourceSync_RemoveResource_FullMethodName              = "/agents.runtime.v1.ResourceSync/RemoveResource"
+	ResourceSync_Health_FullMethodName                      = "/agents.runtime.v1.ResourceSync/Health"
 )
 
 // ResourceSyncClient is the client API for ResourceSync service.
@@ -282,10 +282,10 @@ type ResourceSyncClient interface {
 	Assemble(ctx context.Context, in *AssembleRequest, opts ...grpc.CallOption) (*AssembleResponse, error)
 	// Return a JSON-serializable drawable graph representation for one agent.
 	GetAgentGraph(ctx context.Context, in *GetAgentGraphRequest, opts ...grpc.CallOption) (*GetAgentGraphResponse, error)
-	// Upload files into one thread workspace.
-	UploadWorkspaceFiles(ctx context.Context, in *UploadWorkspaceFilesRequest, opts ...grpc.CallOption) (*UploadWorkspaceFilesResponse, error)
-	// Download files from one thread workspace.
-	DownloadWorkspaceFiles(ctx context.Context, in *DownloadWorkspaceFilesRequest, opts ...grpc.CallOption) (*DownloadWorkspaceFilesResponse, error)
+	// Upload one file into one thread workspace as a client stream.
+	UploadWorkspaceFileStream(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[UploadWorkspaceFileStreamRequest, UploadWorkspaceFileStreamResponse], error)
+	// Download one file from one thread workspace as a server stream.
+	DownloadWorkspaceFileStream(ctx context.Context, in *DownloadWorkspaceFileStreamRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[DownloadWorkspaceFileChunk], error)
 	// List files in one thread workspace directory.
 	ListWorkspaceFiles(ctx context.Context, in *ListWorkspaceFilesRequest, opts ...grpc.CallOption) (*ListWorkspaceFilesResponse, error)
 	// Remove a synced runtime resource or cached spec from the data plane.
@@ -352,25 +352,37 @@ func (c *resourceSyncClient) GetAgentGraph(ctx context.Context, in *GetAgentGrap
 	return out, nil
 }
 
-func (c *resourceSyncClient) UploadWorkspaceFiles(ctx context.Context, in *UploadWorkspaceFilesRequest, opts ...grpc.CallOption) (*UploadWorkspaceFilesResponse, error) {
+func (c *resourceSyncClient) UploadWorkspaceFileStream(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[UploadWorkspaceFileStreamRequest, UploadWorkspaceFileStreamResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(UploadWorkspaceFilesResponse)
-	err := c.cc.Invoke(ctx, ResourceSync_UploadWorkspaceFiles_FullMethodName, in, out, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &ResourceSync_ServiceDesc.Streams[0], ResourceSync_UploadWorkspaceFileStream_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	return out, nil
+	x := &grpc.GenericClientStream[UploadWorkspaceFileStreamRequest, UploadWorkspaceFileStreamResponse]{ClientStream: stream}
+	return x, nil
 }
 
-func (c *resourceSyncClient) DownloadWorkspaceFiles(ctx context.Context, in *DownloadWorkspaceFilesRequest, opts ...grpc.CallOption) (*DownloadWorkspaceFilesResponse, error) {
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ResourceSync_UploadWorkspaceFileStreamClient = grpc.ClientStreamingClient[UploadWorkspaceFileStreamRequest, UploadWorkspaceFileStreamResponse]
+
+func (c *resourceSyncClient) DownloadWorkspaceFileStream(ctx context.Context, in *DownloadWorkspaceFileStreamRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[DownloadWorkspaceFileChunk], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(DownloadWorkspaceFilesResponse)
-	err := c.cc.Invoke(ctx, ResourceSync_DownloadWorkspaceFiles_FullMethodName, in, out, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &ResourceSync_ServiceDesc.Streams[1], ResourceSync_DownloadWorkspaceFileStream_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	return out, nil
+	x := &grpc.GenericClientStream[DownloadWorkspaceFileStreamRequest, DownloadWorkspaceFileChunk]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
 }
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ResourceSync_DownloadWorkspaceFileStreamClient = grpc.ServerStreamingClient[DownloadWorkspaceFileChunk]
 
 func (c *resourceSyncClient) ListWorkspaceFiles(ctx context.Context, in *ListWorkspaceFilesRequest, opts ...grpc.CallOption) (*ListWorkspaceFilesResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -417,10 +429,10 @@ type ResourceSyncServer interface {
 	Assemble(context.Context, *AssembleRequest) (*AssembleResponse, error)
 	// Return a JSON-serializable drawable graph representation for one agent.
 	GetAgentGraph(context.Context, *GetAgentGraphRequest) (*GetAgentGraphResponse, error)
-	// Upload files into one thread workspace.
-	UploadWorkspaceFiles(context.Context, *UploadWorkspaceFilesRequest) (*UploadWorkspaceFilesResponse, error)
-	// Download files from one thread workspace.
-	DownloadWorkspaceFiles(context.Context, *DownloadWorkspaceFilesRequest) (*DownloadWorkspaceFilesResponse, error)
+	// Upload one file into one thread workspace as a client stream.
+	UploadWorkspaceFileStream(grpc.ClientStreamingServer[UploadWorkspaceFileStreamRequest, UploadWorkspaceFileStreamResponse]) error
+	// Download one file from one thread workspace as a server stream.
+	DownloadWorkspaceFileStream(*DownloadWorkspaceFileStreamRequest, grpc.ServerStreamingServer[DownloadWorkspaceFileChunk]) error
 	// List files in one thread workspace directory.
 	ListWorkspaceFiles(context.Context, *ListWorkspaceFilesRequest) (*ListWorkspaceFilesResponse, error)
 	// Remove a synced runtime resource or cached spec from the data plane.
@@ -452,11 +464,11 @@ func (UnimplementedResourceSyncServer) Assemble(context.Context, *AssembleReques
 func (UnimplementedResourceSyncServer) GetAgentGraph(context.Context, *GetAgentGraphRequest) (*GetAgentGraphResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetAgentGraph not implemented")
 }
-func (UnimplementedResourceSyncServer) UploadWorkspaceFiles(context.Context, *UploadWorkspaceFilesRequest) (*UploadWorkspaceFilesResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method UploadWorkspaceFiles not implemented")
+func (UnimplementedResourceSyncServer) UploadWorkspaceFileStream(grpc.ClientStreamingServer[UploadWorkspaceFileStreamRequest, UploadWorkspaceFileStreamResponse]) error {
+	return status.Error(codes.Unimplemented, "method UploadWorkspaceFileStream not implemented")
 }
-func (UnimplementedResourceSyncServer) DownloadWorkspaceFiles(context.Context, *DownloadWorkspaceFilesRequest) (*DownloadWorkspaceFilesResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method DownloadWorkspaceFiles not implemented")
+func (UnimplementedResourceSyncServer) DownloadWorkspaceFileStream(*DownloadWorkspaceFileStreamRequest, grpc.ServerStreamingServer[DownloadWorkspaceFileChunk]) error {
+	return status.Error(codes.Unimplemented, "method DownloadWorkspaceFileStream not implemented")
 }
 func (UnimplementedResourceSyncServer) ListWorkspaceFiles(context.Context, *ListWorkspaceFilesRequest) (*ListWorkspaceFilesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListWorkspaceFiles not implemented")
@@ -578,41 +590,23 @@ func _ResourceSync_GetAgentGraph_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ResourceSync_UploadWorkspaceFiles_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(UploadWorkspaceFilesRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(ResourceSyncServer).UploadWorkspaceFiles(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: ResourceSync_UploadWorkspaceFiles_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ResourceSyncServer).UploadWorkspaceFiles(ctx, req.(*UploadWorkspaceFilesRequest))
-	}
-	return interceptor(ctx, in, info, handler)
+func _ResourceSync_UploadWorkspaceFileStream_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(ResourceSyncServer).UploadWorkspaceFileStream(&grpc.GenericServerStream[UploadWorkspaceFileStreamRequest, UploadWorkspaceFileStreamResponse]{ServerStream: stream})
 }
 
-func _ResourceSync_DownloadWorkspaceFiles_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(DownloadWorkspaceFilesRequest)
-	if err := dec(in); err != nil {
-		return nil, err
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ResourceSync_UploadWorkspaceFileStreamServer = grpc.ClientStreamingServer[UploadWorkspaceFileStreamRequest, UploadWorkspaceFileStreamResponse]
+
+func _ResourceSync_DownloadWorkspaceFileStream_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(DownloadWorkspaceFileStreamRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
 	}
-	if interceptor == nil {
-		return srv.(ResourceSyncServer).DownloadWorkspaceFiles(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: ResourceSync_DownloadWorkspaceFiles_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ResourceSyncServer).DownloadWorkspaceFiles(ctx, req.(*DownloadWorkspaceFilesRequest))
-	}
-	return interceptor(ctx, in, info, handler)
+	return srv.(ResourceSyncServer).DownloadWorkspaceFileStream(m, &grpc.GenericServerStream[DownloadWorkspaceFileStreamRequest, DownloadWorkspaceFileChunk]{ServerStream: stream})
 }
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ResourceSync_DownloadWorkspaceFileStreamServer = grpc.ServerStreamingServer[DownloadWorkspaceFileChunk]
 
 func _ResourceSync_ListWorkspaceFiles_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListWorkspaceFilesRequest)
@@ -696,14 +690,6 @@ var ResourceSync_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ResourceSync_GetAgentGraph_Handler,
 		},
 		{
-			MethodName: "UploadWorkspaceFiles",
-			Handler:    _ResourceSync_UploadWorkspaceFiles_Handler,
-		},
-		{
-			MethodName: "DownloadWorkspaceFiles",
-			Handler:    _ResourceSync_DownloadWorkspaceFiles_Handler,
-		},
-		{
 			MethodName: "ListWorkspaceFiles",
 			Handler:    _ResourceSync_ListWorkspaceFiles_Handler,
 		},
@@ -716,7 +702,18 @@ var ResourceSync_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ResourceSync_Health_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "UploadWorkspaceFileStream",
+			Handler:       _ResourceSync_UploadWorkspaceFileStream_Handler,
+			ClientStreams: true,
+		},
+		{
+			StreamName:    "DownloadWorkspaceFileStream",
+			Handler:       _ResourceSync_DownloadWorkspaceFileStream_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "runtime.proto",
 }
 

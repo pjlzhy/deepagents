@@ -32,8 +32,10 @@ class FakeRegistry:
     def __init__(self, base_dir: Path) -> None:
         self._base_dir = base_dir
         self._specs: dict[str, AgentSpec] = {}
+        self.add_calls: list[AgentSpec] = []
 
     async def add_agent_spec(self, spec: AgentSpec) -> None:
+        self.add_calls.append(spec)
         self._specs[spec.name] = spec
 
     async def get_agent_spec(self, name: str) -> AgentSpec | None:
@@ -172,6 +174,40 @@ def test_define_agent_installs_without_compiling_and_invalidates_runtime() -> No
         shutil.rmtree(base_dir, ignore_errors=True)
 
 
+def test_define_agent_same_spec_is_idempotent() -> None:
+    """define_agent should keep loaded runtime resources when the spec is unchanged."""
+
+    base_dir = _make_base_dir()
+    registry = FakeRegistry(base_dir)
+    manager = AgentManager(registry=registry)
+    calls: list[str] = []
+
+    try:
+        with patch("agents_runtime.manager.manager.get_checkpointer", _fake_checkpointer):
+            async def scenario() -> tuple[int, AgentStatus, bool]:
+                spec = _build_spec(model="openai:gpt-5.2")
+                await manager.define_agent(spec)
+                agent = await manager.agent_pool.get("demo-agent")  # type: ignore[union-attr]
+                agent._graph = object()
+
+                async def fake_release() -> None:
+                    calls.append("release")
+                    agent._graph = None
+
+                with patch.object(agent, "release", fake_release):
+                    await manager.define_agent(_build_spec(model="openai:gpt-5.2"))
+                return len(registry.add_calls), agent.status(), agent.has_runtime()
+
+            add_call_count, status, has_runtime = asyncio.run(scenario())
+
+        assert add_call_count == 1
+        assert calls == []
+        assert status == AgentStatus.COMPILED
+        assert has_runtime is True
+    finally:
+        shutil.rmtree(base_dir, ignore_errors=True)
+
+
 def test_build_model_extra_kwargs_parses_serialized_extra_params() -> None:
     """RuntimeAgent should coerce serialized model extra params into native types."""
 
@@ -246,6 +282,44 @@ def test_assemble_agent_safe_recompile_releases_old_runtime_first() -> None:
         ]
         assert model == "anthropic:claude-sonnet-4-6"
         assert status == AgentStatus.COMPILED
+    finally:
+        shutil.rmtree(base_dir, ignore_errors=True)
+
+
+def test_assemble_agent_same_spec_is_idempotent() -> None:
+    """assemble_agent should skip recompilation when the loaded runtime matches storage."""
+
+    base_dir = _make_base_dir()
+    registry = FakeRegistry(base_dir)
+    manager = AgentManager(registry=registry)
+    calls: list[str] = []
+
+    try:
+        with patch("agents_runtime.manager.manager.get_checkpointer", _fake_checkpointer):
+            async def scenario() -> tuple[AgentStatus, bool]:
+                await manager.define_agent(_build_spec(model="openai:gpt-5.2"))
+                agent = await manager.agent_pool.get("demo-agent")  # type: ignore[union-attr]
+                agent._graph = object()
+
+                async def fake_release() -> None:
+                    calls.append("release")
+                    agent._graph = None
+
+                async def fake_assemble(*, checkpointer: Any = None) -> None:
+                    del checkpointer
+                    calls.append("assemble")
+                    agent._graph = object()
+
+                with patch.object(agent, "release", fake_release):
+                    with patch.object(agent, "assemble", fake_assemble):
+                        await manager.assemble_agent("demo-agent")
+                return agent.status(), agent.has_runtime()
+
+            status, has_runtime = asyncio.run(scenario())
+
+        assert calls == []
+        assert status == AgentStatus.COMPILED
+        assert has_runtime is True
     finally:
         shutil.rmtree(base_dir, ignore_errors=True)
 
@@ -437,7 +511,7 @@ def test_list_agents_overlays_runtime_status() -> None:
                 agent._graph = object()
                 compiled = await manager.list_agents()
 
-                agent._runtime_status = "running"
+                agent._active_threads.add("thread-1")
                 running = await manager.list_agents()
                 return installed[0].status, compiled[0].status, running[0].status
 
@@ -446,6 +520,80 @@ def test_list_agents_overlays_runtime_status() -> None:
         assert installed_status == AgentStatus.INSTALLED
         assert compiled_status == AgentStatus.COMPILED
         assert running_status == AgentStatus.RUNNING
+    finally:
+        shutil.rmtree(base_dir, ignore_errors=True)
+
+
+def test_upload_workspace_files_rejects_running_thread() -> None:
+    """upload_workspace_files should reject writes into one thread with an active run."""
+
+    base_dir = _make_base_dir()
+    registry = FakeRegistry(base_dir)
+    manager = AgentManager(registry=registry)
+
+    try:
+        with patch("agents_runtime.manager.manager.get_checkpointer", _fake_checkpointer):
+            async def scenario() -> str:
+                await manager.define_agent(_build_spec())
+                agent = await manager.agent_pool.get("demo-agent")  # type: ignore[union-attr]
+                agent._graph = object()
+                agent._active_threads.add("thread-1")
+
+                try:
+                    await manager.upload_workspace_files(
+                        name="demo-agent",
+                        thread_id="thread-1",
+                        files=[("report.txt", b"hello")],
+                    )
+                except RuntimeError as exc:
+                    return str(exc)
+                raise AssertionError("Expected RuntimeError")
+
+            message = asyncio.run(scenario())
+
+        assert "thread 'thread-1' is running" in message
+    finally:
+        shutil.rmtree(base_dir, ignore_errors=True)
+
+
+def test_upload_workspace_files_allows_other_thread_while_one_run_is_active() -> None:
+    """upload_workspace_files should still work for a different thread."""
+
+    base_dir = _make_base_dir()
+    registry = FakeRegistry(base_dir)
+    manager = AgentManager(registry=registry)
+    captured: dict[str, Any] = {}
+
+    try:
+        with patch("agents_runtime.manager.manager.get_checkpointer", _fake_checkpointer):
+            async def scenario() -> tuple[str, list[Any]]:
+                await manager.define_agent(_build_spec())
+                agent = await manager.agent_pool.get("demo-agent")  # type: ignore[union-attr]
+                agent._graph = object()
+                agent._active_threads.add("thread-1")
+
+                async def fake_upload_workspace_files(
+                        *,
+                        thread_id: str,
+                        files: list[tuple[str, bytes]],
+                ) -> list[Any]:
+                    captured["thread_id"] = thread_id
+                    captured["files"] = files
+                    return [SimpleNamespace(path="report.txt", error=None)]
+
+                with patch.object(agent, "upload_workspace_files", fake_upload_workspace_files):
+                    return await manager.upload_workspace_files(
+                        name="demo-agent",
+                        thread_id="thread-2",
+                        files=[("report.txt", b"hello")],
+                    )
+
+            thread_id, responses = asyncio.run(scenario())
+
+        assert thread_id == "thread-2"
+        assert captured["thread_id"] == "thread-2"
+        assert captured["files"] == [("report.txt", b"hello")]
+        assert responses[0].path == "report.txt"
     finally:
         shutil.rmtree(base_dir, ignore_errors=True)
 

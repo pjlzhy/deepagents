@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"io"
 
 	"agentctl/pkg/domain"
 	"agentctl/pkg/runtimeclient"
@@ -24,7 +25,7 @@ type AgentService interface {
 	) (domain.ResourcePage[domain.TelemetryEventRecord], error)
 	GetAgentGraph(ctx context.Context, agentName string, xrayDepth int32) ([]byte, error)
 	UploadWorkspaceFiles(ctx context.Context, req domain.WorkspaceUploadRequest) (domain.WorkspaceUploadResponse, error)
-	DownloadWorkspaceFiles(ctx context.Context, req domain.WorkspaceDownloadRequest) (domain.WorkspaceDownloadResponse, error)
+	DownloadWorkspaceFile(ctx context.Context, req domain.WorkspaceFileDownloadRequest, writer io.Writer) error
 	ListWorkspaceFiles(ctx context.Context, req domain.WorkspaceListRequest) (domain.WorkspaceListResponse, error)
 	Health(ctx context.Context) (runtimeclient.HealthResponse, error)
 	ListSessions(ctx context.Context, agentName string, pageSize int32, pageToken string) ([]domain.SessionSummary, string, error)
@@ -150,12 +151,13 @@ func (s *Server) UploadWorkspaceFiles(
 	return s.service.UploadWorkspaceFiles(ctx, req)
 }
 
-// DownloadWorkspaceFiles forwards one workspace download request to the backing service.
-func (s *Server) DownloadWorkspaceFiles(
+// DownloadWorkspaceFile forwards one streamed workspace download request to the backing service.
+func (s *Server) DownloadWorkspaceFile(
 	ctx context.Context,
-	req domain.WorkspaceDownloadRequest,
-) (domain.WorkspaceDownloadResponse, error) {
-	return s.service.DownloadWorkspaceFiles(ctx, req)
+	req domain.WorkspaceFileDownloadRequest,
+	writer io.Writer,
+) error {
+	return s.service.DownloadWorkspaceFile(ctx, req, writer)
 }
 
 // ListWorkspaceFiles forwards one workspace list request to the backing service.

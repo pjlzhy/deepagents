@@ -102,6 +102,9 @@ export const httpClient = {
   postForm<TResponse>(path: string, body: FormData, signal?: AbortSignal) {
     return request<TResponse>('POST', path, { body, signal });
   },
+  postBlob<TRequest>(path: string, body: TRequest, signal?: AbortSignal) {
+    return request<Blob>('POST', path, { body, signal, responseType: 'blob' });
+  },
   putForm<TResponse>(path: string, body: FormData, signal?: AbortSignal) {
     return request<TResponse>('PUT', path, { body, signal });
   },

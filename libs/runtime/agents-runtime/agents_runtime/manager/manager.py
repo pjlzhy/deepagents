@@ -19,6 +19,7 @@ import uuid
 from collections.abc import AsyncIterator, Callable
 from contextlib import suppress
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from deepagents.backends.protocol import FileDownloadResponse, FileInfo, FileUploadResponse
@@ -26,6 +27,10 @@ from agents_runtime import events
 from agents_runtime.agent import HITLHandler, RuntimeAgent
 from agents_runtime.events import RuntimeEvent
 from agents_runtime.registry import Registry
+from agents_runtime.runtime_backend import (
+    normalize_relative_runtime_path,
+    normalize_runtime_upload_path,
+)
 from agents_runtime.sessions import generate_thread_id, get_checkpointer
 from agents_runtime.spec import (
     AgentMeta,
@@ -160,12 +165,34 @@ class AgentManager:
         validate_agent_spec(spec)
 
         agent = await self.agent_pool.get_optional(spec.name)
+        stored_spec = await self._registry.get_agent_spec(spec.name)
         if agent is not None:
             if agent.is_busy():
                 msg = f"cannot redefine agent '{spec.name}' while busy"
                 raise RuntimeError(msg)
-            if agent.has_runtime():
-                await agent.release()
+
+        runtime_matches = agent is not None and agent.spec == spec
+        stored_matches = stored_spec == spec
+
+        if runtime_matches and stored_matches:
+            logger.info("Agent '%s' install skipped; spec unchanged", spec.name)
+            return
+
+        if runtime_matches:
+            await self._registry.add_agent_spec(spec)
+            logger.info(
+                "Agent '%s' install skipped; runtime unchanged and registry refreshed",
+                spec.name,
+            )
+            return
+
+        if agent is None and stored_matches:
+            await self.agent_pool.set(RuntimeAgent(spec=stored_spec, reg=self._registry))
+            logger.info("Agent '%s' install skipped; loaded unchanged spec from registry", spec.name)
+            return
+
+        if agent is not None and agent.has_runtime():
+            await agent.release()
 
         await self._registry.add_agent_spec(spec)
 
@@ -190,6 +217,10 @@ class AgentManager:
         if latest_spec is None:
             raise KeyError(f"Agent '{name}' not found")
         validate_agent_spec(latest_spec)
+
+        if agent.has_runtime() and agent.spec == latest_spec:
+            logger.info("Agent '%s' compile skipped; runtime already up to date", name)
+            return
 
         if agent.has_runtime():
             await agent.release()
@@ -243,14 +274,16 @@ class AgentManager:
         await self.setup()
         agent = await self._get_or_create_agent(name)
 
-        if agent.is_busy():
-            msg = f"cannot upload workspace files for agent '{name}' while busy"
-            raise RuntimeError(msg)
         if not agent.has_runtime():
             msg = f"Agent '{name}' has not been assembled"
             raise RuntimeError(msg)
 
         resolved_thread_id = thread_id.strip() or generate_thread_id()
+        self._ensure_thread_workspace_available(
+            agent,
+            thread_id=resolved_thread_id,
+            operation="upload workspace files",
+        )
         responses = await agent.upload_workspace_files(
             thread_id=resolved_thread_id,
             files=files,
@@ -275,6 +308,11 @@ class AgentManager:
         resolved_thread_id = thread_id.strip()
         if not resolved_thread_id:
             raise ValueError("thread_id is required for download")
+        self._ensure_thread_workspace_available(
+            agent,
+            thread_id=resolved_thread_id,
+            operation="download workspace files",
+        )
         responses = await agent.download_workspace_files(
             thread_id=resolved_thread_id,
             paths=paths,
@@ -299,11 +337,68 @@ class AgentManager:
         resolved_thread_id = thread_id.strip()
         if not resolved_thread_id:
             raise ValueError("thread_id is required for listing")
+        self._ensure_thread_workspace_available(
+            agent,
+            thread_id=resolved_thread_id,
+            operation="list workspace files",
+        )
         entries = await agent.list_workspace_files(
             thread_id=resolved_thread_id,
             path=path,
         )
         return resolved_thread_id, entries
+
+    async def prepare_workspace_file_upload(
+            self,
+            *,
+            name: str,
+            thread_id: str,
+            path: str,
+    ) -> tuple[str, str, Path]:
+        """Resolve one upload target path on the runtime host filesystem."""
+        await self.setup()
+        agent = await self._get_or_create_agent(name)
+
+        if not agent.has_runtime():
+            msg = f"Agent '{name}' has not been assembled"
+            raise RuntimeError(msg)
+
+        resolved_thread_id = thread_id.strip() or generate_thread_id()
+        self._ensure_thread_workspace_available(
+            agent,
+            thread_id=resolved_thread_id,
+            operation="upload workspace files",
+        )
+        root = self._registry.materialize_thread_root(name, resolved_thread_id)
+        normalized_path = normalize_runtime_upload_path(path)
+        return resolved_thread_id, normalized_path, _resolve_workspace_host_path(root, normalized_path)
+
+    async def prepare_workspace_file_download(
+            self,
+            *,
+            name: str,
+            thread_id: str,
+            path: str,
+    ) -> tuple[str, Path]:
+        """Resolve one download source path on the runtime host filesystem."""
+        await self.setup()
+        agent = await self._get_or_create_agent(name)
+
+        if not agent.has_runtime():
+            msg = f"Agent '{name}' has not been assembled"
+            raise RuntimeError(msg)
+
+        resolved_thread_id = thread_id.strip()
+        if not resolved_thread_id:
+            raise ValueError("thread_id is required for download")
+        self._ensure_thread_workspace_available(
+            agent,
+            thread_id=resolved_thread_id,
+            operation="download workspace files",
+        )
+        root = self._registry.thread_root_dir(name, resolved_thread_id)
+        normalized_path = normalize_relative_runtime_path(path)
+        return normalized_path, _resolve_workspace_host_path(root, normalized_path)
 
     async def invoke(
             self,
@@ -369,14 +464,7 @@ class AgentManager:
             if timeout_seconds is None
             else time.monotonic() + timeout_seconds
         )
-        attempt = 1
         seq = 0
-
-        next_event = lambda event: finalize_telemetry_event(  # noqa: E731
-            event,
-            attempt=attempt,
-            seq=_next_seq(),
-        )
 
         def _next_seq() -> int:
             nonlocal seq
@@ -651,6 +739,24 @@ class AgentManager:
         with suppress(asyncio.CancelledError):
             await task
 
+    def _ensure_thread_workspace_available(
+            self,
+            agent: RuntimeAgent,
+            *,
+            thread_id: str,
+            operation: str,
+    ) -> None:
+        """Reject thread-scoped workspace operations that would race with one active run."""
+        if agent.is_transitioning():
+            msg = f"cannot {operation} for agent '{agent.spec.name}' while busy"
+            raise RuntimeError(msg)
+        if agent.is_thread_running(thread_id):
+            msg = (
+                f"cannot {operation} for agent '{agent.spec.name}' "
+                f"while thread '{thread_id}' is running"
+            )
+            raise RuntimeError(msg)
+
     def _timeout_event(
             self,
             *,
@@ -732,8 +838,8 @@ class AgentManager:
         assert self.agent_pool is not None
 
         installed = await self._registry.list_agent_specs()
-        runtime_statuses = {
-            agent.spec.name: agent.status()
+        runtime_agents = {
+            agent.spec.name: agent
             for agent in await self.agent_pool.values()
         }
 
@@ -743,7 +849,26 @@ class AgentManager:
                 version=meta.version,
                 description=meta.description,
                 tags=meta.tags,
-                status=runtime_statuses.get(meta.name, meta.status),
+                status=(
+                    runtime_agents[meta.name].status()
+                    if meta.name in runtime_agents
+                    else meta.status
+                ),
+                active_thread_count=(
+                    len(runtime_agents[meta.name].active_thread_ids())
+                    if meta.name in runtime_agents
+                    else 0
+                ),
+                active_thread_ids=(
+                    runtime_agents[meta.name].active_thread_ids()
+                    if meta.name in runtime_agents
+                    else []
+                ),
+                last_invoked_at=(
+                    runtime_agents[meta.name].last_invoked
+                    if meta.name in runtime_agents
+                    else None
+                ),
             )
             for meta in installed
         ]
@@ -793,3 +918,15 @@ class AgentManager:
         agent = RuntimeAgent(spec=spec, reg=self._registry)
         await self.agent_pool.set(agent)
         return agent
+
+
+def _resolve_workspace_host_path(root: Path, relative_path: str) -> Path:
+    """Resolve one workspace-relative path under one thread root."""
+    resolved_root = root.resolve()
+    target = (resolved_root / Path(relative_path)).resolve()
+    try:
+        target.relative_to(resolved_root)
+    except ValueError as exc:
+        msg = f"workspace path escapes thread root: {relative_path}"
+        raise ValueError(msg) from exc
+    return target

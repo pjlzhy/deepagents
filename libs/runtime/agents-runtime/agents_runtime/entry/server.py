@@ -18,6 +18,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import logging
+import os
 import time
 import uuid
 from pathlib import Path
@@ -55,6 +56,7 @@ logger = logging.getLogger(__name__)
 # Default timeout for HITL decisions (seconds).
 _HITL_DECISION_TIMEOUT = 300.0
 _INVALID_HITL_DECISION_ERROR = "invalid_hitl_decision"
+_WORKSPACE_TRANSFER_CHUNK_SIZE = 256 * 1024
 
 
 class _InvalidHITLDecisionError(RuntimeError):
@@ -616,92 +618,127 @@ class ResourceSyncServicer(runtime_pb2_grpc.ResourceSyncServicer):
             return pb2.GetAgentGraphResponse()
         return pb2.GetAgentGraphResponse(graph=payload)
 
-    async def UploadWorkspaceFiles(
+    async def UploadWorkspaceFileStream(
         self,
-        request: pb2.UploadWorkspaceFilesRequest,
+        request_iterator: grpc_aio.StreamStreamCall,
         context: grpc.aio.ServicerContext,
-    ) -> pb2.UploadWorkspaceFilesResponse:
-        """Upload files into one thread workspace."""
-        agent_name = request.agent_name.strip()
-        if not agent_name:
-            await _abort_invalid_argument(context, "agent_name is required")
-            return pb2.UploadWorkspaceFilesResponse()
-        if not request.files:
-            await _abort_invalid_argument(context, "at least one file is required")
-            return pb2.UploadWorkspaceFilesResponse()
+    ) -> pb2.UploadWorkspaceFileStreamResponse:
+        """Upload one file into one thread workspace as a client stream."""
+        resolved_thread_id = ""
+        normalized_path = ""
+        target_path: Path | None = None
+        temp_path: Path | None = None
+        handle: Any = None
 
-        files = [(item.path, bytes(item.content)) for item in request.files]
         try:
-            thread_id, responses = await self._manager.upload_workspace_files(
-                name=agent_name,
-                thread_id=request.thread_id,
-                files=files,
+            async for request in request_iterator:
+                payload = request.WhichOneof("payload")
+                if payload == "metadata":
+                    if target_path is not None:
+                        await _abort_invalid_argument(context, "upload metadata must be sent once")
+                        return pb2.UploadWorkspaceFileStreamResponse()
+                    metadata = request.metadata
+                    if not metadata.agent_name.strip():
+                        await _abort_invalid_argument(context, "agent_name is required")
+                        return pb2.UploadWorkspaceFileStreamResponse()
+                    resolved_thread_id, normalized_path, target_path = (
+                        await self._manager.prepare_workspace_file_upload(
+                            name=metadata.agent_name.strip(),
+                            thread_id=metadata.thread_id,
+                            path=metadata.path,
+                        )
+                    )
+                    target_path.parent.mkdir(parents=True, exist_ok=True)
+                    temp_path = target_path.parent / (
+                        f".{target_path.name}.upload-{uuid.uuid4().hex}.part"
+                    )
+                    handle = temp_path.open("wb")
+                    continue
+
+                if payload != "chunk":
+                    await _abort_invalid_argument(context, "upload stream must include metadata followed by chunks")
+                    return pb2.UploadWorkspaceFileStreamResponse()
+
+                if handle is None:
+                    await _abort_invalid_argument(context, "upload metadata must be sent before file chunks")
+                    return pb2.UploadWorkspaceFileStreamResponse()
+                handle.write(bytes(request.chunk))
+
+            if handle is None or target_path is None or temp_path is None:
+                await _abort_invalid_argument(context, "upload stream ended before metadata")
+                return pb2.UploadWorkspaceFileStreamResponse()
+
+            handle.close()
+            handle = None
+            os.replace(temp_path, target_path)
+            return pb2.UploadWorkspaceFileStreamResponse(
+                thread_id=resolved_thread_id,
+                path=normalized_path,
             )
         except KeyError as exc:
             await context.abort(grpc.StatusCode.NOT_FOUND, str(exc))
-            return pb2.UploadWorkspaceFilesResponse()
+            return pb2.UploadWorkspaceFileStreamResponse()
         except ValueError as exc:
-            await _abort_invalid_argument(context, str(exc))
-            return pb2.UploadWorkspaceFilesResponse()
+            return pb2.UploadWorkspaceFileStreamResponse(
+                thread_id=resolved_thread_id,
+                path=normalized_path,
+                error=str(exc),
+            )
         except RuntimeError as exc:
             await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
-            return pb2.UploadWorkspaceFilesResponse()
+            return pb2.UploadWorkspaceFileStreamResponse()
+        finally:
+            if handle is not None:
+                handle.close()
+            if temp_path is not None and temp_path.exists():
+                temp_path.unlink(missing_ok=True)
 
-        return pb2.UploadWorkspaceFilesResponse(
-            thread_id=thread_id,
-            files=[
-                pb2.UploadWorkspaceFileResult(
-                    path=item.path,
-                    error=item.error or "",
-                )
-                for item in responses
-            ],
-        )
-
-    async def DownloadWorkspaceFiles(
+    async def DownloadWorkspaceFileStream(
         self,
-        request: pb2.DownloadWorkspaceFilesRequest,
+        request: pb2.DownloadWorkspaceFileStreamRequest,
         context: grpc.aio.ServicerContext,
-    ) -> pb2.DownloadWorkspaceFilesResponse:
-        """Download files from one thread workspace."""
+    ):
+        """Download one file from one thread workspace as a server stream."""
         agent_name = request.agent_name.strip()
         if not agent_name:
             await _abort_invalid_argument(context, "agent_name is required")
-            return pb2.DownloadWorkspaceFilesResponse()
-        if not request.paths:
-            await _abort_invalid_argument(context, "at least one path is required")
-            return pb2.DownloadWorkspaceFilesResponse()
+            return
         if not request.thread_id.strip():
             await _abort_invalid_argument(context, "thread_id is required")
-            return pb2.DownloadWorkspaceFilesResponse()
+            return
+        if not request.path.strip():
+            await _abort_invalid_argument(context, "path is required")
+            return
 
         try:
-            thread_id, responses = await self._manager.download_workspace_files(
+            _normalized_path, target_path = await self._manager.prepare_workspace_file_download(
                 name=agent_name,
                 thread_id=request.thread_id,
-                paths=list(request.paths),
+                path=request.path,
             )
         except KeyError as exc:
             await context.abort(grpc.StatusCode.NOT_FOUND, str(exc))
-            return pb2.DownloadWorkspaceFilesResponse()
+            return
         except ValueError as exc:
             await _abort_invalid_argument(context, str(exc))
-            return pb2.DownloadWorkspaceFilesResponse()
+            return
         except RuntimeError as exc:
             await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
-            return pb2.DownloadWorkspaceFilesResponse()
+            return
 
-        return pb2.DownloadWorkspaceFilesResponse(
-            thread_id=thread_id,
-            files=[
-                pb2.DownloadWorkspaceFileResult(
-                    path=item.path,
-                    content=item.content or b"",
-                    error=item.error or "",
-                )
-                for item in responses
-            ],
-        )
+        if not target_path.is_file():
+            await context.abort(
+                grpc.StatusCode.NOT_FOUND,
+                f"workspace file '{request.path}' not found",
+            )
+            return
+
+        with target_path.open("rb") as handle:
+            while True:
+                chunk = handle.read(_WORKSPACE_TRANSFER_CHUNK_SIZE)
+                if not chunk:
+                    return
+                yield pb2.DownloadWorkspaceFileChunk(content=chunk)
 
     async def ListWorkspaceFiles(
         self,
@@ -789,6 +826,7 @@ class ResourceSyncServicer(runtime_pb2_grpc.ResourceSyncServicer):
                 if a.status in (AgentStatus.COMPILED, AgentStatus.RUNNING)
             )
             running_count = sum(1 for a in agents if a.status == AgentStatus.RUNNING)
+            running_thread_count = sum(max(0, a.active_thread_count) for a in agents)
             ready = assembled_count > 0
             return pb2.HealthResponse(
                 status="ok" if ready else "degraded",
@@ -797,6 +835,8 @@ class ResourceSyncServicer(runtime_pb2_grpc.ResourceSyncServicer):
                 installed_agent_count=installed_count,
                 running_agent_count=running_count,
                 ready=ready,
+                running_thread_count=running_thread_count,
+                agents=[_agent_health_to_proto(agent) for agent in agents],
             )
         except Exception:
             return pb2.HealthResponse(
@@ -806,6 +846,8 @@ class ResourceSyncServicer(runtime_pb2_grpc.ResourceSyncServicer):
                 installed_agent_count=0,
                 running_agent_count=0,
                 ready=False,
+                running_thread_count=0,
+                agents=[],
             )
 
 
@@ -1285,6 +1327,29 @@ def _runtime_agent_status_to_proto(
     if normalized == AgentStatus.RUNNING.value:
         return pb2.AGENT_RUNTIME_STATUS_RUNNING
     return pb2.AGENT_RUNTIME_STATUS_UNKNOWN
+
+
+def _datetime_to_proto(value: datetime | None) -> timestamp_pb2.Timestamp | None:
+    """Convert one timezone-aware datetime into protobuf Timestamp."""
+    if value is None:
+        return None
+    timestamp = timestamp_pb2.Timestamp()
+    timestamp.FromDatetime(value.astimezone(UTC))
+    return timestamp
+
+
+def _agent_health_to_proto(agent: Any) -> pb2.AgentHealth:
+    """Convert one runtime agent snapshot into protobuf health payload."""
+    return pb2.AgentHealth(
+        name=agent.name,
+        version=agent.version,
+        description=agent.description,
+        tags=list(agent.tags),
+        status=_runtime_agent_status_to_proto(agent.status),
+        active_thread_count=agent.active_thread_count,
+        active_thread_ids=list(agent.active_thread_ids),
+        last_invoked_at=_datetime_to_proto(agent.last_invoked_at),
+    )
 
 
 def _resolve_session_agent_status(

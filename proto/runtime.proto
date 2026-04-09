@@ -347,13 +347,13 @@ service ResourceSync {
   // Return a JSON-serializable drawable graph representation for one agent.
   rpc GetAgentGraph(GetAgentGraphRequest) returns (GetAgentGraphResponse);
 
-  // Upload files into one thread workspace.
-  rpc UploadWorkspaceFiles(UploadWorkspaceFilesRequest)
-      returns (UploadWorkspaceFilesResponse);
+  // Upload one file into one thread workspace as a client stream.
+  rpc UploadWorkspaceFileStream(stream UploadWorkspaceFileStreamRequest)
+      returns (UploadWorkspaceFileStreamResponse);
 
-  // Download files from one thread workspace.
-  rpc DownloadWorkspaceFiles(DownloadWorkspaceFilesRequest)
-      returns (DownloadWorkspaceFilesResponse);
+  // Download one file from one thread workspace as a server stream.
+  rpc DownloadWorkspaceFileStream(DownloadWorkspaceFileStreamRequest)
+      returns (stream DownloadWorkspaceFileChunk);
 
   // List files in one thread workspace directory.
   rpc ListWorkspaceFiles(ListWorkspaceFilesRequest)
@@ -621,56 +621,37 @@ message GetAgentGraphResponse {
   google.protobuf.Value graph = 1;
 }
 
-// -----------------------------------------------------------------------------
-// Workspace file upload
-// -----------------------------------------------------------------------------
-
-message UploadWorkspaceFile {
-  // Relative path inside the thread workspace root.
-  string path = 1;
-  bytes content = 2;
-}
-
-message UploadWorkspaceFilesRequest {
+message UploadWorkspaceFileMetadata {
   string agent_name = 1;
   string thread_id = 2;
-  repeated UploadWorkspaceFile files = 3;
-}
-
-message UploadWorkspaceFileResult {
   // Relative path inside the thread workspace root.
-  string path = 1;
-  // Empty on success, standardized file-operation error on failure.
-  string error = 2;
+  string path = 3;
 }
 
-message UploadWorkspaceFilesResponse {
+message UploadWorkspaceFileStreamRequest {
+  oneof payload {
+    UploadWorkspaceFileMetadata metadata = 1;
+    bytes chunk = 2;
+  }
+}
+
+message UploadWorkspaceFileStreamResponse {
   string thread_id = 1;
-  repeated UploadWorkspaceFileResult files = 2;
-}
-
-// -----------------------------------------------------------------------------
-// Workspace file download
-// -----------------------------------------------------------------------------
-
-message DownloadWorkspaceFilesRequest {
-  string agent_name = 1;
-  string thread_id = 2;
-  // Relative paths inside the thread workspace root.
-  repeated string paths = 3;
-}
-
-message DownloadWorkspaceFileResult {
   // Relative path inside the thread workspace root.
-  string path = 1;
-  bytes content = 2;
+  string path = 2;
   // Empty on success, standardized file-operation error on failure.
   string error = 3;
 }
 
-message DownloadWorkspaceFilesResponse {
-  string thread_id = 1;
-  repeated DownloadWorkspaceFileResult files = 2;
+message DownloadWorkspaceFileStreamRequest {
+  string agent_name = 1;
+  string thread_id = 2;
+  // Relative path inside the thread workspace root.
+  string path = 3;
+}
+
+message DownloadWorkspaceFileChunk {
+  bytes content = 1;
 }
 
 // -----------------------------------------------------------------------------
@@ -719,6 +700,17 @@ message SyncResponse {
 
 message HealthRequest {}
 
+message AgentHealth {
+  string name = 1;
+  string version = 2;
+  string description = 3;
+  repeated string tags = 4;
+  AgentRuntimeStatus status = 5;
+  int32 active_thread_count = 6;
+  repeated string active_thread_ids = 7;
+  google.protobuf.Timestamp last_invoked_at = 8;
+}
+
 message HealthResponse {
   // "ok", "degraded", or "unhealthy".
   string status = 1;
@@ -737,6 +729,12 @@ message HealthResponse {
 
   // Whether the runtime is ready to accept run traffic.
   bool ready = 6;
+
+  // Number of active runtime threads currently executing work.
+  int32 running_thread_count = 7;
+
+  // Per-agent runtime observations captured in the same health snapshot.
+  repeated AgentHealth agents = 8;
 }
 
 enum AgentRuntimeStatus {

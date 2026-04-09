@@ -230,83 +230,13 @@ func runRequestToProto(req domain.RunRequest) *runtimev1.RunRequest {
 	}
 }
 
-func workspaceUploadRequestToProto(
-	req domain.WorkspaceUploadRequest,
-) *runtimev1.UploadWorkspaceFilesRequest {
-	files := make([]*runtimev1.UploadWorkspaceFile, 0, len(req.Files))
-	for _, item := range req.Files {
-		cleaned := filepath.ToSlash(filepath.Clean(item.Path))
-		if filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "..") {
-			continue // skip paths that escape the workspace root
-		}
-		files = append(files, &runtimev1.UploadWorkspaceFile{
-			Path:    cleaned,
-			Content: item.Content,
-		})
-	}
-
-	return &runtimev1.UploadWorkspaceFilesRequest{
+func workspaceFileDownloadRequestToProto(
+	req domain.WorkspaceFileDownloadRequest,
+) *runtimev1.DownloadWorkspaceFileStreamRequest {
+	return &runtimev1.DownloadWorkspaceFileStreamRequest{
 		AgentName: req.AgentName,
 		ThreadId:  req.ThreadID,
-		Files:     files,
-	}
-}
-
-func workspaceUploadResponseFromProto(
-	resp *runtimev1.UploadWorkspaceFilesResponse,
-) domain.WorkspaceUploadResponse {
-	if resp == nil {
-		return domain.WorkspaceUploadResponse{}
-	}
-
-	files := make([]domain.WorkspaceUploadResult, 0, len(resp.GetFiles()))
-	for _, item := range resp.GetFiles() {
-		files = append(files, domain.WorkspaceUploadResult{
-			Path:  item.GetPath(),
-			Error: item.GetError(),
-		})
-	}
-	return domain.WorkspaceUploadResponse{
-		ThreadID: resp.GetThreadId(),
-		Files:    files,
-	}
-}
-
-func workspaceDownloadRequestToProto(
-	req domain.WorkspaceDownloadRequest,
-) *runtimev1.DownloadWorkspaceFilesRequest {
-	paths := make([]string, 0, len(req.Paths))
-	for _, p := range req.Paths {
-		cleaned := filepath.ToSlash(filepath.Clean(p))
-		if filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "..") {
-			continue // skip paths that escape the workspace root
-		}
-		paths = append(paths, cleaned)
-	}
-	return &runtimev1.DownloadWorkspaceFilesRequest{
-		AgentName: req.AgentName,
-		ThreadId:  req.ThreadID,
-		Paths:     paths,
-	}
-}
-
-func workspaceDownloadResponseFromProto(
-	resp *runtimev1.DownloadWorkspaceFilesResponse,
-) domain.WorkspaceDownloadResponse {
-	if resp == nil {
-		return domain.WorkspaceDownloadResponse{}
-	}
-	files := make([]domain.WorkspaceDownloadResult, 0, len(resp.GetFiles()))
-	for _, item := range resp.GetFiles() {
-		files = append(files, domain.WorkspaceDownloadResult{
-			Path:    item.GetPath(),
-			Content: item.GetContent(),
-			Error:   item.GetError(),
-		})
-	}
-	return domain.WorkspaceDownloadResponse{
-		ThreadID: resp.GetThreadId(),
-		Files:    files,
+		Path:      filepath.ToSlash(filepath.Clean(req.Path)),
 	}
 }
 
@@ -637,6 +567,22 @@ func observedRuntimeStateFromProto(status runtimev1.AgentRuntimeStatus) domain.O
 		return domain.ObservedRuntimeStateUnknown
 	default:
 		return domain.ObservedRuntimeStateUnknown
+	}
+}
+
+func healthAgentFromProto(agent *runtimev1.AgentHealth) HealthAgent {
+	if agent == nil {
+		return HealthAgent{}
+	}
+	return HealthAgent{
+		Name:              agent.GetName(),
+		Version:           agent.GetVersion(),
+		Description:       agent.GetDescription(),
+		Tags:              append([]string(nil), agent.GetTags()...),
+		Status:            observedRuntimeStateFromProto(agent.GetStatus()),
+		ActiveThreadCount: agent.GetActiveThreadCount(),
+		ActiveThreadIDs:   append([]string(nil), agent.GetActiveThreadIds()...),
+		LastInvokedAt:     timestampFromProto(agent.GetLastInvokedAt()),
 	}
 }
 

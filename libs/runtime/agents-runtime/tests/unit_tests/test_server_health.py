@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 import time
 
 import pytest
@@ -32,7 +33,16 @@ def test_health_reports_real_uptime_and_compiled_agent_count() -> None:
         agents=[
             AgentMeta("installed", "1.0.0", "", [], AgentStatus.INSTALLED),
             AgentMeta("compiled", "1.0.0", "", [], AgentStatus.COMPILED),
-            AgentMeta("running", "1.0.0", "", [], AgentStatus.RUNNING),
+            AgentMeta(
+                "running",
+                "1.0.0",
+                "",
+                [],
+                AgentStatus.RUNNING,
+                active_thread_count=2,
+                active_thread_ids=["thread-1", "thread-2"],
+                last_invoked_at=datetime(2026, 4, 8, 12, 0, 0, tzinfo=UTC),
+            ),
         ]
     )
 
@@ -45,7 +55,15 @@ def test_health_reports_real_uptime_and_compiled_agent_count() -> None:
     assert response.installed_agent_count == 3
     assert response.assembled_agent_count == 2
     assert response.running_agent_count == 1
+    assert response.running_thread_count == 2
     assert response.uptime_seconds == pytest.approx(12.5, rel=0.1)
+    assert len(response.agents) == 3
+    assert response.agents[2].name == "running"
+    assert response.agents[2].active_thread_count == 2
+    assert list(response.agents[2].active_thread_ids) == ["thread-1", "thread-2"]
+    assert response.agents[2].last_invoked_at.seconds == int(
+        datetime(2026, 4, 8, 12, 0, 0, tzinfo=UTC).timestamp()
+    )
 
 
 def test_health_returns_degraded_when_no_agent_is_compiled() -> None:
@@ -64,6 +82,8 @@ def test_health_returns_degraded_when_no_agent_is_compiled() -> None:
     assert response.installed_agent_count == 1
     assert response.assembled_agent_count == 0
     assert response.running_agent_count == 0
+    assert response.running_thread_count == 0
+    assert len(response.agents) == 1
 
 
 def test_health_returns_unhealthy_on_manager_failure() -> None:
@@ -77,4 +97,6 @@ def test_health_returns_unhealthy_on_manager_failure() -> None:
     assert response.installed_agent_count == 0
     assert response.assembled_agent_count == 0
     assert response.running_agent_count == 0
+    assert response.running_thread_count == 0
+    assert len(response.agents) == 0
     assert response.uptime_seconds == 0.0

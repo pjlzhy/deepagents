@@ -289,15 +289,15 @@ class ResourceSyncStub(object):
                 request_serializer=runtime__pb2.GetAgentGraphRequest.SerializeToString,
                 response_deserializer=runtime__pb2.GetAgentGraphResponse.FromString,
                 _registered_method=True)
-        self.UploadWorkspaceFiles = channel.unary_unary(
-                '/agents.runtime.v1.ResourceSync/UploadWorkspaceFiles',
-                request_serializer=runtime__pb2.UploadWorkspaceFilesRequest.SerializeToString,
-                response_deserializer=runtime__pb2.UploadWorkspaceFilesResponse.FromString,
+        self.UploadWorkspaceFileStream = channel.stream_unary(
+                '/agents.runtime.v1.ResourceSync/UploadWorkspaceFileStream',
+                request_serializer=runtime__pb2.UploadWorkspaceFileStreamRequest.SerializeToString,
+                response_deserializer=runtime__pb2.UploadWorkspaceFileStreamResponse.FromString,
                 _registered_method=True)
-        self.DownloadWorkspaceFiles = channel.unary_unary(
-                '/agents.runtime.v1.ResourceSync/DownloadWorkspaceFiles',
-                request_serializer=runtime__pb2.DownloadWorkspaceFilesRequest.SerializeToString,
-                response_deserializer=runtime__pb2.DownloadWorkspaceFilesResponse.FromString,
+        self.DownloadWorkspaceFileStream = channel.unary_stream(
+                '/agents.runtime.v1.ResourceSync/DownloadWorkspaceFileStream',
+                request_serializer=runtime__pb2.DownloadWorkspaceFileStreamRequest.SerializeToString,
+                response_deserializer=runtime__pb2.DownloadWorkspaceFileChunk.FromString,
                 _registered_method=True)
         self.ListWorkspaceFiles = channel.unary_unary(
                 '/agents.runtime.v1.ResourceSync/ListWorkspaceFiles',
@@ -364,15 +364,15 @@ class ResourceSyncServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def UploadWorkspaceFiles(self, request, context):
-        """Upload files into one thread workspace.
+    def UploadWorkspaceFileStream(self, request_iterator, context):
+        """Upload one file into one thread workspace as a client stream.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def DownloadWorkspaceFiles(self, request, context):
-        """Download files from one thread workspace.
+    def DownloadWorkspaceFileStream(self, request, context):
+        """Download one file from one thread workspace as a server stream.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -427,15 +427,15 @@ def add_ResourceSyncServicer_to_server(servicer, server):
                     request_deserializer=runtime__pb2.GetAgentGraphRequest.FromString,
                     response_serializer=runtime__pb2.GetAgentGraphResponse.SerializeToString,
             ),
-            'UploadWorkspaceFiles': grpc.unary_unary_rpc_method_handler(
-                    servicer.UploadWorkspaceFiles,
-                    request_deserializer=runtime__pb2.UploadWorkspaceFilesRequest.FromString,
-                    response_serializer=runtime__pb2.UploadWorkspaceFilesResponse.SerializeToString,
+            'UploadWorkspaceFileStream': grpc.stream_unary_rpc_method_handler(
+                    servicer.UploadWorkspaceFileStream,
+                    request_deserializer=runtime__pb2.UploadWorkspaceFileStreamRequest.FromString,
+                    response_serializer=runtime__pb2.UploadWorkspaceFileStreamResponse.SerializeToString,
             ),
-            'DownloadWorkspaceFiles': grpc.unary_unary_rpc_method_handler(
-                    servicer.DownloadWorkspaceFiles,
-                    request_deserializer=runtime__pb2.DownloadWorkspaceFilesRequest.FromString,
-                    response_serializer=runtime__pb2.DownloadWorkspaceFilesResponse.SerializeToString,
+            'DownloadWorkspaceFileStream': grpc.unary_stream_rpc_method_handler(
+                    servicer.DownloadWorkspaceFileStream,
+                    request_deserializer=runtime__pb2.DownloadWorkspaceFileStreamRequest.FromString,
+                    response_serializer=runtime__pb2.DownloadWorkspaceFileChunk.SerializeToString,
             ),
             'ListWorkspaceFiles': grpc.unary_unary_rpc_method_handler(
                     servicer.ListWorkspaceFiles,
@@ -608,7 +608,7 @@ class ResourceSync(object):
             _registered_method=True)
 
     @staticmethod
-    def UploadWorkspaceFiles(request,
+    def UploadWorkspaceFileStream(request_iterator,
             target,
             options=(),
             channel_credentials=None,
@@ -618,12 +618,12 @@ class ResourceSync(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
+        return grpc.experimental.stream_unary(
+            request_iterator,
             target,
-            '/agents.runtime.v1.ResourceSync/UploadWorkspaceFiles',
-            runtime__pb2.UploadWorkspaceFilesRequest.SerializeToString,
-            runtime__pb2.UploadWorkspaceFilesResponse.FromString,
+            '/agents.runtime.v1.ResourceSync/UploadWorkspaceFileStream',
+            runtime__pb2.UploadWorkspaceFileStreamRequest.SerializeToString,
+            runtime__pb2.UploadWorkspaceFileStreamResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -635,7 +635,7 @@ class ResourceSync(object):
             _registered_method=True)
 
     @staticmethod
-    def DownloadWorkspaceFiles(request,
+    def DownloadWorkspaceFileStream(request,
             target,
             options=(),
             channel_credentials=None,
@@ -645,12 +645,12 @@ class ResourceSync(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(
+        return grpc.experimental.unary_stream(
             request,
             target,
-            '/agents.runtime.v1.ResourceSync/DownloadWorkspaceFiles',
-            runtime__pb2.DownloadWorkspaceFilesRequest.SerializeToString,
-            runtime__pb2.DownloadWorkspaceFilesResponse.FromString,
+            '/agents.runtime.v1.ResourceSync/DownloadWorkspaceFileStream',
+            runtime__pb2.DownloadWorkspaceFileStreamRequest.SerializeToString,
+            runtime__pb2.DownloadWorkspaceFileChunk.FromString,
             options,
             channel_credentials,
             insecure,

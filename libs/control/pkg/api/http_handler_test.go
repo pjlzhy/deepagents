@@ -756,6 +756,21 @@ func TestHTTPHandlerUploadsWorkspaceFiles(t *testing.T) {
 	if len(service.uploadReq.Files) != 1 || service.uploadReq.Files[0].Path != "report.txt" {
 		t.Fatalf("unexpected upload files: %#v", service.uploadReq.Files)
 	}
+	if len(service.uploadReq.Files[0].Content) != 0 || service.uploadReq.Files[0].Open == nil {
+		t.Fatalf("expected streaming upload source, got %#v", service.uploadReq.Files[0])
+	}
+	reader, err := service.uploadReq.Files[0].Open()
+	if err != nil {
+		t.Fatalf("open upload file: %v", err)
+	}
+	defer reader.Close()
+	content, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read upload file: %v", err)
+	}
+	if string(content) != "hello" {
+		t.Fatalf("unexpected upload file content: %q", string(content))
+	}
 }
 
 func TestHTTPHandlerRejectsWorkspaceUploadWithoutFiles(t *testing.T) {
@@ -786,6 +801,53 @@ func TestHTTPHandlerRejectsWorkspaceUploadWithoutFiles(t *testing.T) {
 	if response.StatusCode != http.StatusBadRequest {
 		payload, _ := io.ReadAll(response.Body)
 		t.Fatalf("unexpected status: %d body=%s", response.StatusCode, string(payload))
+	}
+}
+
+func TestHTTPHandlerStreamsSingleWorkspaceDownloadAsBinary(t *testing.T) {
+	service := &fakeAgentService{
+		downloadFileContent: []byte("hello world"),
+	}
+	handler, err := NewHTTPHandler(service, nil)
+	if err != nil {
+		t.Fatalf("NewHTTPHandler: %v", err)
+	}
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/agents/assistant/workspace/files/download",
+		strings.NewReader(`{"thread_id":"thread-1","paths":["report.txt"]}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/octet-stream")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	response := recorder.Result()
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		payload, _ := io.ReadAll(response.Body)
+		t.Fatalf("unexpected status: %d body=%s", response.StatusCode, string(payload))
+	}
+	if contentType := response.Header.Get("Content-Type"); !strings.Contains(contentType, "application/octet-stream") {
+		t.Fatalf("unexpected content type: %s", contentType)
+	}
+	if contentDisposition := response.Header.Get("Content-Disposition"); !strings.Contains(contentDisposition, `filename="report.txt"`) {
+		t.Fatalf("unexpected content disposition: %s", contentDisposition)
+	}
+	payload, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatalf("read response body: %v", err)
+	}
+	if string(payload) != "hello world" {
+		t.Fatalf("unexpected body: %q", string(payload))
+	}
+	if service.downloadReq.AgentName != "assistant" ||
+		service.downloadReq.ThreadID != "thread-1" ||
+		service.downloadReq.Path != "report.txt" {
+		t.Fatalf("unexpected download request: %#v", service.downloadReq)
 	}
 }
 
@@ -893,7 +955,20 @@ func TestHTTPHandlerReturnsTransportErrorEvent(t *testing.T) {
 
 func TestHTTPHandlerDelegatesLifecycleAndQueries(t *testing.T) {
 	service := &fakeAgentService{
-		healthResp: runtimeclient.HealthResponse{Ready: true, Status: "ok", RunningAgentCount: 1},
+		healthResp: runtimeclient.HealthResponse{
+			Ready:              true,
+			Status:             "ok",
+			RunningAgentCount:  1,
+			RunningThreadCount: 2,
+			Agents: []runtimeclient.HealthAgent{
+				{
+					Name:              "assistant",
+					Status:            domain.ObservedRuntimeStateRunning,
+					ActiveThreadCount: 2,
+					ActiveThreadIDs:   []string{"thread-a", "thread-b"},
+				},
+			},
+		},
 		listSessionsResp: []domain.SessionSummary{
 			{ThreadID: "thread-1", AgentName: "assistant", MessageCount: 3},
 		},
@@ -930,11 +1005,20 @@ func TestHTTPHandlerDelegatesLifecycleAndQueries(t *testing.T) {
 	}
 	assertStatus(t, healthResp, http.StatusOK)
 	healthBody, healthRaw := decodeBodyWithRaw[healthResponse](t, healthResp)
-	if healthBody.Status != "ok" || !healthBody.Ready || healthBody.RunningAgentCount != 1 {
+	if healthBody.Status != "ok" ||
+		!healthBody.Ready ||
+		healthBody.RunningAgentCount != 1 ||
+		healthBody.RunningThreadCount != 2 ||
+		len(healthBody.Agents) != 1 ||
+		healthBody.Agents[0].ActiveThreadCount != 2 {
 		t.Fatalf("unexpected health body: %#v", healthBody)
 	}
 	if !strings.Contains(healthRaw, `"running_agent_count":1`) || strings.Contains(healthRaw, `"RunningAgentCount"`) {
 		t.Fatalf("expected snake_case health response, got %s", healthRaw)
+	}
+	if !strings.Contains(healthRaw, `"running_thread_count":2`) ||
+		!strings.Contains(healthRaw, `"active_thread_ids":["thread-a","thread-b"]`) {
+		t.Fatalf("expected rich health response, got %s", healthRaw)
 	}
 
 	ensureReq, err := http.NewRequest(

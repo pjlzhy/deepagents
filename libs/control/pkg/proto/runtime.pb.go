@@ -3347,250 +3347,31 @@ func (x *GetAgentGraphResponse) GetGraph() *structpb.Value {
 	return nil
 }
 
-type UploadWorkspaceFile struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Relative path inside the thread workspace root.
-	Path          string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
-	Content       []byte `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *UploadWorkspaceFile) Reset() {
-	*x = UploadWorkspaceFile{}
-	mi := &file_runtime_proto_msgTypes[44]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *UploadWorkspaceFile) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*UploadWorkspaceFile) ProtoMessage() {}
-
-func (x *UploadWorkspaceFile) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[44]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use UploadWorkspaceFile.ProtoReflect.Descriptor instead.
-func (*UploadWorkspaceFile) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{44}
-}
-
-func (x *UploadWorkspaceFile) GetPath() string {
-	if x != nil {
-		return x.Path
-	}
-	return ""
-}
-
-func (x *UploadWorkspaceFile) GetContent() []byte {
-	if x != nil {
-		return x.Content
-	}
-	return nil
-}
-
-type UploadWorkspaceFilesRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AgentName     string                 `protobuf:"bytes,1,opt,name=agent_name,json=agentName,proto3" json:"agent_name,omitempty"`
-	ThreadId      string                 `protobuf:"bytes,2,opt,name=thread_id,json=threadId,proto3" json:"thread_id,omitempty"`
-	Files         []*UploadWorkspaceFile `protobuf:"bytes,3,rep,name=files,proto3" json:"files,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *UploadWorkspaceFilesRequest) Reset() {
-	*x = UploadWorkspaceFilesRequest{}
-	mi := &file_runtime_proto_msgTypes[45]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *UploadWorkspaceFilesRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*UploadWorkspaceFilesRequest) ProtoMessage() {}
-
-func (x *UploadWorkspaceFilesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[45]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use UploadWorkspaceFilesRequest.ProtoReflect.Descriptor instead.
-func (*UploadWorkspaceFilesRequest) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{45}
-}
-
-func (x *UploadWorkspaceFilesRequest) GetAgentName() string {
-	if x != nil {
-		return x.AgentName
-	}
-	return ""
-}
-
-func (x *UploadWorkspaceFilesRequest) GetThreadId() string {
-	if x != nil {
-		return x.ThreadId
-	}
-	return ""
-}
-
-func (x *UploadWorkspaceFilesRequest) GetFiles() []*UploadWorkspaceFile {
-	if x != nil {
-		return x.Files
-	}
-	return nil
-}
-
-type UploadWorkspaceFileResult struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Relative path inside the thread workspace root.
-	Path string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
-	// Empty on success, standardized file-operation error on failure.
-	Error         string `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *UploadWorkspaceFileResult) Reset() {
-	*x = UploadWorkspaceFileResult{}
-	mi := &file_runtime_proto_msgTypes[46]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *UploadWorkspaceFileResult) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*UploadWorkspaceFileResult) ProtoMessage() {}
-
-func (x *UploadWorkspaceFileResult) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[46]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use UploadWorkspaceFileResult.ProtoReflect.Descriptor instead.
-func (*UploadWorkspaceFileResult) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{46}
-}
-
-func (x *UploadWorkspaceFileResult) GetPath() string {
-	if x != nil {
-		return x.Path
-	}
-	return ""
-}
-
-func (x *UploadWorkspaceFileResult) GetError() string {
-	if x != nil {
-		return x.Error
-	}
-	return ""
-}
-
-type UploadWorkspaceFilesResponse struct {
-	state         protoimpl.MessageState       `protogen:"open.v1"`
-	ThreadId      string                       `protobuf:"bytes,1,opt,name=thread_id,json=threadId,proto3" json:"thread_id,omitempty"`
-	Files         []*UploadWorkspaceFileResult `protobuf:"bytes,2,rep,name=files,proto3" json:"files,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *UploadWorkspaceFilesResponse) Reset() {
-	*x = UploadWorkspaceFilesResponse{}
-	mi := &file_runtime_proto_msgTypes[47]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *UploadWorkspaceFilesResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*UploadWorkspaceFilesResponse) ProtoMessage() {}
-
-func (x *UploadWorkspaceFilesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[47]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use UploadWorkspaceFilesResponse.ProtoReflect.Descriptor instead.
-func (*UploadWorkspaceFilesResponse) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{47}
-}
-
-func (x *UploadWorkspaceFilesResponse) GetThreadId() string {
-	if x != nil {
-		return x.ThreadId
-	}
-	return ""
-}
-
-func (x *UploadWorkspaceFilesResponse) GetFiles() []*UploadWorkspaceFileResult {
-	if x != nil {
-		return x.Files
-	}
-	return nil
-}
-
-type DownloadWorkspaceFilesRequest struct {
+type UploadWorkspaceFileMetadata struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	AgentName string                 `protobuf:"bytes,1,opt,name=agent_name,json=agentName,proto3" json:"agent_name,omitempty"`
 	ThreadId  string                 `protobuf:"bytes,2,opt,name=thread_id,json=threadId,proto3" json:"thread_id,omitempty"`
-	// Relative paths inside the thread workspace root.
-	Paths         []string `protobuf:"bytes,3,rep,name=paths,proto3" json:"paths,omitempty"`
+	// Relative path inside the thread workspace root.
+	Path          string `protobuf:"bytes,3,opt,name=path,proto3" json:"path,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *DownloadWorkspaceFilesRequest) Reset() {
-	*x = DownloadWorkspaceFilesRequest{}
-	mi := &file_runtime_proto_msgTypes[48]
+func (x *UploadWorkspaceFileMetadata) Reset() {
+	*x = UploadWorkspaceFileMetadata{}
+	mi := &file_runtime_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *DownloadWorkspaceFilesRequest) String() string {
+func (x *UploadWorkspaceFileMetadata) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*DownloadWorkspaceFilesRequest) ProtoMessage() {}
+func (*UploadWorkspaceFileMetadata) ProtoMessage() {}
 
-func (x *DownloadWorkspaceFilesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[48]
+func (x *UploadWorkspaceFileMetadata) ProtoReflect() protoreflect.Message {
+	mi := &file_runtime_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3601,58 +3382,140 @@ func (x *DownloadWorkspaceFilesRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use DownloadWorkspaceFilesRequest.ProtoReflect.Descriptor instead.
-func (*DownloadWorkspaceFilesRequest) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{48}
+// Deprecated: Use UploadWorkspaceFileMetadata.ProtoReflect.Descriptor instead.
+func (*UploadWorkspaceFileMetadata) Descriptor() ([]byte, []int) {
+	return file_runtime_proto_rawDescGZIP(), []int{44}
 }
 
-func (x *DownloadWorkspaceFilesRequest) GetAgentName() string {
+func (x *UploadWorkspaceFileMetadata) GetAgentName() string {
 	if x != nil {
 		return x.AgentName
 	}
 	return ""
 }
 
-func (x *DownloadWorkspaceFilesRequest) GetThreadId() string {
+func (x *UploadWorkspaceFileMetadata) GetThreadId() string {
 	if x != nil {
 		return x.ThreadId
 	}
 	return ""
 }
 
-func (x *DownloadWorkspaceFilesRequest) GetPaths() []string {
+func (x *UploadWorkspaceFileMetadata) GetPath() string {
 	if x != nil {
-		return x.Paths
+		return x.Path
+	}
+	return ""
+}
+
+type UploadWorkspaceFileStreamRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Payload:
+	//
+	//	*UploadWorkspaceFileStreamRequest_Metadata
+	//	*UploadWorkspaceFileStreamRequest_Chunk
+	Payload       isUploadWorkspaceFileStreamRequest_Payload `protobuf_oneof:"payload"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UploadWorkspaceFileStreamRequest) Reset() {
+	*x = UploadWorkspaceFileStreamRequest{}
+	mi := &file_runtime_proto_msgTypes[45]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UploadWorkspaceFileStreamRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UploadWorkspaceFileStreamRequest) ProtoMessage() {}
+
+func (x *UploadWorkspaceFileStreamRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_runtime_proto_msgTypes[45]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UploadWorkspaceFileStreamRequest.ProtoReflect.Descriptor instead.
+func (*UploadWorkspaceFileStreamRequest) Descriptor() ([]byte, []int) {
+	return file_runtime_proto_rawDescGZIP(), []int{45}
+}
+
+func (x *UploadWorkspaceFileStreamRequest) GetPayload() isUploadWorkspaceFileStreamRequest_Payload {
+	if x != nil {
+		return x.Payload
 	}
 	return nil
 }
 
-type DownloadWorkspaceFileResult struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
+func (x *UploadWorkspaceFileStreamRequest) GetMetadata() *UploadWorkspaceFileMetadata {
+	if x != nil {
+		if x, ok := x.Payload.(*UploadWorkspaceFileStreamRequest_Metadata); ok {
+			return x.Metadata
+		}
+	}
+	return nil
+}
+
+func (x *UploadWorkspaceFileStreamRequest) GetChunk() []byte {
+	if x != nil {
+		if x, ok := x.Payload.(*UploadWorkspaceFileStreamRequest_Chunk); ok {
+			return x.Chunk
+		}
+	}
+	return nil
+}
+
+type isUploadWorkspaceFileStreamRequest_Payload interface {
+	isUploadWorkspaceFileStreamRequest_Payload()
+}
+
+type UploadWorkspaceFileStreamRequest_Metadata struct {
+	Metadata *UploadWorkspaceFileMetadata `protobuf:"bytes,1,opt,name=metadata,proto3,oneof"`
+}
+
+type UploadWorkspaceFileStreamRequest_Chunk struct {
+	Chunk []byte `protobuf:"bytes,2,opt,name=chunk,proto3,oneof"`
+}
+
+func (*UploadWorkspaceFileStreamRequest_Metadata) isUploadWorkspaceFileStreamRequest_Payload() {}
+
+func (*UploadWorkspaceFileStreamRequest_Chunk) isUploadWorkspaceFileStreamRequest_Payload() {}
+
+type UploadWorkspaceFileStreamResponse struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	ThreadId string                 `protobuf:"bytes,1,opt,name=thread_id,json=threadId,proto3" json:"thread_id,omitempty"`
 	// Relative path inside the thread workspace root.
-	Path    string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
-	Content []byte `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
+	Path string `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`
 	// Empty on success, standardized file-operation error on failure.
 	Error         string `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *DownloadWorkspaceFileResult) Reset() {
-	*x = DownloadWorkspaceFileResult{}
-	mi := &file_runtime_proto_msgTypes[49]
+func (x *UploadWorkspaceFileStreamResponse) Reset() {
+	*x = UploadWorkspaceFileStreamResponse{}
+	mi := &file_runtime_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *DownloadWorkspaceFileResult) String() string {
+func (x *UploadWorkspaceFileStreamResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*DownloadWorkspaceFileResult) ProtoMessage() {}
+func (*UploadWorkspaceFileStreamResponse) ProtoMessage() {}
 
-func (x *DownloadWorkspaceFileResult) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[49]
+func (x *UploadWorkspaceFileStreamResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_runtime_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3663,80 +3526,133 @@ func (x *DownloadWorkspaceFileResult) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use DownloadWorkspaceFileResult.ProtoReflect.Descriptor instead.
-func (*DownloadWorkspaceFileResult) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{49}
+// Deprecated: Use UploadWorkspaceFileStreamResponse.ProtoReflect.Descriptor instead.
+func (*UploadWorkspaceFileStreamResponse) Descriptor() ([]byte, []int) {
+	return file_runtime_proto_rawDescGZIP(), []int{46}
 }
 
-func (x *DownloadWorkspaceFileResult) GetPath() string {
-	if x != nil {
-		return x.Path
-	}
-	return ""
-}
-
-func (x *DownloadWorkspaceFileResult) GetContent() []byte {
-	if x != nil {
-		return x.Content
-	}
-	return nil
-}
-
-func (x *DownloadWorkspaceFileResult) GetError() string {
-	if x != nil {
-		return x.Error
-	}
-	return ""
-}
-
-type DownloadWorkspaceFilesResponse struct {
-	state         protoimpl.MessageState         `protogen:"open.v1"`
-	ThreadId      string                         `protobuf:"bytes,1,opt,name=thread_id,json=threadId,proto3" json:"thread_id,omitempty"`
-	Files         []*DownloadWorkspaceFileResult `protobuf:"bytes,2,rep,name=files,proto3" json:"files,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *DownloadWorkspaceFilesResponse) Reset() {
-	*x = DownloadWorkspaceFilesResponse{}
-	mi := &file_runtime_proto_msgTypes[50]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *DownloadWorkspaceFilesResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*DownloadWorkspaceFilesResponse) ProtoMessage() {}
-
-func (x *DownloadWorkspaceFilesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[50]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use DownloadWorkspaceFilesResponse.ProtoReflect.Descriptor instead.
-func (*DownloadWorkspaceFilesResponse) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{50}
-}
-
-func (x *DownloadWorkspaceFilesResponse) GetThreadId() string {
+func (x *UploadWorkspaceFileStreamResponse) GetThreadId() string {
 	if x != nil {
 		return x.ThreadId
 	}
 	return ""
 }
 
-func (x *DownloadWorkspaceFilesResponse) GetFiles() []*DownloadWorkspaceFileResult {
+func (x *UploadWorkspaceFileStreamResponse) GetPath() string {
 	if x != nil {
-		return x.Files
+		return x.Path
+	}
+	return ""
+}
+
+func (x *UploadWorkspaceFileStreamResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+type DownloadWorkspaceFileStreamRequest struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	AgentName string                 `protobuf:"bytes,1,opt,name=agent_name,json=agentName,proto3" json:"agent_name,omitempty"`
+	ThreadId  string                 `protobuf:"bytes,2,opt,name=thread_id,json=threadId,proto3" json:"thread_id,omitempty"`
+	// Relative path inside the thread workspace root.
+	Path          string `protobuf:"bytes,3,opt,name=path,proto3" json:"path,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DownloadWorkspaceFileStreamRequest) Reset() {
+	*x = DownloadWorkspaceFileStreamRequest{}
+	mi := &file_runtime_proto_msgTypes[47]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DownloadWorkspaceFileStreamRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DownloadWorkspaceFileStreamRequest) ProtoMessage() {}
+
+func (x *DownloadWorkspaceFileStreamRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_runtime_proto_msgTypes[47]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DownloadWorkspaceFileStreamRequest.ProtoReflect.Descriptor instead.
+func (*DownloadWorkspaceFileStreamRequest) Descriptor() ([]byte, []int) {
+	return file_runtime_proto_rawDescGZIP(), []int{47}
+}
+
+func (x *DownloadWorkspaceFileStreamRequest) GetAgentName() string {
+	if x != nil {
+		return x.AgentName
+	}
+	return ""
+}
+
+func (x *DownloadWorkspaceFileStreamRequest) GetThreadId() string {
+	if x != nil {
+		return x.ThreadId
+	}
+	return ""
+}
+
+func (x *DownloadWorkspaceFileStreamRequest) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+type DownloadWorkspaceFileChunk struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Content       []byte                 `protobuf:"bytes,1,opt,name=content,proto3" json:"content,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DownloadWorkspaceFileChunk) Reset() {
+	*x = DownloadWorkspaceFileChunk{}
+	mi := &file_runtime_proto_msgTypes[48]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DownloadWorkspaceFileChunk) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DownloadWorkspaceFileChunk) ProtoMessage() {}
+
+func (x *DownloadWorkspaceFileChunk) ProtoReflect() protoreflect.Message {
+	mi := &file_runtime_proto_msgTypes[48]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DownloadWorkspaceFileChunk.ProtoReflect.Descriptor instead.
+func (*DownloadWorkspaceFileChunk) Descriptor() ([]byte, []int) {
+	return file_runtime_proto_rawDescGZIP(), []int{48}
+}
+
+func (x *DownloadWorkspaceFileChunk) GetContent() []byte {
+	if x != nil {
+		return x.Content
 	}
 	return nil
 }
@@ -3753,7 +3669,7 @@ type ListWorkspaceFilesRequest struct {
 
 func (x *ListWorkspaceFilesRequest) Reset() {
 	*x = ListWorkspaceFilesRequest{}
-	mi := &file_runtime_proto_msgTypes[51]
+	mi := &file_runtime_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3765,7 +3681,7 @@ func (x *ListWorkspaceFilesRequest) String() string {
 func (*ListWorkspaceFilesRequest) ProtoMessage() {}
 
 func (x *ListWorkspaceFilesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[51]
+	mi := &file_runtime_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3778,7 +3694,7 @@ func (x *ListWorkspaceFilesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListWorkspaceFilesRequest.ProtoReflect.Descriptor instead.
 func (*ListWorkspaceFilesRequest) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{51}
+	return file_runtime_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *ListWorkspaceFilesRequest) GetAgentName() string {
@@ -3816,7 +3732,7 @@ type WorkspaceFileInfo struct {
 
 func (x *WorkspaceFileInfo) Reset() {
 	*x = WorkspaceFileInfo{}
-	mi := &file_runtime_proto_msgTypes[52]
+	mi := &file_runtime_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3828,7 +3744,7 @@ func (x *WorkspaceFileInfo) String() string {
 func (*WorkspaceFileInfo) ProtoMessage() {}
 
 func (x *WorkspaceFileInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[52]
+	mi := &file_runtime_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3841,7 +3757,7 @@ func (x *WorkspaceFileInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkspaceFileInfo.ProtoReflect.Descriptor instead.
 func (*WorkspaceFileInfo) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{52}
+	return file_runtime_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *WorkspaceFileInfo) GetPath() string {
@@ -3882,7 +3798,7 @@ type ListWorkspaceFilesResponse struct {
 
 func (x *ListWorkspaceFilesResponse) Reset() {
 	*x = ListWorkspaceFilesResponse{}
-	mi := &file_runtime_proto_msgTypes[53]
+	mi := &file_runtime_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3894,7 +3810,7 @@ func (x *ListWorkspaceFilesResponse) String() string {
 func (*ListWorkspaceFilesResponse) ProtoMessage() {}
 
 func (x *ListWorkspaceFilesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[53]
+	mi := &file_runtime_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3907,7 +3823,7 @@ func (x *ListWorkspaceFilesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListWorkspaceFilesResponse.ProtoReflect.Descriptor instead.
 func (*ListWorkspaceFilesResponse) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{53}
+	return file_runtime_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *ListWorkspaceFilesResponse) GetThreadId() string {
@@ -3935,7 +3851,7 @@ type RemoveResourceRequest struct {
 
 func (x *RemoveResourceRequest) Reset() {
 	*x = RemoveResourceRequest{}
-	mi := &file_runtime_proto_msgTypes[54]
+	mi := &file_runtime_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3947,7 +3863,7 @@ func (x *RemoveResourceRequest) String() string {
 func (*RemoveResourceRequest) ProtoMessage() {}
 
 func (x *RemoveResourceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[54]
+	mi := &file_runtime_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3960,7 +3876,7 @@ func (x *RemoveResourceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveResourceRequest.ProtoReflect.Descriptor instead.
 func (*RemoveResourceRequest) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{54}
+	return file_runtime_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *RemoveResourceRequest) GetResourceType() string {
@@ -3987,7 +3903,7 @@ type SyncResponse struct {
 
 func (x *SyncResponse) Reset() {
 	*x = SyncResponse{}
-	mi := &file_runtime_proto_msgTypes[55]
+	mi := &file_runtime_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3999,7 +3915,7 @@ func (x *SyncResponse) String() string {
 func (*SyncResponse) ProtoMessage() {}
 
 func (x *SyncResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[55]
+	mi := &file_runtime_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4012,7 +3928,7 @@ func (x *SyncResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncResponse.ProtoReflect.Descriptor instead.
 func (*SyncResponse) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{55}
+	return file_runtime_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *SyncResponse) GetOk() bool {
@@ -4037,7 +3953,7 @@ type HealthRequest struct {
 
 func (x *HealthRequest) Reset() {
 	*x = HealthRequest{}
-	mi := &file_runtime_proto_msgTypes[56]
+	mi := &file_runtime_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4049,7 +3965,7 @@ func (x *HealthRequest) String() string {
 func (*HealthRequest) ProtoMessage() {}
 
 func (x *HealthRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[56]
+	mi := &file_runtime_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4062,7 +3978,107 @@ func (x *HealthRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthRequest.ProtoReflect.Descriptor instead.
 func (*HealthRequest) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{56}
+	return file_runtime_proto_rawDescGZIP(), []int{54}
+}
+
+type AgentHealth struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Name              string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Version           string                 `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`
+	Description       string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
+	Tags              []string               `protobuf:"bytes,4,rep,name=tags,proto3" json:"tags,omitempty"`
+	Status            AgentRuntimeStatus     `protobuf:"varint,5,opt,name=status,proto3,enum=agents.runtime.v1.AgentRuntimeStatus" json:"status,omitempty"`
+	ActiveThreadCount int32                  `protobuf:"varint,6,opt,name=active_thread_count,json=activeThreadCount,proto3" json:"active_thread_count,omitempty"`
+	ActiveThreadIds   []string               `protobuf:"bytes,7,rep,name=active_thread_ids,json=activeThreadIds,proto3" json:"active_thread_ids,omitempty"`
+	LastInvokedAt     *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=last_invoked_at,json=lastInvokedAt,proto3" json:"last_invoked_at,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *AgentHealth) Reset() {
+	*x = AgentHealth{}
+	mi := &file_runtime_proto_msgTypes[55]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AgentHealth) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AgentHealth) ProtoMessage() {}
+
+func (x *AgentHealth) ProtoReflect() protoreflect.Message {
+	mi := &file_runtime_proto_msgTypes[55]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AgentHealth.ProtoReflect.Descriptor instead.
+func (*AgentHealth) Descriptor() ([]byte, []int) {
+	return file_runtime_proto_rawDescGZIP(), []int{55}
+}
+
+func (x *AgentHealth) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *AgentHealth) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *AgentHealth) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *AgentHealth) GetTags() []string {
+	if x != nil {
+		return x.Tags
+	}
+	return nil
+}
+
+func (x *AgentHealth) GetStatus() AgentRuntimeStatus {
+	if x != nil {
+		return x.Status
+	}
+	return AgentRuntimeStatus_AGENT_RUNTIME_STATUS_UNSPECIFIED
+}
+
+func (x *AgentHealth) GetActiveThreadCount() int32 {
+	if x != nil {
+		return x.ActiveThreadCount
+	}
+	return 0
+}
+
+func (x *AgentHealth) GetActiveThreadIds() []string {
+	if x != nil {
+		return x.ActiveThreadIds
+	}
+	return nil
+}
+
+func (x *AgentHealth) GetLastInvokedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.LastInvokedAt
+	}
+	return nil
 }
 
 type HealthResponse struct {
@@ -4078,14 +4094,18 @@ type HealthResponse struct {
 	// Number of agents currently serving one or more active runs.
 	RunningAgentCount int32 `protobuf:"varint,5,opt,name=running_agent_count,json=runningAgentCount,proto3" json:"running_agent_count,omitempty"`
 	// Whether the runtime is ready to accept run traffic.
-	Ready         bool `protobuf:"varint,6,opt,name=ready,proto3" json:"ready,omitempty"`
+	Ready bool `protobuf:"varint,6,opt,name=ready,proto3" json:"ready,omitempty"`
+	// Number of active runtime threads currently executing work.
+	RunningThreadCount int32 `protobuf:"varint,7,opt,name=running_thread_count,json=runningThreadCount,proto3" json:"running_thread_count,omitempty"`
+	// Per-agent runtime observations captured in the same health snapshot.
+	Agents        []*AgentHealth `protobuf:"bytes,8,rep,name=agents,proto3" json:"agents,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *HealthResponse) Reset() {
 	*x = HealthResponse{}
-	mi := &file_runtime_proto_msgTypes[57]
+	mi := &file_runtime_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4097,7 +4117,7 @@ func (x *HealthResponse) String() string {
 func (*HealthResponse) ProtoMessage() {}
 
 func (x *HealthResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[57]
+	mi := &file_runtime_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4110,7 +4130,7 @@ func (x *HealthResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthResponse.ProtoReflect.Descriptor instead.
 func (*HealthResponse) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{57}
+	return file_runtime_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *HealthResponse) GetStatus() string {
@@ -4155,6 +4175,20 @@ func (x *HealthResponse) GetReady() bool {
 	return false
 }
 
+func (x *HealthResponse) GetRunningThreadCount() int32 {
+	if x != nil {
+		return x.RunningThreadCount
+	}
+	return 0
+}
+
+func (x *HealthResponse) GetAgents() []*AgentHealth {
+	if x != nil {
+		return x.Agents
+	}
+	return nil
+}
+
 type ListSessionsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	AgentName     string                 `protobuf:"bytes,1,opt,name=agent_name,json=agentName,proto3" json:"agent_name,omitempty"`
@@ -4166,7 +4200,7 @@ type ListSessionsRequest struct {
 
 func (x *ListSessionsRequest) Reset() {
 	*x = ListSessionsRequest{}
-	mi := &file_runtime_proto_msgTypes[58]
+	mi := &file_runtime_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4178,7 +4212,7 @@ func (x *ListSessionsRequest) String() string {
 func (*ListSessionsRequest) ProtoMessage() {}
 
 func (x *ListSessionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[58]
+	mi := &file_runtime_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4191,7 +4225,7 @@ func (x *ListSessionsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSessionsRequest.ProtoReflect.Descriptor instead.
 func (*ListSessionsRequest) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{58}
+	return file_runtime_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *ListSessionsRequest) GetAgentName() string {
@@ -4225,7 +4259,7 @@ type ListSessionsResponse struct {
 
 func (x *ListSessionsResponse) Reset() {
 	*x = ListSessionsResponse{}
-	mi := &file_runtime_proto_msgTypes[59]
+	mi := &file_runtime_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4237,7 +4271,7 @@ func (x *ListSessionsResponse) String() string {
 func (*ListSessionsResponse) ProtoMessage() {}
 
 func (x *ListSessionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[59]
+	mi := &file_runtime_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4250,7 +4284,7 @@ func (x *ListSessionsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSessionsResponse.ProtoReflect.Descriptor instead.
 func (*ListSessionsResponse) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{59}
+	return file_runtime_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *ListSessionsResponse) GetSessions() []*SessionSummary {
@@ -4277,7 +4311,7 @@ type GetSessionRequest struct {
 
 func (x *GetSessionRequest) Reset() {
 	*x = GetSessionRequest{}
-	mi := &file_runtime_proto_msgTypes[60]
+	mi := &file_runtime_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4289,7 +4323,7 @@ func (x *GetSessionRequest) String() string {
 func (*GetSessionRequest) ProtoMessage() {}
 
 func (x *GetSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[60]
+	mi := &file_runtime_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4302,7 +4336,7 @@ func (x *GetSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSessionRequest.ProtoReflect.Descriptor instead.
 func (*GetSessionRequest) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{60}
+	return file_runtime_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *GetSessionRequest) GetThreadId() string {
@@ -4329,7 +4363,7 @@ type GetSessionResponse struct {
 
 func (x *GetSessionResponse) Reset() {
 	*x = GetSessionResponse{}
-	mi := &file_runtime_proto_msgTypes[61]
+	mi := &file_runtime_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4341,7 +4375,7 @@ func (x *GetSessionResponse) String() string {
 func (*GetSessionResponse) ProtoMessage() {}
 
 func (x *GetSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[61]
+	mi := &file_runtime_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4354,7 +4388,7 @@ func (x *GetSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSessionResponse.ProtoReflect.Descriptor instead.
 func (*GetSessionResponse) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{61}
+	return file_runtime_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *GetSessionResponse) GetFound() bool {
@@ -4380,7 +4414,7 @@ type GetLatestSessionRequest struct {
 
 func (x *GetLatestSessionRequest) Reset() {
 	*x = GetLatestSessionRequest{}
-	mi := &file_runtime_proto_msgTypes[62]
+	mi := &file_runtime_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4392,7 +4426,7 @@ func (x *GetLatestSessionRequest) String() string {
 func (*GetLatestSessionRequest) ProtoMessage() {}
 
 func (x *GetLatestSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[62]
+	mi := &file_runtime_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4405,7 +4439,7 @@ func (x *GetLatestSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetLatestSessionRequest.ProtoReflect.Descriptor instead.
 func (*GetLatestSessionRequest) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{62}
+	return file_runtime_proto_rawDescGZIP(), []int{61}
 }
 
 func (x *GetLatestSessionRequest) GetAgentName() string {
@@ -4425,7 +4459,7 @@ type GetLatestSessionResponse struct {
 
 func (x *GetLatestSessionResponse) Reset() {
 	*x = GetLatestSessionResponse{}
-	mi := &file_runtime_proto_msgTypes[63]
+	mi := &file_runtime_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4437,7 +4471,7 @@ func (x *GetLatestSessionResponse) String() string {
 func (*GetLatestSessionResponse) ProtoMessage() {}
 
 func (x *GetLatestSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[63]
+	mi := &file_runtime_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4450,7 +4484,7 @@ func (x *GetLatestSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetLatestSessionResponse.ProtoReflect.Descriptor instead.
 func (*GetLatestSessionResponse) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{63}
+	return file_runtime_proto_rawDescGZIP(), []int{62}
 }
 
 func (x *GetLatestSessionResponse) GetFound() bool {
@@ -4477,7 +4511,7 @@ type DeleteSessionRequest struct {
 
 func (x *DeleteSessionRequest) Reset() {
 	*x = DeleteSessionRequest{}
-	mi := &file_runtime_proto_msgTypes[64]
+	mi := &file_runtime_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4489,7 +4523,7 @@ func (x *DeleteSessionRequest) String() string {
 func (*DeleteSessionRequest) ProtoMessage() {}
 
 func (x *DeleteSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[64]
+	mi := &file_runtime_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4502,7 +4536,7 @@ func (x *DeleteSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteSessionRequest.ProtoReflect.Descriptor instead.
 func (*DeleteSessionRequest) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{64}
+	return file_runtime_proto_rawDescGZIP(), []int{63}
 }
 
 func (x *DeleteSessionRequest) GetThreadId() string {
@@ -4528,7 +4562,7 @@ type DeleteSessionResponse struct {
 
 func (x *DeleteSessionResponse) Reset() {
 	*x = DeleteSessionResponse{}
-	mi := &file_runtime_proto_msgTypes[65]
+	mi := &file_runtime_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4540,7 +4574,7 @@ func (x *DeleteSessionResponse) String() string {
 func (*DeleteSessionResponse) ProtoMessage() {}
 
 func (x *DeleteSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[65]
+	mi := &file_runtime_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4553,7 +4587,7 @@ func (x *DeleteSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteSessionResponse.ProtoReflect.Descriptor instead.
 func (*DeleteSessionResponse) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{65}
+	return file_runtime_proto_rawDescGZIP(), []int{64}
 }
 
 func (x *DeleteSessionResponse) GetDeleted() bool {
@@ -4578,7 +4612,7 @@ type GetSessionMessagesRequest struct {
 
 func (x *GetSessionMessagesRequest) Reset() {
 	*x = GetSessionMessagesRequest{}
-	mi := &file_runtime_proto_msgTypes[66]
+	mi := &file_runtime_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4590,7 +4624,7 @@ func (x *GetSessionMessagesRequest) String() string {
 func (*GetSessionMessagesRequest) ProtoMessage() {}
 
 func (x *GetSessionMessagesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[66]
+	mi := &file_runtime_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4603,7 +4637,7 @@ func (x *GetSessionMessagesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSessionMessagesRequest.ProtoReflect.Descriptor instead.
 func (*GetSessionMessagesRequest) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{66}
+	return file_runtime_proto_rawDescGZIP(), []int{65}
 }
 
 func (x *GetSessionMessagesRequest) GetThreadId() string {
@@ -4669,7 +4703,7 @@ type GetSessionMessagesResponse struct {
 
 func (x *GetSessionMessagesResponse) Reset() {
 	*x = GetSessionMessagesResponse{}
-	mi := &file_runtime_proto_msgTypes[67]
+	mi := &file_runtime_proto_msgTypes[66]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4681,7 +4715,7 @@ func (x *GetSessionMessagesResponse) String() string {
 func (*GetSessionMessagesResponse) ProtoMessage() {}
 
 func (x *GetSessionMessagesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[67]
+	mi := &file_runtime_proto_msgTypes[66]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4694,7 +4728,7 @@ func (x *GetSessionMessagesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSessionMessagesResponse.ProtoReflect.Descriptor instead.
 func (*GetSessionMessagesResponse) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{67}
+	return file_runtime_proto_rawDescGZIP(), []int{66}
 }
 
 func (x *GetSessionMessagesResponse) GetThreadId() string {
@@ -4755,7 +4789,7 @@ type SessionSummary struct {
 
 func (x *SessionSummary) Reset() {
 	*x = SessionSummary{}
-	mi := &file_runtime_proto_msgTypes[68]
+	mi := &file_runtime_proto_msgTypes[67]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4767,7 +4801,7 @@ func (x *SessionSummary) String() string {
 func (*SessionSummary) ProtoMessage() {}
 
 func (x *SessionSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[68]
+	mi := &file_runtime_proto_msgTypes[67]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4780,7 +4814,7 @@ func (x *SessionSummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionSummary.ProtoReflect.Descriptor instead.
 func (*SessionSummary) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{68}
+	return file_runtime_proto_rawDescGZIP(), []int{67}
 }
 
 func (x *SessionSummary) GetThreadId() string {
@@ -4849,7 +4883,7 @@ type SessionDetail struct {
 
 func (x *SessionDetail) Reset() {
 	*x = SessionDetail{}
-	mi := &file_runtime_proto_msgTypes[69]
+	mi := &file_runtime_proto_msgTypes[68]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4861,7 +4895,7 @@ func (x *SessionDetail) String() string {
 func (*SessionDetail) ProtoMessage() {}
 
 func (x *SessionDetail) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[69]
+	mi := &file_runtime_proto_msgTypes[68]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4874,7 +4908,7 @@ func (x *SessionDetail) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionDetail.ProtoReflect.Descriptor instead.
 func (*SessionDetail) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{69}
+	return file_runtime_proto_rawDescGZIP(), []int{68}
 }
 
 func (x *SessionDetail) GetSummary() *SessionSummary {
@@ -4906,7 +4940,7 @@ type SessionMessage struct {
 
 func (x *SessionMessage) Reset() {
 	*x = SessionMessage{}
-	mi := &file_runtime_proto_msgTypes[70]
+	mi := &file_runtime_proto_msgTypes[69]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4918,7 +4952,7 @@ func (x *SessionMessage) String() string {
 func (*SessionMessage) ProtoMessage() {}
 
 func (x *SessionMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[70]
+	mi := &file_runtime_proto_msgTypes[69]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4931,7 +4965,7 @@ func (x *SessionMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionMessage.ProtoReflect.Descriptor instead.
 func (*SessionMessage) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{70}
+	return file_runtime_proto_rawDescGZIP(), []int{69}
 }
 
 func (x *SessionMessage) GetIndex() int32 {
@@ -4993,7 +5027,7 @@ type ListThreadArtifactsRequest struct {
 
 func (x *ListThreadArtifactsRequest) Reset() {
 	*x = ListThreadArtifactsRequest{}
-	mi := &file_runtime_proto_msgTypes[71]
+	mi := &file_runtime_proto_msgTypes[70]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5005,7 +5039,7 @@ func (x *ListThreadArtifactsRequest) String() string {
 func (*ListThreadArtifactsRequest) ProtoMessage() {}
 
 func (x *ListThreadArtifactsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[71]
+	mi := &file_runtime_proto_msgTypes[70]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5018,7 +5052,7 @@ func (x *ListThreadArtifactsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListThreadArtifactsRequest.ProtoReflect.Descriptor instead.
 func (*ListThreadArtifactsRequest) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{71}
+	return file_runtime_proto_rawDescGZIP(), []int{70}
 }
 
 func (x *ListThreadArtifactsRequest) GetThreadId() string {
@@ -5063,7 +5097,7 @@ type ThreadArtifact struct {
 
 func (x *ThreadArtifact) Reset() {
 	*x = ThreadArtifact{}
-	mi := &file_runtime_proto_msgTypes[72]
+	mi := &file_runtime_proto_msgTypes[71]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5075,7 +5109,7 @@ func (x *ThreadArtifact) String() string {
 func (*ThreadArtifact) ProtoMessage() {}
 
 func (x *ThreadArtifact) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[72]
+	mi := &file_runtime_proto_msgTypes[71]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5088,7 +5122,7 @@ func (x *ThreadArtifact) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ThreadArtifact.ProtoReflect.Descriptor instead.
 func (*ThreadArtifact) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{72}
+	return file_runtime_proto_rawDescGZIP(), []int{71}
 }
 
 func (x *ThreadArtifact) GetId() string {
@@ -5171,7 +5205,7 @@ type ListThreadArtifactsResponse struct {
 
 func (x *ListThreadArtifactsResponse) Reset() {
 	*x = ListThreadArtifactsResponse{}
-	mi := &file_runtime_proto_msgTypes[73]
+	mi := &file_runtime_proto_msgTypes[72]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5183,7 +5217,7 @@ func (x *ListThreadArtifactsResponse) String() string {
 func (*ListThreadArtifactsResponse) ProtoMessage() {}
 
 func (x *ListThreadArtifactsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[73]
+	mi := &file_runtime_proto_msgTypes[72]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5196,7 +5230,7 @@ func (x *ListThreadArtifactsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListThreadArtifactsResponse.ProtoReflect.Descriptor instead.
 func (*ListThreadArtifactsResponse) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{73}
+	return file_runtime_proto_rawDescGZIP(), []int{72}
 }
 
 func (x *ListThreadArtifactsResponse) GetThreadId() string {
@@ -5476,33 +5510,27 @@ const file_runtime_proto_rawDesc = "" +
 	"\n" +
 	"xray_depth\x18\x02 \x01(\x05R\txrayDepth\"E\n" +
 	"\x15GetAgentGraphResponse\x12,\n" +
-	"\x05graph\x18\x01 \x01(\v2\x16.google.protobuf.ValueR\x05graph\"C\n" +
-	"\x13UploadWorkspaceFile\x12\x12\n" +
-	"\x04path\x18\x01 \x01(\tR\x04path\x12\x18\n" +
-	"\acontent\x18\x02 \x01(\fR\acontent\"\x97\x01\n" +
-	"\x1bUploadWorkspaceFilesRequest\x12\x1d\n" +
+	"\x05graph\x18\x01 \x01(\v2\x16.google.protobuf.ValueR\x05graph\"m\n" +
+	"\x1bUploadWorkspaceFileMetadata\x12\x1d\n" +
 	"\n" +
 	"agent_name\x18\x01 \x01(\tR\tagentName\x12\x1b\n" +
-	"\tthread_id\x18\x02 \x01(\tR\bthreadId\x12<\n" +
-	"\x05files\x18\x03 \x03(\v2&.agents.runtime.v1.UploadWorkspaceFileR\x05files\"E\n" +
-	"\x19UploadWorkspaceFileResult\x12\x12\n" +
-	"\x04path\x18\x01 \x01(\tR\x04path\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"\x7f\n" +
-	"\x1cUploadWorkspaceFilesResponse\x12\x1b\n" +
-	"\tthread_id\x18\x01 \x01(\tR\bthreadId\x12B\n" +
-	"\x05files\x18\x02 \x03(\v2,.agents.runtime.v1.UploadWorkspaceFileResultR\x05files\"q\n" +
-	"\x1dDownloadWorkspaceFilesRequest\x12\x1d\n" +
+	"\tthread_id\x18\x02 \x01(\tR\bthreadId\x12\x12\n" +
+	"\x04path\x18\x03 \x01(\tR\x04path\"\x93\x01\n" +
+	" UploadWorkspaceFileStreamRequest\x12L\n" +
+	"\bmetadata\x18\x01 \x01(\v2..agents.runtime.v1.UploadWorkspaceFileMetadataH\x00R\bmetadata\x12\x16\n" +
+	"\x05chunk\x18\x02 \x01(\fH\x00R\x05chunkB\t\n" +
+	"\apayload\"j\n" +
+	"!UploadWorkspaceFileStreamResponse\x12\x1b\n" +
+	"\tthread_id\x18\x01 \x01(\tR\bthreadId\x12\x12\n" +
+	"\x04path\x18\x02 \x01(\tR\x04path\x12\x14\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\"t\n" +
+	"\"DownloadWorkspaceFileStreamRequest\x12\x1d\n" +
 	"\n" +
 	"agent_name\x18\x01 \x01(\tR\tagentName\x12\x1b\n" +
-	"\tthread_id\x18\x02 \x01(\tR\bthreadId\x12\x14\n" +
-	"\x05paths\x18\x03 \x03(\tR\x05paths\"a\n" +
-	"\x1bDownloadWorkspaceFileResult\x12\x12\n" +
-	"\x04path\x18\x01 \x01(\tR\x04path\x12\x18\n" +
-	"\acontent\x18\x02 \x01(\fR\acontent\x12\x14\n" +
-	"\x05error\x18\x03 \x01(\tR\x05error\"\x83\x01\n" +
-	"\x1eDownloadWorkspaceFilesResponse\x12\x1b\n" +
-	"\tthread_id\x18\x01 \x01(\tR\bthreadId\x12D\n" +
-	"\x05files\x18\x02 \x03(\v2..agents.runtime.v1.DownloadWorkspaceFileResultR\x05files\"k\n" +
+	"\tthread_id\x18\x02 \x01(\tR\bthreadId\x12\x12\n" +
+	"\x04path\x18\x03 \x01(\tR\x04path\"6\n" +
+	"\x1aDownloadWorkspaceFileChunk\x12\x18\n" +
+	"\acontent\x18\x01 \x01(\fR\acontent\"k\n" +
 	"\x19ListWorkspaceFilesRequest\x12\x1d\n" +
 	"\n" +
 	"agent_name\x18\x01 \x01(\tR\tagentName\x12\x1b\n" +
@@ -5523,14 +5551,25 @@ const file_runtime_proto_rawDesc = "" +
 	"\fSyncResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\"\x0f\n" +
-	"\rHealthRequest\"\xfd\x01\n" +
+	"\rHealthRequest\"\xd0\x02\n" +
+	"\vAgentHealth\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
+	"\aversion\x18\x02 \x01(\tR\aversion\x12 \n" +
+	"\vdescription\x18\x03 \x01(\tR\vdescription\x12\x12\n" +
+	"\x04tags\x18\x04 \x03(\tR\x04tags\x12=\n" +
+	"\x06status\x18\x05 \x01(\x0e2%.agents.runtime.v1.AgentRuntimeStatusR\x06status\x12.\n" +
+	"\x13active_thread_count\x18\x06 \x01(\x05R\x11activeThreadCount\x12*\n" +
+	"\x11active_thread_ids\x18\a \x03(\tR\x0factiveThreadIds\x12B\n" +
+	"\x0flast_invoked_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\rlastInvokedAt\"\xe7\x02\n" +
 	"\x0eHealthResponse\x12\x16\n" +
 	"\x06status\x18\x01 \x01(\tR\x06status\x122\n" +
 	"\x15assembled_agent_count\x18\x02 \x01(\x05R\x13assembledAgentCount\x12%\n" +
 	"\x0euptime_seconds\x18\x03 \x01(\x02R\ruptimeSeconds\x122\n" +
 	"\x15installed_agent_count\x18\x04 \x01(\x05R\x13installedAgentCount\x12.\n" +
 	"\x13running_agent_count\x18\x05 \x01(\x05R\x11runningAgentCount\x12\x14\n" +
-	"\x05ready\x18\x06 \x01(\bR\x05ready\"p\n" +
+	"\x05ready\x18\x06 \x01(\bR\x05ready\x120\n" +
+	"\x14running_thread_count\x18\a \x01(\x05R\x12runningThreadCount\x126\n" +
+	"\x06agents\x18\b \x03(\v2\x1e.agents.runtime.v1.AgentHealthR\x06agents\"p\n" +
 	"\x13ListSessionsRequest\x12\x1d\n" +
 	"\n" +
 	"agent_name\x18\x01 \x01(\tR\tagentName\x12\x1b\n" +
@@ -5646,15 +5685,15 @@ const file_runtime_proto_rawDesc = "" +
 	"\rAgentExecutor\x12J\n" +
 	"\x03Run\x12 .agents.runtime.v1.ClientMessage\x1a\x1d.agents.runtime.v1.AgentEvent(\x010\x012i\n" +
 	"\x0eAgentTelemetry\x12W\n" +
-	"\fRunTelemetry\x12 .agents.runtime.v1.ClientMessage\x1a!.agents.runtime.v1.TelemetryEvent(\x010\x012\xdb\a\n" +
+	"\fRunTelemetry\x12 .agents.runtime.v1.ClientMessage\x1a!.agents.runtime.v1.TelemetryEvent(\x010\x012\xf6\a\n" +
 	"\fResourceSync\x12Q\n" +
 	"\tSyncSkill\x12#.agents.runtime.v1.SyncSkillRequest\x1a\x1f.agents.runtime.v1.SyncResponse\x12M\n" +
 	"\aSyncMcp\x12!.agents.runtime.v1.SyncMcpRequest\x1a\x1f.agents.runtime.v1.SyncResponse\x12Y\n" +
 	"\rSyncAgentSpec\x12'.agents.runtime.v1.SyncAgentSpecRequest\x1a\x1f.agents.runtime.v1.SyncResponse\x12S\n" +
 	"\bAssemble\x12\".agents.runtime.v1.AssembleRequest\x1a#.agents.runtime.v1.AssembleResponse\x12b\n" +
-	"\rGetAgentGraph\x12'.agents.runtime.v1.GetAgentGraphRequest\x1a(.agents.runtime.v1.GetAgentGraphResponse\x12w\n" +
-	"\x14UploadWorkspaceFiles\x12..agents.runtime.v1.UploadWorkspaceFilesRequest\x1a/.agents.runtime.v1.UploadWorkspaceFilesResponse\x12}\n" +
-	"\x16DownloadWorkspaceFiles\x120.agents.runtime.v1.DownloadWorkspaceFilesRequest\x1a1.agents.runtime.v1.DownloadWorkspaceFilesResponse\x12q\n" +
+	"\rGetAgentGraph\x12'.agents.runtime.v1.GetAgentGraphRequest\x1a(.agents.runtime.v1.GetAgentGraphResponse\x12\x88\x01\n" +
+	"\x19UploadWorkspaceFileStream\x123.agents.runtime.v1.UploadWorkspaceFileStreamRequest\x1a4.agents.runtime.v1.UploadWorkspaceFileStreamResponse(\x01\x12\x85\x01\n" +
+	"\x1bDownloadWorkspaceFileStream\x125.agents.runtime.v1.DownloadWorkspaceFileStreamRequest\x1a-.agents.runtime.v1.DownloadWorkspaceFileChunk0\x01\x12q\n" +
 	"\x12ListWorkspaceFiles\x12,.agents.runtime.v1.ListWorkspaceFilesRequest\x1a-.agents.runtime.v1.ListWorkspaceFilesResponse\x12[\n" +
 	"\x0eRemoveResource\x12(.agents.runtime.v1.RemoveResourceRequest\x1a\x1f.agents.runtime.v1.SyncResponse\x12M\n" +
 	"\x06Health\x12 .agents.runtime.v1.HealthRequest\x1a!.agents.runtime.v1.HealthResponse2\x84\x05\n" +
@@ -5681,106 +5720,105 @@ func file_runtime_proto_rawDescGZIP() []byte {
 }
 
 var file_runtime_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 81)
+var file_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 80)
 var file_runtime_proto_goTypes = []any{
-	(ImagePullPolicy)(0),                   // 0: agents.runtime.v1.ImagePullPolicy
-	(AgentRuntimeStatus)(0),                // 1: agents.runtime.v1.AgentRuntimeStatus
-	(SessionHistoryMode)(0),                // 2: agents.runtime.v1.SessionHistoryMode
-	(SessionMessageRole)(0),                // 3: agents.runtime.v1.SessionMessageRole
-	(*ClientMessage)(nil),                  // 4: agents.runtime.v1.ClientMessage
-	(*RunRequest)(nil),                     // 5: agents.runtime.v1.RunRequest
-	(*HITLDecision)(nil),                   // 6: agents.runtime.v1.HITLDecision
-	(*Action)(nil),                         // 7: agents.runtime.v1.Action
-	(*Decision)(nil),                       // 8: agents.runtime.v1.Decision
-	(*CancelRequest)(nil),                  // 9: agents.runtime.v1.CancelRequest
-	(*AgentEvent)(nil),                     // 10: agents.runtime.v1.AgentEvent
-	(*RunStarted)(nil),                     // 11: agents.runtime.v1.RunStarted
-	(*TextDelta)(nil),                      // 12: agents.runtime.v1.TextDelta
-	(*TextDone)(nil),                       // 13: agents.runtime.v1.TextDone
-	(*ToolCallStart)(nil),                  // 14: agents.runtime.v1.ToolCallStart
-	(*ToolCallDone)(nil),                   // 15: agents.runtime.v1.ToolCallDone
-	(*ToolResult)(nil),                     // 16: agents.runtime.v1.ToolResult
-	(*HITLRequest)(nil),                    // 17: agents.runtime.v1.HITLRequest
-	(*ActionRequest)(nil),                  // 18: agents.runtime.v1.ActionRequest
-	(*ReviewConfig)(nil),                   // 19: agents.runtime.v1.ReviewConfig
-	(*RunEnded)(nil),                       // 20: agents.runtime.v1.RunEnded
-	(*RunCanceled)(nil),                    // 21: agents.runtime.v1.RunCanceled
-	(*UsageStats)(nil),                     // 22: agents.runtime.v1.UsageStats
-	(*ErrorOccurred)(nil),                  // 23: agents.runtime.v1.ErrorOccurred
-	(*TelemetryEvent)(nil),                 // 24: agents.runtime.v1.TelemetryEvent
-	(*SyncSkillRequest)(nil),               // 25: agents.runtime.v1.SyncSkillRequest
-	(*SyncMcpRequest)(nil),                 // 26: agents.runtime.v1.SyncMcpRequest
-	(*SyncAgentSpecRequest)(nil),           // 27: agents.runtime.v1.SyncAgentSpecRequest
-	(*SubagentSpec)(nil),                   // 28: agents.runtime.v1.SubagentSpec
-	(*McpServerConfig)(nil),                // 29: agents.runtime.v1.McpServerConfig
-	(*PromptSpec)(nil),                     // 30: agents.runtime.v1.PromptSpec
-	(*ToolsSpec)(nil),                      // 31: agents.runtime.v1.ToolsSpec
-	(*SandboxSpec)(nil),                    // 32: agents.runtime.v1.SandboxSpec
-	(*SandboxExecutionPolicy)(nil),         // 33: agents.runtime.v1.SandboxExecutionPolicy
-	(*SandboxEnvVar)(nil),                  // 34: agents.runtime.v1.SandboxEnvVar
-	(*LocalSandboxSpec)(nil),               // 35: agents.runtime.v1.LocalSandboxSpec
-	(*ImageReference)(nil),                 // 36: agents.runtime.v1.ImageReference
-	(*DockerSandboxSpec)(nil),              // 37: agents.runtime.v1.DockerSandboxSpec
-	(*DockerResourceSpec)(nil),             // 38: agents.runtime.v1.DockerResourceSpec
-	(*KubernetesSandboxSpec)(nil),          // 39: agents.runtime.v1.KubernetesSandboxSpec
-	(*KubernetesResourceRequirements)(nil), // 40: agents.runtime.v1.KubernetesResourceRequirements
-	(*SkillFile)(nil),                      // 41: agents.runtime.v1.SkillFile
-	(*SkillContent)(nil),                   // 42: agents.runtime.v1.SkillContent
-	(*ModelConfig)(nil),                    // 43: agents.runtime.v1.ModelConfig
-	(*AssembleRequest)(nil),                // 44: agents.runtime.v1.AssembleRequest
-	(*AssembleResponse)(nil),               // 45: agents.runtime.v1.AssembleResponse
-	(*GetAgentGraphRequest)(nil),           // 46: agents.runtime.v1.GetAgentGraphRequest
-	(*GetAgentGraphResponse)(nil),          // 47: agents.runtime.v1.GetAgentGraphResponse
-	(*UploadWorkspaceFile)(nil),            // 48: agents.runtime.v1.UploadWorkspaceFile
-	(*UploadWorkspaceFilesRequest)(nil),    // 49: agents.runtime.v1.UploadWorkspaceFilesRequest
-	(*UploadWorkspaceFileResult)(nil),      // 50: agents.runtime.v1.UploadWorkspaceFileResult
-	(*UploadWorkspaceFilesResponse)(nil),   // 51: agents.runtime.v1.UploadWorkspaceFilesResponse
-	(*DownloadWorkspaceFilesRequest)(nil),  // 52: agents.runtime.v1.DownloadWorkspaceFilesRequest
-	(*DownloadWorkspaceFileResult)(nil),    // 53: agents.runtime.v1.DownloadWorkspaceFileResult
-	(*DownloadWorkspaceFilesResponse)(nil), // 54: agents.runtime.v1.DownloadWorkspaceFilesResponse
-	(*ListWorkspaceFilesRequest)(nil),      // 55: agents.runtime.v1.ListWorkspaceFilesRequest
-	(*WorkspaceFileInfo)(nil),              // 56: agents.runtime.v1.WorkspaceFileInfo
-	(*ListWorkspaceFilesResponse)(nil),     // 57: agents.runtime.v1.ListWorkspaceFilesResponse
-	(*RemoveResourceRequest)(nil),          // 58: agents.runtime.v1.RemoveResourceRequest
-	(*SyncResponse)(nil),                   // 59: agents.runtime.v1.SyncResponse
-	(*HealthRequest)(nil),                  // 60: agents.runtime.v1.HealthRequest
-	(*HealthResponse)(nil),                 // 61: agents.runtime.v1.HealthResponse
-	(*ListSessionsRequest)(nil),            // 62: agents.runtime.v1.ListSessionsRequest
-	(*ListSessionsResponse)(nil),           // 63: agents.runtime.v1.ListSessionsResponse
-	(*GetSessionRequest)(nil),              // 64: agents.runtime.v1.GetSessionRequest
-	(*GetSessionResponse)(nil),             // 65: agents.runtime.v1.GetSessionResponse
-	(*GetLatestSessionRequest)(nil),        // 66: agents.runtime.v1.GetLatestSessionRequest
-	(*GetLatestSessionResponse)(nil),       // 67: agents.runtime.v1.GetLatestSessionResponse
-	(*DeleteSessionRequest)(nil),           // 68: agents.runtime.v1.DeleteSessionRequest
-	(*DeleteSessionResponse)(nil),          // 69: agents.runtime.v1.DeleteSessionResponse
-	(*GetSessionMessagesRequest)(nil),      // 70: agents.runtime.v1.GetSessionMessagesRequest
-	(*GetSessionMessagesResponse)(nil),     // 71: agents.runtime.v1.GetSessionMessagesResponse
-	(*SessionSummary)(nil),                 // 72: agents.runtime.v1.SessionSummary
-	(*SessionDetail)(nil),                  // 73: agents.runtime.v1.SessionDetail
-	(*SessionMessage)(nil),                 // 74: agents.runtime.v1.SessionMessage
-	(*ListThreadArtifactsRequest)(nil),     // 75: agents.runtime.v1.ListThreadArtifactsRequest
-	(*ThreadArtifact)(nil),                 // 76: agents.runtime.v1.ThreadArtifact
-	(*ListThreadArtifactsResponse)(nil),    // 77: agents.runtime.v1.ListThreadArtifactsResponse
-	nil,                                    // 78: agents.runtime.v1.RunRequest.MetadataEntry
-	nil,                                    // 79: agents.runtime.v1.SyncMcpRequest.EnvEntry
-	nil,                                    // 80: agents.runtime.v1.McpServerConfig.EnvEntry
-	nil,                                    // 81: agents.runtime.v1.SandboxSpec.ResourcesEntry
-	nil,                                    // 82: agents.runtime.v1.KubernetesResourceRequirements.RequestsEntry
-	nil,                                    // 83: agents.runtime.v1.KubernetesResourceRequirements.LimitsEntry
-	nil,                                    // 84: agents.runtime.v1.ModelConfig.ExtraParamsEntry
-	(*structpb.Struct)(nil),                // 85: google.protobuf.Struct
-	(*timestamppb.Timestamp)(nil),          // 86: google.protobuf.Timestamp
-	(*structpb.Value)(nil),                 // 87: google.protobuf.Value
+	(ImagePullPolicy)(0),                       // 0: agents.runtime.v1.ImagePullPolicy
+	(AgentRuntimeStatus)(0),                    // 1: agents.runtime.v1.AgentRuntimeStatus
+	(SessionHistoryMode)(0),                    // 2: agents.runtime.v1.SessionHistoryMode
+	(SessionMessageRole)(0),                    // 3: agents.runtime.v1.SessionMessageRole
+	(*ClientMessage)(nil),                      // 4: agents.runtime.v1.ClientMessage
+	(*RunRequest)(nil),                         // 5: agents.runtime.v1.RunRequest
+	(*HITLDecision)(nil),                       // 6: agents.runtime.v1.HITLDecision
+	(*Action)(nil),                             // 7: agents.runtime.v1.Action
+	(*Decision)(nil),                           // 8: agents.runtime.v1.Decision
+	(*CancelRequest)(nil),                      // 9: agents.runtime.v1.CancelRequest
+	(*AgentEvent)(nil),                         // 10: agents.runtime.v1.AgentEvent
+	(*RunStarted)(nil),                         // 11: agents.runtime.v1.RunStarted
+	(*TextDelta)(nil),                          // 12: agents.runtime.v1.TextDelta
+	(*TextDone)(nil),                           // 13: agents.runtime.v1.TextDone
+	(*ToolCallStart)(nil),                      // 14: agents.runtime.v1.ToolCallStart
+	(*ToolCallDone)(nil),                       // 15: agents.runtime.v1.ToolCallDone
+	(*ToolResult)(nil),                         // 16: agents.runtime.v1.ToolResult
+	(*HITLRequest)(nil),                        // 17: agents.runtime.v1.HITLRequest
+	(*ActionRequest)(nil),                      // 18: agents.runtime.v1.ActionRequest
+	(*ReviewConfig)(nil),                       // 19: agents.runtime.v1.ReviewConfig
+	(*RunEnded)(nil),                           // 20: agents.runtime.v1.RunEnded
+	(*RunCanceled)(nil),                        // 21: agents.runtime.v1.RunCanceled
+	(*UsageStats)(nil),                         // 22: agents.runtime.v1.UsageStats
+	(*ErrorOccurred)(nil),                      // 23: agents.runtime.v1.ErrorOccurred
+	(*TelemetryEvent)(nil),                     // 24: agents.runtime.v1.TelemetryEvent
+	(*SyncSkillRequest)(nil),                   // 25: agents.runtime.v1.SyncSkillRequest
+	(*SyncMcpRequest)(nil),                     // 26: agents.runtime.v1.SyncMcpRequest
+	(*SyncAgentSpecRequest)(nil),               // 27: agents.runtime.v1.SyncAgentSpecRequest
+	(*SubagentSpec)(nil),                       // 28: agents.runtime.v1.SubagentSpec
+	(*McpServerConfig)(nil),                    // 29: agents.runtime.v1.McpServerConfig
+	(*PromptSpec)(nil),                         // 30: agents.runtime.v1.PromptSpec
+	(*ToolsSpec)(nil),                          // 31: agents.runtime.v1.ToolsSpec
+	(*SandboxSpec)(nil),                        // 32: agents.runtime.v1.SandboxSpec
+	(*SandboxExecutionPolicy)(nil),             // 33: agents.runtime.v1.SandboxExecutionPolicy
+	(*SandboxEnvVar)(nil),                      // 34: agents.runtime.v1.SandboxEnvVar
+	(*LocalSandboxSpec)(nil),                   // 35: agents.runtime.v1.LocalSandboxSpec
+	(*ImageReference)(nil),                     // 36: agents.runtime.v1.ImageReference
+	(*DockerSandboxSpec)(nil),                  // 37: agents.runtime.v1.DockerSandboxSpec
+	(*DockerResourceSpec)(nil),                 // 38: agents.runtime.v1.DockerResourceSpec
+	(*KubernetesSandboxSpec)(nil),              // 39: agents.runtime.v1.KubernetesSandboxSpec
+	(*KubernetesResourceRequirements)(nil),     // 40: agents.runtime.v1.KubernetesResourceRequirements
+	(*SkillFile)(nil),                          // 41: agents.runtime.v1.SkillFile
+	(*SkillContent)(nil),                       // 42: agents.runtime.v1.SkillContent
+	(*ModelConfig)(nil),                        // 43: agents.runtime.v1.ModelConfig
+	(*AssembleRequest)(nil),                    // 44: agents.runtime.v1.AssembleRequest
+	(*AssembleResponse)(nil),                   // 45: agents.runtime.v1.AssembleResponse
+	(*GetAgentGraphRequest)(nil),               // 46: agents.runtime.v1.GetAgentGraphRequest
+	(*GetAgentGraphResponse)(nil),              // 47: agents.runtime.v1.GetAgentGraphResponse
+	(*UploadWorkspaceFileMetadata)(nil),        // 48: agents.runtime.v1.UploadWorkspaceFileMetadata
+	(*UploadWorkspaceFileStreamRequest)(nil),   // 49: agents.runtime.v1.UploadWorkspaceFileStreamRequest
+	(*UploadWorkspaceFileStreamResponse)(nil),  // 50: agents.runtime.v1.UploadWorkspaceFileStreamResponse
+	(*DownloadWorkspaceFileStreamRequest)(nil), // 51: agents.runtime.v1.DownloadWorkspaceFileStreamRequest
+	(*DownloadWorkspaceFileChunk)(nil),         // 52: agents.runtime.v1.DownloadWorkspaceFileChunk
+	(*ListWorkspaceFilesRequest)(nil),          // 53: agents.runtime.v1.ListWorkspaceFilesRequest
+	(*WorkspaceFileInfo)(nil),                  // 54: agents.runtime.v1.WorkspaceFileInfo
+	(*ListWorkspaceFilesResponse)(nil),         // 55: agents.runtime.v1.ListWorkspaceFilesResponse
+	(*RemoveResourceRequest)(nil),              // 56: agents.runtime.v1.RemoveResourceRequest
+	(*SyncResponse)(nil),                       // 57: agents.runtime.v1.SyncResponse
+	(*HealthRequest)(nil),                      // 58: agents.runtime.v1.HealthRequest
+	(*AgentHealth)(nil),                        // 59: agents.runtime.v1.AgentHealth
+	(*HealthResponse)(nil),                     // 60: agents.runtime.v1.HealthResponse
+	(*ListSessionsRequest)(nil),                // 61: agents.runtime.v1.ListSessionsRequest
+	(*ListSessionsResponse)(nil),               // 62: agents.runtime.v1.ListSessionsResponse
+	(*GetSessionRequest)(nil),                  // 63: agents.runtime.v1.GetSessionRequest
+	(*GetSessionResponse)(nil),                 // 64: agents.runtime.v1.GetSessionResponse
+	(*GetLatestSessionRequest)(nil),            // 65: agents.runtime.v1.GetLatestSessionRequest
+	(*GetLatestSessionResponse)(nil),           // 66: agents.runtime.v1.GetLatestSessionResponse
+	(*DeleteSessionRequest)(nil),               // 67: agents.runtime.v1.DeleteSessionRequest
+	(*DeleteSessionResponse)(nil),              // 68: agents.runtime.v1.DeleteSessionResponse
+	(*GetSessionMessagesRequest)(nil),          // 69: agents.runtime.v1.GetSessionMessagesRequest
+	(*GetSessionMessagesResponse)(nil),         // 70: agents.runtime.v1.GetSessionMessagesResponse
+	(*SessionSummary)(nil),                     // 71: agents.runtime.v1.SessionSummary
+	(*SessionDetail)(nil),                      // 72: agents.runtime.v1.SessionDetail
+	(*SessionMessage)(nil),                     // 73: agents.runtime.v1.SessionMessage
+	(*ListThreadArtifactsRequest)(nil),         // 74: agents.runtime.v1.ListThreadArtifactsRequest
+	(*ThreadArtifact)(nil),                     // 75: agents.runtime.v1.ThreadArtifact
+	(*ListThreadArtifactsResponse)(nil),        // 76: agents.runtime.v1.ListThreadArtifactsResponse
+	nil,                                        // 77: agents.runtime.v1.RunRequest.MetadataEntry
+	nil,                                        // 78: agents.runtime.v1.SyncMcpRequest.EnvEntry
+	nil,                                        // 79: agents.runtime.v1.McpServerConfig.EnvEntry
+	nil,                                        // 80: agents.runtime.v1.SandboxSpec.ResourcesEntry
+	nil,                                        // 81: agents.runtime.v1.KubernetesResourceRequirements.RequestsEntry
+	nil,                                        // 82: agents.runtime.v1.KubernetesResourceRequirements.LimitsEntry
+	nil,                                        // 83: agents.runtime.v1.ModelConfig.ExtraParamsEntry
+	(*structpb.Struct)(nil),                    // 84: google.protobuf.Struct
+	(*timestamppb.Timestamp)(nil),              // 85: google.protobuf.Timestamp
+	(*structpb.Value)(nil),                     // 86: google.protobuf.Value
 }
 var file_runtime_proto_depIdxs = []int32{
 	5,  // 0: agents.runtime.v1.ClientMessage.run_request:type_name -> agents.runtime.v1.RunRequest
 	6,  // 1: agents.runtime.v1.ClientMessage.hitl_decision:type_name -> agents.runtime.v1.HITLDecision
 	9,  // 2: agents.runtime.v1.ClientMessage.cancel:type_name -> agents.runtime.v1.CancelRequest
-	78, // 3: agents.runtime.v1.RunRequest.metadata:type_name -> agents.runtime.v1.RunRequest.MetadataEntry
+	77, // 3: agents.runtime.v1.RunRequest.metadata:type_name -> agents.runtime.v1.RunRequest.MetadataEntry
 	8,  // 4: agents.runtime.v1.HITLDecision.decisions:type_name -> agents.runtime.v1.Decision
-	85, // 5: agents.runtime.v1.Action.args:type_name -> google.protobuf.Struct
+	84, // 5: agents.runtime.v1.Action.args:type_name -> google.protobuf.Struct
 	7,  // 6: agents.runtime.v1.Decision.edited_action:type_name -> agents.runtime.v1.Action
-	86, // 7: agents.runtime.v1.AgentEvent.timestamp:type_name -> google.protobuf.Timestamp
+	85, // 7: agents.runtime.v1.AgentEvent.timestamp:type_name -> google.protobuf.Timestamp
 	11, // 8: agents.runtime.v1.AgentEvent.run_started:type_name -> agents.runtime.v1.RunStarted
 	12, // 9: agents.runtime.v1.AgentEvent.text_delta:type_name -> agents.runtime.v1.TextDelta
 	13, // 10: agents.runtime.v1.AgentEvent.text_done:type_name -> agents.runtime.v1.TextDone
@@ -5791,19 +5829,19 @@ var file_runtime_proto_depIdxs = []int32{
 	20, // 15: agents.runtime.v1.AgentEvent.run_ended:type_name -> agents.runtime.v1.RunEnded
 	23, // 16: agents.runtime.v1.AgentEvent.error:type_name -> agents.runtime.v1.ErrorOccurred
 	21, // 17: agents.runtime.v1.AgentEvent.run_canceled:type_name -> agents.runtime.v1.RunCanceled
-	85, // 18: agents.runtime.v1.ToolCallStart.args:type_name -> google.protobuf.Struct
-	87, // 19: agents.runtime.v1.ToolResult.payload:type_name -> google.protobuf.Value
+	84, // 18: agents.runtime.v1.ToolCallStart.args:type_name -> google.protobuf.Struct
+	86, // 19: agents.runtime.v1.ToolResult.payload:type_name -> google.protobuf.Value
 	18, // 20: agents.runtime.v1.HITLRequest.action_requests:type_name -> agents.runtime.v1.ActionRequest
 	19, // 21: agents.runtime.v1.HITLRequest.review_configs:type_name -> agents.runtime.v1.ReviewConfig
-	85, // 22: agents.runtime.v1.ActionRequest.args:type_name -> google.protobuf.Struct
-	85, // 23: agents.runtime.v1.ReviewConfig.args_schema:type_name -> google.protobuf.Struct
+	84, // 22: agents.runtime.v1.ActionRequest.args:type_name -> google.protobuf.Struct
+	84, // 23: agents.runtime.v1.ReviewConfig.args_schema:type_name -> google.protobuf.Struct
 	22, // 24: agents.runtime.v1.RunEnded.stats:type_name -> agents.runtime.v1.UsageStats
-	86, // 25: agents.runtime.v1.TelemetryEvent.timestamp:type_name -> google.protobuf.Timestamp
-	85, // 26: agents.runtime.v1.TelemetryEvent.metadata:type_name -> google.protobuf.Struct
-	87, // 27: agents.runtime.v1.TelemetryEvent.payload:type_name -> google.protobuf.Value
+	85, // 25: agents.runtime.v1.TelemetryEvent.timestamp:type_name -> google.protobuf.Timestamp
+	84, // 26: agents.runtime.v1.TelemetryEvent.metadata:type_name -> google.protobuf.Struct
+	86, // 27: agents.runtime.v1.TelemetryEvent.payload:type_name -> google.protobuf.Value
 	10, // 28: agents.runtime.v1.TelemetryEvent.public_event:type_name -> agents.runtime.v1.AgentEvent
 	41, // 29: agents.runtime.v1.SyncSkillRequest.files:type_name -> agents.runtime.v1.SkillFile
-	79, // 30: agents.runtime.v1.SyncMcpRequest.env:type_name -> agents.runtime.v1.SyncMcpRequest.EnvEntry
+	78, // 30: agents.runtime.v1.SyncMcpRequest.env:type_name -> agents.runtime.v1.SyncMcpRequest.EnvEntry
 	30, // 31: agents.runtime.v1.SyncAgentSpecRequest.prompt:type_name -> agents.runtime.v1.PromptSpec
 	42, // 32: agents.runtime.v1.SyncAgentSpecRequest.skills:type_name -> agents.runtime.v1.SkillContent
 	31, // 33: agents.runtime.v1.SyncAgentSpecRequest.tools:type_name -> agents.runtime.v1.ToolsSpec
@@ -5813,8 +5851,8 @@ var file_runtime_proto_depIdxs = []int32{
 	43, // 37: agents.runtime.v1.SyncAgentSpecRequest.model_config:type_name -> agents.runtime.v1.ModelConfig
 	42, // 38: agents.runtime.v1.SubagentSpec.skills:type_name -> agents.runtime.v1.SkillContent
 	43, // 39: agents.runtime.v1.SubagentSpec.model_config:type_name -> agents.runtime.v1.ModelConfig
-	80, // 40: agents.runtime.v1.McpServerConfig.env:type_name -> agents.runtime.v1.McpServerConfig.EnvEntry
-	81, // 41: agents.runtime.v1.SandboxSpec.resources:type_name -> agents.runtime.v1.SandboxSpec.ResourcesEntry
+	79, // 40: agents.runtime.v1.McpServerConfig.env:type_name -> agents.runtime.v1.McpServerConfig.EnvEntry
+	80, // 41: agents.runtime.v1.SandboxSpec.resources:type_name -> agents.runtime.v1.SandboxSpec.ResourcesEntry
 	33, // 42: agents.runtime.v1.SandboxSpec.execution:type_name -> agents.runtime.v1.SandboxExecutionPolicy
 	34, // 43: agents.runtime.v1.SandboxSpec.env:type_name -> agents.runtime.v1.SandboxEnvVar
 	35, // 44: agents.runtime.v1.SandboxSpec.local:type_name -> agents.runtime.v1.LocalSandboxSpec
@@ -5825,69 +5863,70 @@ var file_runtime_proto_depIdxs = []int32{
 	38, // 49: agents.runtime.v1.DockerSandboxSpec.resources:type_name -> agents.runtime.v1.DockerResourceSpec
 	36, // 50: agents.runtime.v1.KubernetesSandboxSpec.image:type_name -> agents.runtime.v1.ImageReference
 	40, // 51: agents.runtime.v1.KubernetesSandboxSpec.resources:type_name -> agents.runtime.v1.KubernetesResourceRequirements
-	82, // 52: agents.runtime.v1.KubernetesResourceRequirements.requests:type_name -> agents.runtime.v1.KubernetesResourceRequirements.RequestsEntry
-	83, // 53: agents.runtime.v1.KubernetesResourceRequirements.limits:type_name -> agents.runtime.v1.KubernetesResourceRequirements.LimitsEntry
+	81, // 52: agents.runtime.v1.KubernetesResourceRequirements.requests:type_name -> agents.runtime.v1.KubernetesResourceRequirements.RequestsEntry
+	82, // 53: agents.runtime.v1.KubernetesResourceRequirements.limits:type_name -> agents.runtime.v1.KubernetesResourceRequirements.LimitsEntry
 	41, // 54: agents.runtime.v1.SkillContent.files:type_name -> agents.runtime.v1.SkillFile
-	84, // 55: agents.runtime.v1.ModelConfig.extra_params:type_name -> agents.runtime.v1.ModelConfig.ExtraParamsEntry
-	87, // 56: agents.runtime.v1.GetAgentGraphResponse.graph:type_name -> google.protobuf.Value
-	48, // 57: agents.runtime.v1.UploadWorkspaceFilesRequest.files:type_name -> agents.runtime.v1.UploadWorkspaceFile
-	50, // 58: agents.runtime.v1.UploadWorkspaceFilesResponse.files:type_name -> agents.runtime.v1.UploadWorkspaceFileResult
-	53, // 59: agents.runtime.v1.DownloadWorkspaceFilesResponse.files:type_name -> agents.runtime.v1.DownloadWorkspaceFileResult
-	56, // 60: agents.runtime.v1.ListWorkspaceFilesResponse.files:type_name -> agents.runtime.v1.WorkspaceFileInfo
-	72, // 61: agents.runtime.v1.ListSessionsResponse.sessions:type_name -> agents.runtime.v1.SessionSummary
-	73, // 62: agents.runtime.v1.GetSessionResponse.session:type_name -> agents.runtime.v1.SessionDetail
-	72, // 63: agents.runtime.v1.GetLatestSessionResponse.session:type_name -> agents.runtime.v1.SessionSummary
-	2,  // 64: agents.runtime.v1.GetSessionMessagesRequest.requested_mode:type_name -> agents.runtime.v1.SessionHistoryMode
-	2,  // 65: agents.runtime.v1.GetSessionMessagesResponse.actual_mode:type_name -> agents.runtime.v1.SessionHistoryMode
-	74, // 66: agents.runtime.v1.GetSessionMessagesResponse.messages:type_name -> agents.runtime.v1.SessionMessage
-	86, // 67: agents.runtime.v1.SessionSummary.updated_at:type_name -> google.protobuf.Timestamp
-	2,  // 68: agents.runtime.v1.SessionSummary.history_mode:type_name -> agents.runtime.v1.SessionHistoryMode
-	1,  // 69: agents.runtime.v1.SessionSummary.agent_status:type_name -> agents.runtime.v1.AgentRuntimeStatus
-	72, // 70: agents.runtime.v1.SessionDetail.summary:type_name -> agents.runtime.v1.SessionSummary
-	3,  // 71: agents.runtime.v1.SessionMessage.role:type_name -> agents.runtime.v1.SessionMessageRole
-	85, // 72: agents.runtime.v1.SessionMessage.raw:type_name -> google.protobuf.Struct
-	76, // 73: agents.runtime.v1.ListThreadArtifactsResponse.artifacts:type_name -> agents.runtime.v1.ThreadArtifact
-	4,  // 74: agents.runtime.v1.AgentExecutor.Run:input_type -> agents.runtime.v1.ClientMessage
-	4,  // 75: agents.runtime.v1.AgentTelemetry.RunTelemetry:input_type -> agents.runtime.v1.ClientMessage
-	25, // 76: agents.runtime.v1.ResourceSync.SyncSkill:input_type -> agents.runtime.v1.SyncSkillRequest
-	26, // 77: agents.runtime.v1.ResourceSync.SyncMcp:input_type -> agents.runtime.v1.SyncMcpRequest
-	27, // 78: agents.runtime.v1.ResourceSync.SyncAgentSpec:input_type -> agents.runtime.v1.SyncAgentSpecRequest
-	44, // 79: agents.runtime.v1.ResourceSync.Assemble:input_type -> agents.runtime.v1.AssembleRequest
-	46, // 80: agents.runtime.v1.ResourceSync.GetAgentGraph:input_type -> agents.runtime.v1.GetAgentGraphRequest
-	49, // 81: agents.runtime.v1.ResourceSync.UploadWorkspaceFiles:input_type -> agents.runtime.v1.UploadWorkspaceFilesRequest
-	52, // 82: agents.runtime.v1.ResourceSync.DownloadWorkspaceFiles:input_type -> agents.runtime.v1.DownloadWorkspaceFilesRequest
-	55, // 83: agents.runtime.v1.ResourceSync.ListWorkspaceFiles:input_type -> agents.runtime.v1.ListWorkspaceFilesRequest
-	58, // 84: agents.runtime.v1.ResourceSync.RemoveResource:input_type -> agents.runtime.v1.RemoveResourceRequest
-	60, // 85: agents.runtime.v1.ResourceSync.Health:input_type -> agents.runtime.v1.HealthRequest
-	62, // 86: agents.runtime.v1.SessionQuery.ListSessions:input_type -> agents.runtime.v1.ListSessionsRequest
-	64, // 87: agents.runtime.v1.SessionQuery.GetSession:input_type -> agents.runtime.v1.GetSessionRequest
-	70, // 88: agents.runtime.v1.SessionQuery.GetSessionMessages:input_type -> agents.runtime.v1.GetSessionMessagesRequest
-	66, // 89: agents.runtime.v1.SessionQuery.GetLatestSession:input_type -> agents.runtime.v1.GetLatestSessionRequest
-	68, // 90: agents.runtime.v1.SessionQuery.DeleteSession:input_type -> agents.runtime.v1.DeleteSessionRequest
-	75, // 91: agents.runtime.v1.SessionQuery.ListThreadArtifacts:input_type -> agents.runtime.v1.ListThreadArtifactsRequest
-	10, // 92: agents.runtime.v1.AgentExecutor.Run:output_type -> agents.runtime.v1.AgentEvent
-	24, // 93: agents.runtime.v1.AgentTelemetry.RunTelemetry:output_type -> agents.runtime.v1.TelemetryEvent
-	59, // 94: agents.runtime.v1.ResourceSync.SyncSkill:output_type -> agents.runtime.v1.SyncResponse
-	59, // 95: agents.runtime.v1.ResourceSync.SyncMcp:output_type -> agents.runtime.v1.SyncResponse
-	59, // 96: agents.runtime.v1.ResourceSync.SyncAgentSpec:output_type -> agents.runtime.v1.SyncResponse
-	45, // 97: agents.runtime.v1.ResourceSync.Assemble:output_type -> agents.runtime.v1.AssembleResponse
-	47, // 98: agents.runtime.v1.ResourceSync.GetAgentGraph:output_type -> agents.runtime.v1.GetAgentGraphResponse
-	51, // 99: agents.runtime.v1.ResourceSync.UploadWorkspaceFiles:output_type -> agents.runtime.v1.UploadWorkspaceFilesResponse
-	54, // 100: agents.runtime.v1.ResourceSync.DownloadWorkspaceFiles:output_type -> agents.runtime.v1.DownloadWorkspaceFilesResponse
-	57, // 101: agents.runtime.v1.ResourceSync.ListWorkspaceFiles:output_type -> agents.runtime.v1.ListWorkspaceFilesResponse
-	59, // 102: agents.runtime.v1.ResourceSync.RemoveResource:output_type -> agents.runtime.v1.SyncResponse
-	61, // 103: agents.runtime.v1.ResourceSync.Health:output_type -> agents.runtime.v1.HealthResponse
-	63, // 104: agents.runtime.v1.SessionQuery.ListSessions:output_type -> agents.runtime.v1.ListSessionsResponse
-	65, // 105: agents.runtime.v1.SessionQuery.GetSession:output_type -> agents.runtime.v1.GetSessionResponse
-	71, // 106: agents.runtime.v1.SessionQuery.GetSessionMessages:output_type -> agents.runtime.v1.GetSessionMessagesResponse
-	67, // 107: agents.runtime.v1.SessionQuery.GetLatestSession:output_type -> agents.runtime.v1.GetLatestSessionResponse
-	69, // 108: agents.runtime.v1.SessionQuery.DeleteSession:output_type -> agents.runtime.v1.DeleteSessionResponse
-	77, // 109: agents.runtime.v1.SessionQuery.ListThreadArtifacts:output_type -> agents.runtime.v1.ListThreadArtifactsResponse
-	92, // [92:110] is the sub-list for method output_type
-	74, // [74:92] is the sub-list for method input_type
-	74, // [74:74] is the sub-list for extension type_name
-	74, // [74:74] is the sub-list for extension extendee
-	0,  // [0:74] is the sub-list for field type_name
+	83, // 55: agents.runtime.v1.ModelConfig.extra_params:type_name -> agents.runtime.v1.ModelConfig.ExtraParamsEntry
+	86, // 56: agents.runtime.v1.GetAgentGraphResponse.graph:type_name -> google.protobuf.Value
+	48, // 57: agents.runtime.v1.UploadWorkspaceFileStreamRequest.metadata:type_name -> agents.runtime.v1.UploadWorkspaceFileMetadata
+	54, // 58: agents.runtime.v1.ListWorkspaceFilesResponse.files:type_name -> agents.runtime.v1.WorkspaceFileInfo
+	1,  // 59: agents.runtime.v1.AgentHealth.status:type_name -> agents.runtime.v1.AgentRuntimeStatus
+	85, // 60: agents.runtime.v1.AgentHealth.last_invoked_at:type_name -> google.protobuf.Timestamp
+	59, // 61: agents.runtime.v1.HealthResponse.agents:type_name -> agents.runtime.v1.AgentHealth
+	71, // 62: agents.runtime.v1.ListSessionsResponse.sessions:type_name -> agents.runtime.v1.SessionSummary
+	72, // 63: agents.runtime.v1.GetSessionResponse.session:type_name -> agents.runtime.v1.SessionDetail
+	71, // 64: agents.runtime.v1.GetLatestSessionResponse.session:type_name -> agents.runtime.v1.SessionSummary
+	2,  // 65: agents.runtime.v1.GetSessionMessagesRequest.requested_mode:type_name -> agents.runtime.v1.SessionHistoryMode
+	2,  // 66: agents.runtime.v1.GetSessionMessagesResponse.actual_mode:type_name -> agents.runtime.v1.SessionHistoryMode
+	73, // 67: agents.runtime.v1.GetSessionMessagesResponse.messages:type_name -> agents.runtime.v1.SessionMessage
+	85, // 68: agents.runtime.v1.SessionSummary.updated_at:type_name -> google.protobuf.Timestamp
+	2,  // 69: agents.runtime.v1.SessionSummary.history_mode:type_name -> agents.runtime.v1.SessionHistoryMode
+	1,  // 70: agents.runtime.v1.SessionSummary.agent_status:type_name -> agents.runtime.v1.AgentRuntimeStatus
+	71, // 71: agents.runtime.v1.SessionDetail.summary:type_name -> agents.runtime.v1.SessionSummary
+	3,  // 72: agents.runtime.v1.SessionMessage.role:type_name -> agents.runtime.v1.SessionMessageRole
+	84, // 73: agents.runtime.v1.SessionMessage.raw:type_name -> google.protobuf.Struct
+	75, // 74: agents.runtime.v1.ListThreadArtifactsResponse.artifacts:type_name -> agents.runtime.v1.ThreadArtifact
+	4,  // 75: agents.runtime.v1.AgentExecutor.Run:input_type -> agents.runtime.v1.ClientMessage
+	4,  // 76: agents.runtime.v1.AgentTelemetry.RunTelemetry:input_type -> agents.runtime.v1.ClientMessage
+	25, // 77: agents.runtime.v1.ResourceSync.SyncSkill:input_type -> agents.runtime.v1.SyncSkillRequest
+	26, // 78: agents.runtime.v1.ResourceSync.SyncMcp:input_type -> agents.runtime.v1.SyncMcpRequest
+	27, // 79: agents.runtime.v1.ResourceSync.SyncAgentSpec:input_type -> agents.runtime.v1.SyncAgentSpecRequest
+	44, // 80: agents.runtime.v1.ResourceSync.Assemble:input_type -> agents.runtime.v1.AssembleRequest
+	46, // 81: agents.runtime.v1.ResourceSync.GetAgentGraph:input_type -> agents.runtime.v1.GetAgentGraphRequest
+	49, // 82: agents.runtime.v1.ResourceSync.UploadWorkspaceFileStream:input_type -> agents.runtime.v1.UploadWorkspaceFileStreamRequest
+	51, // 83: agents.runtime.v1.ResourceSync.DownloadWorkspaceFileStream:input_type -> agents.runtime.v1.DownloadWorkspaceFileStreamRequest
+	53, // 84: agents.runtime.v1.ResourceSync.ListWorkspaceFiles:input_type -> agents.runtime.v1.ListWorkspaceFilesRequest
+	56, // 85: agents.runtime.v1.ResourceSync.RemoveResource:input_type -> agents.runtime.v1.RemoveResourceRequest
+	58, // 86: agents.runtime.v1.ResourceSync.Health:input_type -> agents.runtime.v1.HealthRequest
+	61, // 87: agents.runtime.v1.SessionQuery.ListSessions:input_type -> agents.runtime.v1.ListSessionsRequest
+	63, // 88: agents.runtime.v1.SessionQuery.GetSession:input_type -> agents.runtime.v1.GetSessionRequest
+	69, // 89: agents.runtime.v1.SessionQuery.GetSessionMessages:input_type -> agents.runtime.v1.GetSessionMessagesRequest
+	65, // 90: agents.runtime.v1.SessionQuery.GetLatestSession:input_type -> agents.runtime.v1.GetLatestSessionRequest
+	67, // 91: agents.runtime.v1.SessionQuery.DeleteSession:input_type -> agents.runtime.v1.DeleteSessionRequest
+	74, // 92: agents.runtime.v1.SessionQuery.ListThreadArtifacts:input_type -> agents.runtime.v1.ListThreadArtifactsRequest
+	10, // 93: agents.runtime.v1.AgentExecutor.Run:output_type -> agents.runtime.v1.AgentEvent
+	24, // 94: agents.runtime.v1.AgentTelemetry.RunTelemetry:output_type -> agents.runtime.v1.TelemetryEvent
+	57, // 95: agents.runtime.v1.ResourceSync.SyncSkill:output_type -> agents.runtime.v1.SyncResponse
+	57, // 96: agents.runtime.v1.ResourceSync.SyncMcp:output_type -> agents.runtime.v1.SyncResponse
+	57, // 97: agents.runtime.v1.ResourceSync.SyncAgentSpec:output_type -> agents.runtime.v1.SyncResponse
+	45, // 98: agents.runtime.v1.ResourceSync.Assemble:output_type -> agents.runtime.v1.AssembleResponse
+	47, // 99: agents.runtime.v1.ResourceSync.GetAgentGraph:output_type -> agents.runtime.v1.GetAgentGraphResponse
+	50, // 100: agents.runtime.v1.ResourceSync.UploadWorkspaceFileStream:output_type -> agents.runtime.v1.UploadWorkspaceFileStreamResponse
+	52, // 101: agents.runtime.v1.ResourceSync.DownloadWorkspaceFileStream:output_type -> agents.runtime.v1.DownloadWorkspaceFileChunk
+	55, // 102: agents.runtime.v1.ResourceSync.ListWorkspaceFiles:output_type -> agents.runtime.v1.ListWorkspaceFilesResponse
+	57, // 103: agents.runtime.v1.ResourceSync.RemoveResource:output_type -> agents.runtime.v1.SyncResponse
+	60, // 104: agents.runtime.v1.ResourceSync.Health:output_type -> agents.runtime.v1.HealthResponse
+	62, // 105: agents.runtime.v1.SessionQuery.ListSessions:output_type -> agents.runtime.v1.ListSessionsResponse
+	64, // 106: agents.runtime.v1.SessionQuery.GetSession:output_type -> agents.runtime.v1.GetSessionResponse
+	70, // 107: agents.runtime.v1.SessionQuery.GetSessionMessages:output_type -> agents.runtime.v1.GetSessionMessagesResponse
+	66, // 108: agents.runtime.v1.SessionQuery.GetLatestSession:output_type -> agents.runtime.v1.GetLatestSessionResponse
+	68, // 109: agents.runtime.v1.SessionQuery.DeleteSession:output_type -> agents.runtime.v1.DeleteSessionResponse
+	76, // 110: agents.runtime.v1.SessionQuery.ListThreadArtifacts:output_type -> agents.runtime.v1.ListThreadArtifactsResponse
+	93, // [93:111] is the sub-list for method output_type
+	75, // [75:93] is the sub-list for method input_type
+	75, // [75:75] is the sub-list for extension type_name
+	75, // [75:75] is the sub-list for extension extendee
+	0,  // [0:75] is the sub-list for field type_name
 }
 
 func init() { file_runtime_proto_init() }
@@ -5917,13 +5956,17 @@ func file_runtime_proto_init() {
 		(*SandboxSpec_Docker)(nil),
 		(*SandboxSpec_Kubernetes)(nil),
 	}
+	file_runtime_proto_msgTypes[45].OneofWrappers = []any{
+		(*UploadWorkspaceFileStreamRequest_Metadata)(nil),
+		(*UploadWorkspaceFileStreamRequest_Chunk)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_runtime_proto_rawDesc), len(file_runtime_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   81,
+			NumMessages:   80,
 			NumExtensions: 0,
 			NumServices:   4,
 		},

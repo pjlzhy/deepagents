@@ -10,7 +10,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
+	"sync"
+	"time"
 )
 
 var (
@@ -40,6 +43,20 @@ type Service struct {
 	telemetry      runtimeclient.AgentTelemetryClient
 	sessions       runtimeclient.SessionQueryClient
 	telemetryStore telemetry.Store
+	ensureMu       sync.Mutex
+	ensureInflight map[string]*ensureRunnableCall
+	packageCacheMu sync.Mutex
+	packagedSpecs  map[string]packagedSpecCacheEntry
+}
+
+type ensureRunnableCall struct {
+	done chan struct{}
+	err  error
+}
+
+type packagedSpecCacheEntry struct {
+	revision string
+	spec     domain.RuntimeAgentSpec
 }
 
 // NewService 创建一个新的 orchestrator service。
@@ -83,18 +100,32 @@ func (s *Service) ensureRunnable(
 	ctx context.Context,
 	agentName string,
 ) error {
+	call, leader := s.acquireEnsureRunnableCall(agentName)
+	if !leader {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-call.done:
+			return call.err
+		}
+	}
+
+	err := s.ensureRunnableOnce(ctx, agentName)
+	s.releaseEnsureRunnableCall(agentName, call, err)
+	return err
+}
+
+func (s *Service) ensureRunnableOnce(
+	ctx context.Context,
+	agentName string,
+) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 
-	resolved, err := s.resolver.ResolveAgent(ctx, agentName)
+	spec, err := s.packagedSpecForEnsure(ctx, agentName)
 	if err != nil {
-		return fmt.Errorf("resolve agent %q: %w", agentName, err)
-	}
-
-	spec, err := s.packager.Package(ctx, resolved)
-	if err != nil {
-		return fmt.Errorf("package agent %q: %w", agentName, err)
+		return err
 	}
 
 	syncResp, err := s.resourceSync.SyncAgentSpec(ctx, spec)
@@ -122,6 +153,183 @@ func (s *Service) ensureRunnable(
 	}
 
 	return nil
+}
+
+func (s *Service) packagedSpecForEnsure(
+	ctx context.Context,
+	agentName string,
+) (domain.RuntimeAgentSpec, error) {
+	revision, cacheable, err := s.computeEnsureRevision(ctx, agentName)
+	if err != nil {
+		return domain.RuntimeAgentSpec{}, err
+	}
+	if cacheable {
+		if spec, ok := s.loadCachedPackagedSpec(agentName, revision); ok {
+			return spec, nil
+		}
+	}
+
+	resolved, err := s.resolver.ResolveAgent(ctx, agentName)
+	if err != nil {
+		return domain.RuntimeAgentSpec{}, fmt.Errorf("resolve agent %q: %w", agentName, err)
+	}
+
+	spec, err := s.packager.Package(ctx, resolved)
+	if err != nil {
+		return domain.RuntimeAgentSpec{}, fmt.Errorf("package agent %q: %w", agentName, err)
+	}
+
+	if cacheable {
+		s.storeCachedPackagedSpec(agentName, revision, spec)
+	}
+	return spec, nil
+}
+
+func (s *Service) acquireEnsureRunnableCall(agentName string) (*ensureRunnableCall, bool) {
+	s.ensureMu.Lock()
+	defer s.ensureMu.Unlock()
+
+	if s.ensureInflight == nil {
+		s.ensureInflight = make(map[string]*ensureRunnableCall)
+	}
+
+	call, ok := s.ensureInflight[agentName]
+	if ok {
+		return call, false
+	}
+
+	call = &ensureRunnableCall{done: make(chan struct{})}
+	s.ensureInflight[agentName] = call
+	return call, true
+}
+
+func (s *Service) releaseEnsureRunnableCall(
+	agentName string,
+	call *ensureRunnableCall,
+	err error,
+) {
+	call.err = err
+
+	s.ensureMu.Lock()
+	if current, ok := s.ensureInflight[agentName]; ok && current == call {
+		delete(s.ensureInflight, agentName)
+	}
+	s.ensureMu.Unlock()
+
+	close(call.done)
+}
+
+func (s *Service) loadCachedPackagedSpec(
+	agentName string,
+	revision string,
+) (domain.RuntimeAgentSpec, bool) {
+	s.packageCacheMu.Lock()
+	defer s.packageCacheMu.Unlock()
+
+	entry, ok := s.packagedSpecs[agentName]
+	if !ok || entry.revision != revision {
+		return domain.RuntimeAgentSpec{}, false
+	}
+	return entry.spec, true
+}
+
+func (s *Service) storeCachedPackagedSpec(
+	agentName string,
+	revision string,
+	spec domain.RuntimeAgentSpec,
+) {
+	s.packageCacheMu.Lock()
+	defer s.packageCacheMu.Unlock()
+
+	if s.packagedSpecs == nil {
+		s.packagedSpecs = make(map[string]packagedSpecCacheEntry)
+	}
+	s.packagedSpecs[agentName] = packagedSpecCacheEntry{
+		revision: revision,
+		spec:     spec,
+	}
+}
+
+func (s *Service) computeEnsureRevision(
+	ctx context.Context,
+	agentName string,
+) (string, bool, error) {
+	if s.registry == nil {
+		return "", false, nil
+	}
+
+	agent, err := s.registry.GetAgentSpec(ctx, agentName)
+	if err != nil {
+		return "", false, fmt.Errorf("resolve agent %q: %w", agentName, err)
+	}
+
+	var builder strings.Builder
+	writeEnsureRevisionToken(&builder, "agent", agent.Name, agent.UpdatedAt)
+	writeEnsureRevisionToken(&builder, "model", agent.ModelRef, time.Time{})
+
+	modelConfig, err := s.registry.GetModelConfig(ctx, agent.ModelRef)
+	if err != nil {
+		return "", false, fmt.Errorf("resolve agent %q: %w", agentName, err)
+	}
+	writeEnsureRevisionToken(&builder, "model", modelConfig.Name, modelConfig.UpdatedAt)
+
+	for _, name := range agent.SkillRefs {
+		skill, err := s.registry.GetSkill(ctx, name)
+		if err != nil {
+			return "", false, fmt.Errorf("resolve agent %q: %w", agentName, err)
+		}
+		writeEnsureRevisionToken(&builder, "skill", skill.Name, skill.UpdatedAt)
+	}
+
+	for _, name := range agent.MCPRefs {
+		config, err := s.registry.GetMCPConfig(ctx, name)
+		if err != nil {
+			return "", false, fmt.Errorf("resolve agent %q: %w", agentName, err)
+		}
+		writeEnsureRevisionToken(&builder, "mcp", config.Name, config.UpdatedAt)
+	}
+
+	if agent.SandboxRef != "" {
+		config, err := s.registry.GetSandboxConfig(ctx, agent.SandboxRef)
+		if err != nil {
+			return "", false, fmt.Errorf("resolve agent %q: %w", agentName, err)
+		}
+		writeEnsureRevisionToken(&builder, "sandbox", config.Name, config.UpdatedAt)
+	}
+
+	for _, subagent := range agent.Subagents {
+		writeEnsureRevisionToken(&builder, "subagent", subagent.Name, time.Time{})
+		if subagent.ModelRef != "" {
+			model, err := s.registry.GetModelConfig(ctx, subagent.ModelRef)
+			if err != nil {
+				return "", false, fmt.Errorf("resolve agent %q: %w", agentName, err)
+			}
+			writeEnsureRevisionToken(&builder, "subagent_model", model.Name, model.UpdatedAt)
+		}
+		for _, skillRef := range subagent.SkillRefs {
+			skill, err := s.registry.GetSkill(ctx, skillRef)
+			if err != nil {
+				return "", false, fmt.Errorf("resolve agent %q: %w", agentName, err)
+			}
+			writeEnsureRevisionToken(&builder, "subagent_skill", skill.Name, skill.UpdatedAt)
+		}
+	}
+
+	return builder.String(), true, nil
+}
+
+func writeEnsureRevisionToken(
+	builder *strings.Builder,
+	kind string,
+	name string,
+	updatedAt time.Time,
+) {
+	builder.WriteString(kind)
+	builder.WriteByte(':')
+	builder.WriteString(strings.TrimSpace(name))
+	builder.WriteByte('@')
+	builder.WriteString(updatedAt.UTC().Format(time.RFC3339Nano))
+	builder.WriteByte('\n')
 }
 
 // RunAgent 预留 northbound run stream 的统一入口。
@@ -302,38 +510,46 @@ func (s *Service) UploadWorkspaceFiles(
 	return response, nil
 }
 
-// DownloadWorkspaceFiles retrieves files from one agent/thread workspace.
-func (s *Service) DownloadWorkspaceFiles(
+// DownloadWorkspaceFile streams one workspace file into the provided writer.
+func (s *Service) DownloadWorkspaceFile(
 	ctx context.Context,
-	req domain.WorkspaceDownloadRequest,
-) (domain.WorkspaceDownloadResponse, error) {
+	req domain.WorkspaceFileDownloadRequest,
+	writer io.Writer,
+) error {
 	if err := ctx.Err(); err != nil {
-		return domain.WorkspaceDownloadResponse{}, err
+		return err
 	}
 
 	agentName := strings.TrimSpace(req.AgentName)
 	if agentName == "" {
-		return domain.WorkspaceDownloadResponse{}, ErrEmptyAgentName
+		return ErrEmptyAgentName
 	}
 	req.AgentName = agentName
 
+	if strings.TrimSpace(req.ThreadID) == "" {
+		return fmt.Errorf("thread_id is required")
+	}
+	if strings.TrimSpace(req.Path) == "" {
+		return fmt.Errorf("path is required")
+	}
+
 	if err := s.ensureRunnable(ctx, agentName); err != nil {
-		return domain.WorkspaceDownloadResponse{}, fmt.Errorf(
+		return fmt.Errorf(
 			"ensure runnable agent %q: %w",
 			agentName,
 			err,
 		)
 	}
 
-	response, err := s.resourceSync.DownloadWorkspaceFiles(ctx, req)
-	if err != nil {
-		return domain.WorkspaceDownloadResponse{}, fmt.Errorf(
-			"download workspace files for agent %q: %w",
+	if err := s.resourceSync.DownloadWorkspaceFile(ctx, req, writer); err != nil {
+		return fmt.Errorf(
+			"download workspace file %q for agent %q: %w",
+			req.Path,
 			agentName,
 			err,
 		)
 	}
-	return response, nil
+	return nil
 }
 
 // ListWorkspaceFiles lists files in one agent/thread workspace directory.

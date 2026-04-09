@@ -1,10 +1,12 @@
 package runtimeclient
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 
 	"agentctl/pkg/domain"
 	runtimev1 "agentctl/pkg/proto"
@@ -21,6 +23,8 @@ var (
 	_ AgentTelemetryClient = (*GRPCClient)(nil)
 	_ SessionQueryClient   = (*GRPCClient)(nil)
 )
+
+const workspaceTransferChunkSize = 256 * 1024
 
 // GRPCClient is the southbound runtime client backed by protobuf gRPC stubs.
 type GRPCClient struct {
@@ -141,37 +145,80 @@ func (c *GRPCClient) UploadWorkspaceFiles(
 	ctx context.Context,
 	req domain.WorkspaceUploadRequest,
 ) (domain.WorkspaceUploadResponse, error) {
-	response, err := c.resourceSync.UploadWorkspaceFiles(
-		ctx,
-		workspaceUploadRequestToProto(req),
-	)
-	if err != nil {
-		return domain.WorkspaceUploadResponse{}, normalizeRPCError(
-			"upload workspace files",
-			err,
-		)
+	if len(req.Files) == 0 {
+		return domain.WorkspaceUploadResponse{
+			ThreadID: req.ThreadID,
+			Files:    []domain.WorkspaceUploadResult{},
+		}, nil
 	}
 
-	return workspaceUploadResponseFromProto(response), nil
+	resolvedThreadID := req.ThreadID
+	results := make([]domain.WorkspaceUploadResult, 0, len(req.Files))
+	for _, file := range req.Files {
+		reader, err := openWorkspaceUploadReader(file)
+		if err != nil {
+			results = append(results, domain.WorkspaceUploadResult{
+				Path:  file.Path,
+				Error: err.Error(),
+			})
+			continue
+		}
+
+		response, streamErr := c.uploadWorkspaceFileStream(
+			ctx,
+			req.AgentName,
+			resolvedThreadID,
+			file.Path,
+			reader,
+		)
+		_ = reader.Close()
+		if streamErr != nil {
+			return domain.WorkspaceUploadResponse{}, streamErr
+		}
+		if resolvedThreadID == "" {
+			resolvedThreadID = response.GetThreadId()
+		}
+		results = append(results, domain.WorkspaceUploadResult{
+			Path:  response.GetPath(),
+			Error: response.GetError(),
+		})
+	}
+
+	return domain.WorkspaceUploadResponse{
+		ThreadID: resolvedThreadID,
+		Files:    results,
+	}, nil
 }
 
-// DownloadWorkspaceFiles retrieves files from one runtime thread workspace.
-func (c *GRPCClient) DownloadWorkspaceFiles(
+// DownloadWorkspaceFile streams one file from one runtime thread workspace into the writer.
+func (c *GRPCClient) DownloadWorkspaceFile(
 	ctx context.Context,
-	req domain.WorkspaceDownloadRequest,
-) (domain.WorkspaceDownloadResponse, error) {
-	response, err := c.resourceSync.DownloadWorkspaceFiles(
+	req domain.WorkspaceFileDownloadRequest,
+	writer io.Writer,
+) error {
+	if writer == nil {
+		return errors.New("download workspace file writer must not be nil")
+	}
+	stream, err := c.resourceSync.DownloadWorkspaceFileStream(
 		ctx,
-		workspaceDownloadRequestToProto(req),
+		workspaceFileDownloadRequestToProto(req),
 	)
 	if err != nil {
-		return domain.WorkspaceDownloadResponse{}, normalizeRPCError(
-			"download workspace files",
-			err,
-		)
+		return normalizeRPCError("download workspace file", err)
 	}
 
-	return workspaceDownloadResponseFromProto(response), nil
+	for {
+		chunk, recvErr := stream.Recv()
+		if errors.Is(recvErr, io.EOF) {
+			return nil
+		}
+		if recvErr != nil {
+			return normalizeRPCError("download workspace file", recvErr)
+		}
+		if _, writeErr := writer.Write(chunk.GetContent()); writeErr != nil {
+			return fmt.Errorf("write downloaded workspace file %q: %w", req.Path, writeErr)
+		}
+	}
 }
 
 // ListWorkspaceFiles lists files in one runtime thread workspace directory.
@@ -224,8 +271,16 @@ func (c *GRPCClient) Health(ctx context.Context) (HealthResponse, error) {
 		AssembledAgentCount: response.GetAssembledAgentCount(),
 		InstalledAgentCount: response.GetInstalledAgentCount(),
 		RunningAgentCount:   response.GetRunningAgentCount(),
+		RunningThreadCount:  response.GetRunningThreadCount(),
 		UptimeSeconds:       response.GetUptimeSeconds(),
 		Ready:               response.GetReady(),
+		Agents: func() []HealthAgent {
+			agents := make([]HealthAgent, 0, len(response.GetAgents()))
+			for _, agent := range response.GetAgents() {
+				agents = append(agents, healthAgentFromProto(agent))
+			}
+			return agents
+		}(),
 	}, nil
 }
 
@@ -266,6 +321,71 @@ func (c *GRPCClient) OpenRunTelemetry(
 	}
 
 	return newGRPCTelemetryStream(stream), nil
+}
+
+func (c *GRPCClient) uploadWorkspaceFileStream(
+	ctx context.Context,
+	agentName string,
+	threadID string,
+	path string,
+	reader io.Reader,
+) (*runtimev1.UploadWorkspaceFileStreamResponse, error) {
+	stream, err := c.resourceSync.UploadWorkspaceFileStream(ctx)
+	if err != nil {
+		return nil, normalizeRPCError("upload workspace file", err)
+	}
+
+	if err := stream.Send(&runtimev1.UploadWorkspaceFileStreamRequest{
+		Payload: &runtimev1.UploadWorkspaceFileStreamRequest_Metadata{
+			Metadata: &runtimev1.UploadWorkspaceFileMetadata{
+				AgentName: agentName,
+				ThreadId:  threadID,
+				Path:      path,
+			},
+		},
+	}); err != nil {
+		return nil, normalizeRPCError("upload workspace file metadata", err)
+	}
+
+	buffer := make([]byte, workspaceTransferChunkSize)
+	for {
+		n, readErr := reader.Read(buffer)
+		if n > 0 {
+			if err := stream.Send(&runtimev1.UploadWorkspaceFileStreamRequest{
+				Payload: &runtimev1.UploadWorkspaceFileStreamRequest_Chunk{
+					Chunk: append([]byte(nil), buffer[:n]...),
+				},
+			}); err != nil {
+				return nil, normalizeRPCError("upload workspace file chunk", err)
+			}
+		}
+		if errors.Is(readErr, io.EOF) {
+			break
+		}
+		if readErr != nil {
+			return nil, fmt.Errorf("read workspace upload %q: %w", path, readErr)
+		}
+	}
+
+	response, err := stream.CloseAndRecv()
+	if err != nil {
+		return nil, normalizeRPCError("upload workspace file", err)
+	}
+	return response, nil
+}
+
+func openWorkspaceUploadReader(file domain.WorkspaceUploadFile) (io.ReadCloser, error) {
+	if file.Open != nil {
+		reader, err := file.Open()
+		if err != nil {
+			return nil, fmt.Errorf("open workspace upload %q: %w", file.Path, err)
+		}
+		if reader == nil {
+			return nil, fmt.Errorf("open workspace upload %q: nil reader", file.Path)
+		}
+		return reader, nil
+	}
+	return io.NopCloser(bytes.NewReader(file.Content)), nil
 }
 
 // ListSessions lists recent sessions from the data plane.

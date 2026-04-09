@@ -517,23 +517,40 @@ class RuntimeAgent:
 
         self._runtime_lock: asyncio.Lock = asyncio.Lock()
         self._workspace_locks: dict[str, asyncio.Lock] = {}
+        self._active_threads: set[str] = set()
         self._runtime_status: str | None = None
 
     def status(self) -> AgentStatus:
         """Return the public lifecycle status for this runtime agent."""
-        if self._runtime_status == "running":
+        if self._active_threads:
             return AgentStatus.RUNNING
         if self._graph is not None:
             return AgentStatus.COMPILED
         return AgentStatus.INSTALLED
 
+    def is_transitioning(self) -> bool:
+        """Return whether the agent is changing lifecycle state."""
+        return self._runtime_status in {"assembling", "releasing"}
+
+    def has_active_runs(self) -> bool:
+        """Return whether the agent currently has one or more active runs."""
+        return bool(self._active_threads)
+
     def is_busy(self) -> bool:
         """Return whether the agent is in a transitional or running state."""
-        return self._runtime_status in {"assembling", "running", "releasing"}
+        return self.is_transitioning() or self.has_active_runs()
 
     def is_running(self) -> bool:
         """Return whether the agent currently has an active run."""
-        return self._runtime_status == "running"
+        return self.has_active_runs()
+
+    def is_thread_running(self, thread_id: str) -> bool:
+        """Return whether one specific thread currently has an active run."""
+        return thread_id in self._active_threads
+
+    def active_thread_ids(self) -> list[str]:
+        """Return a stable snapshot of thread IDs currently running."""
+        return sorted(self._active_threads)
 
     def has_runtime(self) -> bool:
         """Return whether compiled runtime resources are currently loaded."""
@@ -812,6 +829,7 @@ class RuntimeAgent:
             blocked_states: tuple[str, ...],
             enter_state: str,
             success_state: str | None,
+            block_active_runs: bool = False,
     ) -> AsyncIterator[None]:
         """Transition runtime state with automatic rollback on failure."""
         async with self._runtime_lock:
@@ -819,6 +837,12 @@ class RuntimeAgent:
                 msg = (
                     f"agent {self.spec.name} is {self._runtime_status}, "
                     "try again later."
+                )
+                raise RuntimeError(msg)
+            if block_active_runs and self._active_threads:
+                msg = (
+                    f"agent {self.spec.name} has active runs on "
+                    f"{len(self._active_threads)} thread(s), try again later."
                 )
                 raise RuntimeError(msg)
             previous_status = self._runtime_status
@@ -835,15 +859,50 @@ class RuntimeAgent:
                         success_state if succeeded else previous_status
                     )
 
+    @asynccontextmanager
+    async def _run_phase(self, thread_id: str) -> AsyncIterator[None]:
+        """Register one active run for a specific thread and hold its workspace lock."""
+        if not thread_id:
+            msg = "thread_id is required for runtime execution"
+            raise RuntimeError(msg)
+
+        thread_lock = self._workspace_locks.setdefault(thread_id, asyncio.Lock())
+        async with self._runtime_lock:
+            if self._runtime_status in {"assembling", "releasing"}:
+                msg = (
+                    f"agent {self.spec.name} is {self._runtime_status}, "
+                    "try again later."
+                )
+                raise RuntimeError(msg)
+            if thread_id in self._active_threads:
+                msg = (
+                    f"thread '{thread_id}' is already running for "
+                    f"agent '{self.spec.name}'"
+                )
+                raise RuntimeError(msg)
+            self._active_threads.add(thread_id)
+
+        acquired = False
+        try:
+            await thread_lock.acquire()
+            acquired = True
+            yield
+        finally:
+            if acquired:
+                thread_lock.release()
+            async with self._runtime_lock:
+                self._active_threads.discard(thread_id)
+
     async def assemble(
             self,
             *,
             checkpointer: Any = None,
     ):
         async with self._runtime_phase(
-                blocked_states=("assembling", "running"),
+                blocked_states=("assembling", "releasing"),
                 enter_state="assembling",
                 success_state="assembled",
+                block_active_runs=True,
         ):
             await self._assemble_impl(checkpointer=checkpointer)
 
@@ -1014,15 +1073,15 @@ class RuntimeAgent:
                       config: RunnableConfig,
                       hitl_handler: HITLHandler | None = None,
                       ) -> AsyncIterator[RuntimeEvent]:
-        async with self._runtime_phase(
-                blocked_states=("running", "releasing", "assembling"),
-                enter_state="running",
-                success_state="assembled",
-        ):
+        run_id, thread_id = self._resolve_run_identifiers(config)
+        async with self._run_phase(thread_id):
+            self._materialize_thread_filesystem(thread_id)
             async for event in self._astream_impl(
                     context=context,
                     message=message,
                     config=config,
+                    run_id=run_id,
+                    thread_id=thread_id,
                     hitl_handler=hitl_handler,
             ):
                 yield event
@@ -1037,15 +1096,15 @@ class RuntimeAgent:
     ) -> AsyncIterator[TelemetryEvent]:
         """Stream one invocation as telemetry events."""
 
-        async with self._runtime_phase(
-                blocked_states=("running", "releasing", "assembling"),
-                enter_state="running",
-                success_state="assembled",
-        ):
+        run_id, thread_id = self._resolve_run_identifiers(config)
+        async with self._run_phase(thread_id):
+            self._materialize_thread_filesystem(thread_id)
             async for event in self._atelemetry_impl(
                     context=context,
                     message=message,
                     config=config,
+                    run_id=run_id,
+                    thread_id=thread_id,
                     hitl_handler=hitl_handler,
             ):
                 yield event
@@ -1060,11 +1119,12 @@ class RuntimeAgent:
         thread_id = ""
         configurable = config.get("configurable", {})
         if isinstance(configurable, dict):
-            thread_id = str(configurable.get("thread_id", ""))
+            if configurable.get("thread_id"):
+                thread_id = str(configurable["thread_id"])
             if configurable.get("run_id"):
                 run_id = str(configurable["run_id"])
-        if thread_id:
-            self._materialize_thread_filesystem(thread_id)
+        if not thread_id:
+            thread_id = uuid.uuid4().hex[:8]
         return run_id, thread_id
 
     async def _astream_impl(self,
@@ -1072,14 +1132,14 @@ class RuntimeAgent:
                             context: Any = None,
                             message: str,
                             config: RunnableConfig,
+                            run_id: str,
+                            thread_id: str,
                             hitl_handler: HITLHandler | None = None,
                             ) -> AsyncIterator[RuntimeEvent]:
         """Stream one invocation as RuntimeEvents."""
         if self._graph is None:
             msg = f"Agent '{self.spec.name}' has not been assembled"
             raise RuntimeError(msg)
-
-        run_id, thread_id = self._resolve_run_identifiers(config)
 
         yield events.run_start(
             run_id=run_id,
@@ -1191,6 +1251,8 @@ class RuntimeAgent:
             context: Any = None,
             message: str,
             config: RunnableConfig,
+            run_id: str,
+            thread_id: str,
             hitl_handler: HITLHandler | None = None,
     ) -> AsyncIterator[TelemetryEvent]:
         """Stream one invocation as telemetry events."""
@@ -1198,8 +1260,6 @@ class RuntimeAgent:
         if self._graph is None:
             msg = f"Agent '{self.spec.name}' has not been assembled"
             raise RuntimeError(msg)
-
-        run_id, thread_id = self._resolve_run_identifiers(config)
 
         yield telemetry_from_runtime_event(
             events.run_start(
@@ -1330,9 +1390,10 @@ class RuntimeAgent:
 
     async def release(self):
         async with self._runtime_phase(
-                blocked_states=("releasing", "running", "assembling"),
+                blocked_states=("releasing", "assembling"),
                 enter_state="releasing",
                 success_state="released",
+                block_active_runs=True,
         ):
             await self._release_impl()
 

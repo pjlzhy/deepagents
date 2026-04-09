@@ -4,12 +4,17 @@ import (
 	"agentctl/pkg/domain"
 	registrypkg "agentctl/pkg/registry"
 	"agentctl/pkg/runtimeclient"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 type fakeResolver struct {
@@ -312,9 +317,8 @@ type fakeResourceSyncClient struct {
 	graphXrayDepth int32
 	uploadResp     domain.WorkspaceUploadResponse
 	uploadErr      error
-	downloadResp   domain.WorkspaceDownloadResponse
 	downloadErr    error
-	downloadReq    domain.WorkspaceDownloadRequest
+	downloadReq    domain.WorkspaceFileDownloadRequest
 	listResp       domain.WorkspaceListResponse
 	listErr        error
 	listReq        domain.WorkspaceListRequest
@@ -324,6 +328,11 @@ type fakeResourceSyncClient struct {
 	assembledAgent string
 	uploadReq      domain.WorkspaceUploadRequest
 	callLog        *[]string
+	syncStarted    chan struct{}
+	syncRelease    chan struct{}
+	syncStartOnce  sync.Once
+	syncCalls      atomic.Int32
+	assembleCalls  atomic.Int32
 }
 
 func (f *fakeResourceSyncClient) SyncAgentSpec(
@@ -332,6 +341,15 @@ func (f *fakeResourceSyncClient) SyncAgentSpec(
 ) (runtimeclient.SyncResponse, error) {
 	if f.callLog != nil {
 		*f.callLog = append(*f.callLog, "sync")
+	}
+	f.syncCalls.Add(1)
+	if f.syncStarted != nil {
+		f.syncStartOnce.Do(func() {
+			close(f.syncStarted)
+		})
+	}
+	if f.syncRelease != nil {
+		<-f.syncRelease
 	}
 	f.syncedSpec = spec
 	return f.syncResp, f.syncErr
@@ -344,6 +362,7 @@ func (f *fakeResourceSyncClient) Assemble(
 	if f.callLog != nil {
 		*f.callLog = append(*f.callLog, "assemble")
 	}
+	f.assembleCalls.Add(1)
 	f.assembledAgent = agentName
 	return f.assembleResp, f.assembleErr
 }
@@ -356,12 +375,16 @@ func (f *fakeResourceSyncClient) UploadWorkspaceFiles(
 	return f.uploadResp, f.uploadErr
 }
 
-func (f *fakeResourceSyncClient) DownloadWorkspaceFiles(
+func (f *fakeResourceSyncClient) DownloadWorkspaceFile(
 	_ context.Context,
-	req domain.WorkspaceDownloadRequest,
-) (domain.WorkspaceDownloadResponse, error) {
+	req domain.WorkspaceFileDownloadRequest,
+	writer io.Writer,
+) error {
+	if _, err := writer.Write([]byte("")); err != nil {
+		return err
+	}
 	f.downloadReq = req
-	return f.downloadResp, f.downloadErr
+	return f.downloadErr
 }
 
 func (f *fakeResourceSyncClient) ListWorkspaceFiles(
@@ -786,6 +809,187 @@ func TestEnsureRunnableReturnsAssembleFailure(t *testing.T) {
 	}
 }
 
+func TestEnsureRunnableDeduplicatesConcurrentCalls(t *testing.T) {
+	resourceSync := &fakeResourceSyncClient{
+		syncResp:     runtimeclient.SyncResponse{OK: true},
+		assembleResp: runtimeclient.AssembleResponse{OK: true, Status: "compiled"},
+		syncStarted:  make(chan struct{}),
+		syncRelease:  make(chan struct{}),
+	}
+
+	service, err := NewService(Dependencies{
+		Resolver: &fakeResolver{
+			result: testResolvedAgentInput("demo-agent"),
+		},
+		Packager: &fakePackager{
+			result: testRuntimeAgentSpec("demo-agent"),
+		},
+		ResourceSync: resourceSync,
+		Executor:     fakeExecutorClient{},
+		Telemetry:    fakeExecutorClient{},
+		Sessions:     fakeSessionQueryClient{},
+	})
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			results <- service.EnsureRunnable(context.Background(), "demo-agent")
+		}()
+	}
+
+	close(start)
+	<-resourceSync.syncStarted
+	time.Sleep(20 * time.Millisecond)
+	close(resourceSync.syncRelease)
+	wg.Wait()
+	close(results)
+
+	for err := range results {
+		if err != nil {
+			t.Fatalf("ensure runnable: %v", err)
+		}
+	}
+
+	if got := resourceSync.syncCalls.Load(); got != 1 {
+		t.Fatalf("expected one sync call, got %d", got)
+	}
+	if got := resourceSync.assembleCalls.Load(); got != 1 {
+		t.Fatalf("expected one assemble call, got %d", got)
+	}
+}
+
+func TestEnsureRunnableReusesPackagedSpecWhenRevisionIsUnchanged(t *testing.T) {
+	callLog := []string{}
+	reg := &stubRegistry{
+		models: map[string]domain.ModelConfig{
+			"default-openai": {
+				Name:      "default-openai",
+				UpdatedAt: time.Date(2026, 4, 8, 10, 0, 0, 0, time.UTC),
+			},
+		},
+		agents: map[string]domain.AuthoredAgentSpec{
+			"demo-agent": {
+				Name:      "demo-agent",
+				ModelRef:  "default-openai",
+				UpdatedAt: time.Date(2026, 4, 8, 10, 0, 1, 0, time.UTC),
+			},
+		},
+	}
+	resourceSync := &fakeResourceSyncClient{
+		syncResp:     runtimeclient.SyncResponse{OK: true},
+		assembleResp: runtimeclient.AssembleResponse{OK: true, Status: "compiled"},
+		callLog:      &callLog,
+	}
+
+	service, err := NewService(Dependencies{
+		Resolver: &fakeResolver{
+			result:  testResolvedAgentInput("demo-agent"),
+			callLog: &callLog,
+		},
+		Packager: &fakePackager{
+			result:  testRuntimeAgentSpec("demo-agent"),
+			callLog: &callLog,
+		},
+		Registry:     reg,
+		ResourceSync: resourceSync,
+		Executor:     fakeExecutorClient{},
+		Telemetry:    fakeExecutorClient{},
+		Sessions:     fakeSessionQueryClient{},
+	})
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	if err := service.EnsureRunnable(context.Background(), "demo-agent"); err != nil {
+		t.Fatalf("first ensure runnable: %v", err)
+	}
+	if err := service.EnsureRunnable(context.Background(), "demo-agent"); err != nil {
+		t.Fatalf("second ensure runnable: %v", err)
+	}
+
+	wantOrder := []string{"resolve", "package", "sync", "assemble", "sync", "assemble"}
+	if len(callLog) != len(wantOrder) {
+		t.Fatalf("unexpected call count: %#v", callLog)
+	}
+	for index, want := range wantOrder {
+		if callLog[index] != want {
+			t.Fatalf("unexpected call order: %#v", callLog)
+		}
+	}
+}
+
+func TestEnsureRunnableRepackagesWhenRevisionChanges(t *testing.T) {
+	callLog := []string{}
+	reg := &stubRegistry{
+		models: map[string]domain.ModelConfig{
+			"default-openai": {
+				Name:      "default-openai",
+				UpdatedAt: time.Date(2026, 4, 8, 10, 0, 0, 0, time.UTC),
+			},
+		},
+		agents: map[string]domain.AuthoredAgentSpec{
+			"demo-agent": {
+				Name:      "demo-agent",
+				ModelRef:  "default-openai",
+				UpdatedAt: time.Date(2026, 4, 8, 10, 0, 1, 0, time.UTC),
+			},
+		},
+	}
+	resourceSync := &fakeResourceSyncClient{
+		syncResp:     runtimeclient.SyncResponse{OK: true},
+		assembleResp: runtimeclient.AssembleResponse{OK: true, Status: "compiled"},
+		callLog:      &callLog,
+	}
+
+	service, err := NewService(Dependencies{
+		Resolver: &fakeResolver{
+			result:  testResolvedAgentInput("demo-agent"),
+			callLog: &callLog,
+		},
+		Packager: &fakePackager{
+			result:  testRuntimeAgentSpec("demo-agent"),
+			callLog: &callLog,
+		},
+		Registry:     reg,
+		ResourceSync: resourceSync,
+		Executor:     fakeExecutorClient{},
+		Telemetry:    fakeExecutorClient{},
+		Sessions:     fakeSessionQueryClient{},
+	})
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	if err := service.EnsureRunnable(context.Background(), "demo-agent"); err != nil {
+		t.Fatalf("first ensure runnable: %v", err)
+	}
+	reg.models["default-openai"] = domain.ModelConfig{
+		Name:      "default-openai",
+		UpdatedAt: time.Date(2026, 4, 8, 10, 0, 2, 0, time.UTC),
+	}
+	if err := service.EnsureRunnable(context.Background(), "demo-agent"); err != nil {
+		t.Fatalf("second ensure runnable after model update: %v", err)
+	}
+
+	wantOrder := []string{"resolve", "package", "sync", "assemble", "resolve", "package", "sync", "assemble"}
+	if len(callLog) != len(wantOrder) {
+		t.Fatalf("unexpected call count: %#v", callLog)
+	}
+	for index, want := range wantOrder {
+		if callLog[index] != want {
+			t.Fatalf("unexpected call order: %#v", callLog)
+		}
+	}
+}
+
 func TestRunAgentEnsuresRunnableBeforeOpeningStream(t *testing.T) {
 	callLog := []string{}
 	resolver := &fakeResolver{
@@ -1026,7 +1230,7 @@ func TestUploadWorkspaceFilesEnsuresRunnableBeforeDelegating(t *testing.T) {
 	}
 }
 
-func TestDownloadWorkspaceFilesEnsuresRunnableBeforeDelegating(t *testing.T) {
+func TestDownloadWorkspaceFileEnsuresRunnableBeforeDelegating(t *testing.T) {
 	callLog := []string{}
 	resolver := &fakeResolver{
 		result:  testResolvedAgentInput("demo-agent"),
@@ -1039,13 +1243,7 @@ func TestDownloadWorkspaceFilesEnsuresRunnableBeforeDelegating(t *testing.T) {
 	resourceSync := &fakeResourceSyncClient{
 		syncResp:     runtimeclient.SyncResponse{OK: true},
 		assembleResp: runtimeclient.AssembleResponse{OK: true, Status: "compiled"},
-		downloadResp: domain.WorkspaceDownloadResponse{
-			ThreadID: "thread-1",
-			Files: []domain.WorkspaceDownloadResult{
-				{Path: "report.txt", Content: []byte("hello")},
-			},
-		},
-		callLog: &callLog,
+		callLog:      &callLog,
 	}
 
 	service, err := NewService(Dependencies{
@@ -1060,22 +1258,27 @@ func TestDownloadWorkspaceFilesEnsuresRunnableBeforeDelegating(t *testing.T) {
 		t.Fatalf("new service: %v", err)
 	}
 
-	resp, err := service.DownloadWorkspaceFiles(
+	var buffer bytes.Buffer
+	err = service.DownloadWorkspaceFile(
 		context.Background(),
-		domain.WorkspaceDownloadRequest{
+		domain.WorkspaceFileDownloadRequest{
 			AgentName: " demo-agent ",
 			ThreadID:  "thread-1",
-			Paths:     []string{"report.txt"},
+			Path:      "report.txt",
 		},
+		&buffer,
 	)
 	if err != nil {
-		t.Fatalf("DownloadWorkspaceFiles: %v", err)
+		t.Fatalf("DownloadWorkspaceFile: %v", err)
 	}
-	if resp.ThreadID != "thread-1" || len(resp.Files) != 1 {
-		t.Fatalf("unexpected download response: %#v", resp)
+	if got := buffer.String(); got != "" {
+		t.Fatalf("unexpected download content: %q", got)
 	}
 	if resourceSync.downloadReq.AgentName != "demo-agent" || resourceSync.downloadReq.ThreadID != "thread-1" {
 		t.Fatalf("unexpected download request: %#v", resourceSync.downloadReq)
+	}
+	if resourceSync.downloadReq.Path != "report.txt" {
+		t.Fatalf("unexpected download path: %#v", resourceSync.downloadReq)
 	}
 
 	wantOrder := []string{"resolve", "package", "sync", "assemble"}

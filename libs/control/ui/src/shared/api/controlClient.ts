@@ -33,7 +33,6 @@ import type {
   TelemetryEventsListDTO,
   TelemetryRunsListDTO,
   TelemetryStepsListDTO,
-  WorkspaceDownloadResponseDTO,
   WorkspaceListResponseDTO,
   WorkspaceUploadResponseDTO,
 } from '@/shared/types/api';
@@ -188,8 +187,8 @@ export const controlClient = {
         form,
       );
     },
-    downloadWorkspaceFiles(agentName: string, threadId: string, paths: string[]) {
-      return httpClient.post<{ thread_id: string; paths: string[] }, WorkspaceDownloadResponseDTO>(
+    downloadWorkspaceFilesBlob(agentName: string, threadId: string, paths: string[]) {
+      return httpClient.postBlob<{ thread_id: string; paths: string[] }>(
         `/api/v1/agents/${encodeURIComponent(agentName)}/workspace/files/download`,
         { thread_id: threadId, paths },
       );

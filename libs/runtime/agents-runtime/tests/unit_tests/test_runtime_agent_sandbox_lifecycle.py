@@ -19,7 +19,7 @@ from deepagents.middleware.summarization import SummarizationMiddleware
 from agents_runtime.agent import RuntimeAgent
 from agents_runtime.runtime_backend import ThreadRuntimeBackend
 from agents_runtime.runtime_filesystem import RuntimeFilesystemMiddleware
-from agents_runtime.spec import AgentSpec, RuntimeEventType, SandboxRuntime
+from agents_runtime.spec import AgentSpec, AgentStatus, RuntimeEventType, SandboxRuntime
 
 
 class FakeRegistry:
@@ -213,6 +213,53 @@ class FakeInterruptGraph:
                 {"langgraph_node": "model"},
             ),
         }
+
+
+class BlockingRunGraph:
+    """Compiled graph stub that keeps runs open long enough to observe concurrency."""
+
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+        self.concurrent_started = asyncio.Event()
+        self.release = asyncio.Event()
+        self.started_threads: list[str] = []
+        self.max_active = 0
+        self._active = 0
+        self._lock = asyncio.Lock()
+
+    async def astream(
+            self,
+            stream_input: Any,
+            *,
+            config: dict[str, Any],
+            context: Any = None,
+            stream_mode: list[str],
+            subgraphs: bool,
+            version: str,
+    ):
+        del stream_input, context, stream_mode, subgraphs, version
+        thread_id = str(config["configurable"]["thread_id"])
+        async with self._lock:
+            self.started_threads.append(thread_id)
+            self._active += 1
+            self.max_active = max(self.max_active, self._active)
+            self.started.set()
+            if self._active >= 2:
+                self.concurrent_started.set()
+
+        try:
+            yield {
+                "type": "messages",
+                "ns": (),
+                "data": (
+                    AIMessageChunk(content=f"hello {thread_id}"),
+                    {"langgraph_node": "model"},
+                ),
+            }
+            await self.release.wait()
+        finally:
+            async with self._lock:
+                self._active -= 1
 
 
 def _make_base_dir() -> Path:
@@ -605,7 +652,124 @@ def test_astream_preserves_runtime_context() -> None:
         assert graph.messages == ["hello sandbox"]
         assert graph.versions == ["v2"]
         assert graph.contexts[0] == {"request_id": "req-1"}
-        assert agent._runtime_status == "assembled"
+        assert agent.status() == AgentStatus.COMPILED
+        assert agent.has_active_runs() is False
+    finally:
+        shutil.rmtree(base_dir, ignore_errors=True)
+
+
+def test_astream_allows_concurrent_runs_on_different_threads() -> None:
+    """astream should allow different thread IDs to execute concurrently."""
+
+    base_dir = _make_base_dir()
+    agent = _build_agent(base_dir, sandbox={"resources": {"backend": "local"}})
+    graph = BlockingRunGraph()
+    agent._graph = graph
+    agent._sandbox_runtime = SandboxRuntime(
+        spec={"resources": {"backend": "local"}},
+        backend=object(),
+    )
+
+    try:
+        async def collect(thread_id: str) -> list[Any]:
+            return [
+                event
+                async for event in agent.astream(
+                    message=f"hello {thread_id}",
+                    config={"configurable": {"thread_id": thread_id, "run_id": f"run-{thread_id}"}},
+                )
+            ]
+
+        async def scenario() -> tuple[list[Any], list[Any], int, list[str], AgentStatus]:
+            first_task = asyncio.create_task(collect("thread-1"))
+            await asyncio.wait_for(graph.started.wait(), timeout=1)
+
+            second_task = asyncio.create_task(collect("thread-2"))
+            await asyncio.wait_for(graph.concurrent_started.wait(), timeout=1)
+
+            graph.release.set()
+            first_events, second_events = await asyncio.gather(first_task, second_task)
+            return (
+                first_events,
+                second_events,
+                graph.max_active,
+                list(graph.started_threads),
+                agent.status(),
+            )
+
+        first_events, second_events, max_active, started_threads, status = asyncio.run(scenario())
+
+        assert max_active == 2
+        assert started_threads == ["thread-1", "thread-2"]
+        assert [event.type for event in first_events] == [
+            RuntimeEventType.RUN_START,
+            RuntimeEventType.TEXT_DELTA,
+            RuntimeEventType.TEXT_DONE,
+            RuntimeEventType.RUN_END,
+        ]
+        assert [event.type for event in second_events] == [
+            RuntimeEventType.RUN_START,
+            RuntimeEventType.TEXT_DELTA,
+            RuntimeEventType.TEXT_DONE,
+            RuntimeEventType.RUN_END,
+        ]
+        assert first_events[0].data == {"thread_id": "thread-1"}
+        assert second_events[0].data == {"thread_id": "thread-2"}
+        assert status == AgentStatus.COMPILED
+    finally:
+        shutil.rmtree(base_dir, ignore_errors=True)
+
+
+def test_astream_rejects_concurrent_runs_on_the_same_thread() -> None:
+    """astream should reject a second active run targeting the same thread ID."""
+
+    base_dir = _make_base_dir()
+    agent = _build_agent(base_dir, sandbox={"resources": {"backend": "local"}})
+    graph = BlockingRunGraph()
+    agent._graph = graph
+    agent._sandbox_runtime = SandboxRuntime(
+        spec={"resources": {"backend": "local"}},
+        backend=object(),
+    )
+
+    try:
+        async def collect(thread_id: str) -> list[Any]:
+            return [
+                event
+                async for event in agent.astream(
+                    message=f"hello {thread_id}",
+                    config={"configurable": {"thread_id": thread_id, "run_id": f"run-{thread_id}"}},
+                )
+            ]
+
+        async def scenario() -> tuple[list[Any], str, AgentStatus]:
+            first_task = asyncio.create_task(collect("thread-1"))
+            await asyncio.wait_for(graph.started.wait(), timeout=1)
+
+            error_message = ""
+            try:
+                async for _event in agent.astream(
+                    message="hello again",
+                    config={"configurable": {"thread_id": "thread-1", "run_id": "run-thread-1-b"}},
+                ):
+                    pass
+            except RuntimeError as exc:
+                error_message = str(exc)
+
+            graph.release.set()
+            first_events = await first_task
+            return first_events, error_message, agent.status()
+
+        first_events, error_message, status = asyncio.run(scenario())
+
+        assert "already running" in error_message
+        assert [event.type for event in first_events] == [
+            RuntimeEventType.RUN_START,
+            RuntimeEventType.TEXT_DELTA,
+            RuntimeEventType.TEXT_DONE,
+            RuntimeEventType.RUN_END,
+        ]
+        assert status == AgentStatus.COMPILED
     finally:
         shutil.rmtree(base_dir, ignore_errors=True)
 
@@ -696,7 +860,7 @@ def test_astream_handles_hitl_with_local_interrupt_buffer() -> None:
             RuntimeEventType.RUN_END,
         ]
         assert agent._graph.calls == 2
-        assert agent._runtime_status == "assembled"
+        assert agent.status() == AgentStatus.COMPILED
     finally:
         shutil.rmtree(base_dir, ignore_errors=True)
 
