@@ -133,7 +133,7 @@ export default function ChatWorkspacePage() {
               ) : null}
             </div>
             <div className='flex items-center gap-6px'>
-              {state.selectedThreadId && (state.artifactsQuery.data?.artifacts?.length ?? 0) > 0 ? (
+              {state.selectedThreadId ? (
                 <Button
                   type='text'
                   size='mini'
