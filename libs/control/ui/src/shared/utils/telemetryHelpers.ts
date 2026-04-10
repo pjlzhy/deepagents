@@ -33,7 +33,7 @@ export type SnapshotTab = 'after' | 'before';
 export type TelemetryGroupMode = 'flat' | 'namespace' | 'stream_mode' | 'event_type';
 export type TelemetryViewMode = 'trace' | 'graph' | 'debug';
 export type TraceStatusFilter = 'all' | 'running' | 'completed' | 'failed' | 'interrupted' | 'observed';
-export type TraceDetailTab = 'io' | 'reasoning' | 'events';
+export type TraceDetailTab = 'input' | 'output' | 'attributes';
 export type GraphDetailTab = 'data' | 'metadata' | 'trace';
 export type DebugDetailTab = 'payload' | 'metadata' | 'public_event';
 export type GraphPathDirection = 'focus' | 'upstream' | 'downstream' | 'muted' | 'default';
@@ -338,4 +338,21 @@ export function snapshotRoleColor(role?: string): 'green' | 'arcoblue' | 'purple
 
 export function snapshotMessageText(message: SessionMessageDTO): string {
   return (message.content ?? message.text ?? '').trim() || '(empty)';
+}
+
+// ─── Tree view helpers ───
+
+export function traceKindIcon(kind: string): string {
+  switch (kind.toLowerCase()) {
+    case 'run': return 'R';
+    case 'node': return 'N';
+    case 'tool': return 'T';
+    case 'llm': return 'L';
+    case 'chain': return 'C';
+    default: return kind.charAt(0).toUpperCase();
+  }
+}
+
+export function hasTraceChildren(span: TraceSpanVM, allSpans: TraceSpanVM[]): boolean {
+  return allSpans.some((other) => other.parentStepId === span.id);
 }

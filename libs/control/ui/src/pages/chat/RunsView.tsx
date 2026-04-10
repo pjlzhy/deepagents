@@ -52,7 +52,7 @@ export default function RunsView(props: RunsViewProps) {
       {/* Left: Run list */}
       <div
         className='flex min-h-0 flex-col overflow-hidden'
-        style={{ width: '320px', borderRight: '1px solid var(--control-border)' }}
+        style={{ width: '240px', borderRight: '1px solid var(--control-border)' }}
       >
         <RunList
           runs={runs}

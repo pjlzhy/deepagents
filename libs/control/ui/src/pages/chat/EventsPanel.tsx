@@ -13,6 +13,7 @@ import {
 } from '@/shared/utils/telemetryHelpers';
 import SegmentedTabs from '@/shared/components/telemetry/SegmentedTabs';
 import ScrollableViewport from '@/shared/components/telemetry/ScrollableViewport';
+import CollapsibleSection from '@/shared/components/telemetry/CollapsibleSection';
 
 type EventsPanelProps = {
   events: TelemetryEventVM[];
@@ -129,7 +130,7 @@ export default function EventsPanel(props: EventsPanelProps) {
           </div>
         </div>
         <div className='min-h-0 flex-1 overflow-hidden'>
-          <ScrollableViewport viewportClassName='px-10px py-10px'>
+          <ScrollableViewport viewportClassName='py-4px'>
             {props.events.length === 0 ? (
               <div className='flex h-full items-center justify-center'>
                 <Empty description='No events found for this run' />
@@ -139,18 +140,18 @@ export default function EventsPanel(props: EventsPanelProps) {
                 <Empty description='No events match the current filters' />
               </div>
             ) : (
-              <div className='flex flex-col gap-12px'>
+              <div className='flex flex-col gap-4px'>
                 {groupedEvents.map((group) => (
-                  <div key={group.key} className='flex flex-col gap-8px'>
+                  <div key={group.key} className='flex flex-col'>
                     {groupBy !== 'flat' ? (
                       <div
-                        className='sticky top-0 z-1 flex items-center justify-between rd-10px px-10px py-8px'
-                        style={{ background: 'rgba(12,16,36,0.98)', border: '1px solid rgba(0,240,255,0.08)' }}
+                        className='sticky top-0 z-1 flex items-center justify-between px-12px py-6px'
+                        style={{ background: 'rgba(12,16,36,0.98)', borderBottom: '1px solid rgba(0,240,255,0.06)' }}
                       >
-                        <span className='text-11px font-semibold uppercase tracking-widest text-[var(--control-subtle)]'>
+                        <span className='text-10px font-semibold uppercase tracking-widest text-[var(--control-subtle)]'>
                           {group.label}
                         </span>
-                        <Tag size='small' color='arcoblue'>{group.events.length}</Tag>
+                        <span className='text-10px text-[var(--control-subtle)]'>{group.events.length}</span>
                       </div>
                     ) : null}
                     {group.events.map((event) => {
@@ -160,31 +161,40 @@ export default function EventsPanel(props: EventsPanelProps) {
                         <button
                           key={event.id}
                           type='button'
-                          className='cursor-pointer border-none rd-12px px-12px py-10px text-left transition-all duration-200'
+                          className='flex w-full cursor-pointer items-center gap-8px border-none bg-transparent px-12px text-left transition-colors duration-150'
                           style={{
-                            background: active ? `${accent}14` : 'rgba(16,22,48,0.76)',
-                            border: `1px solid ${active ? `${accent}55` : 'rgba(0,240,255,0.08)'}`,
-                            boxShadow: active ? `0 0 12px ${accent}20` : 'none',
+                            height: '32px',
+                            background: active ? `${accent}0a` : 'transparent',
+                            borderLeft: active ? `2px solid ${accent}` : '2px solid transparent',
                           }}
                           onClick={() => setSelectedEventId(event.id)}
+                          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = active ? `${accent}0a` : 'rgba(0,240,255,0.04)'; }}
+                          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = active ? `${accent}0a` : 'transparent'; }}
                         >
-                          <div className='flex items-center gap-8px'>
-                            <span
-                              className='inline-block h-8px w-8px shrink-0 rd-full'
-                              style={{ background: accent, boxShadow: `0 0 8px ${accent}` }}
-                            />
-                            <span className='text-12px font-semibold text-[var(--control-text)]'>{event.eventType}</span>
-                            <Tag size='small' color='arcoblue'>{event.streamMode}</Tag>
-                            <span className='ml-auto text-11px text-[var(--control-subtle)]'>
-                              {formatCompactDateTime(event.timestamp)}
-                            </span>
-                          </div>
-                          <div className='mt-6px text-11px uppercase tracking-wider text-[var(--control-subtle)]'>
+                          {/* Accent dot */}
+                          <span
+                            className='inline-block h-6px w-6px shrink-0 rd-full'
+                            style={{ background: accent, boxShadow: `0 0 4px ${accent}` }}
+                          />
+                          {/* Event type */}
+                          <span className='shrink-0 text-12px font-medium text-[var(--control-text)]'>
+                            {event.eventType}
+                          </span>
+                          {/* Stream mode badge */}
+                          <span
+                            className='shrink-0 rd-4px px-4px py-1px text-10px'
+                            style={{ background: `${accent}18`, color: accent }}
+                          >
+                            {event.streamMode}
+                          </span>
+                          {/* Namespace */}
+                          <span className='min-w-0 flex-1 truncate text-11px text-[var(--control-subtle)]'>
                             {namespaceLabel(event)}
-                          </div>
-                          <div className='mt-6px text-12px leading-18px text-[var(--control-subtle)]'>
-                            {summarizeEvent(event)}
-                          </div>
+                          </span>
+                          {/* Timestamp */}
+                          <span className='shrink-0 text-10px text-[var(--control-subtle)]'>
+                            {formatCompactDateTime(event.timestamp)}
+                          </span>
                         </button>
                       );
                     })}
@@ -200,9 +210,31 @@ export default function EventsPanel(props: EventsPanelProps) {
       <div className='flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden'>
         {selectedEvent ? (
           <>
+            {/* Breadcrumb-style header */}
             <div className='border-b border-solid border-[var(--control-border)] px-14px py-10px'>
               <div className='mb-6px flex items-center justify-between gap-8px'>
-                <span className='text-11px uppercase tracking-widest text-[var(--control-subtle)]'>event details</span>
+                <div className='flex min-w-0 flex-1 items-center gap-8px'>
+                  <span
+                    className='inline-block h-8px w-8px shrink-0 rd-full'
+                    style={{ background: eventAccent(selectedEvent), boxShadow: `0 0 6px ${eventAccent(selectedEvent)}` }}
+                  />
+                  <span className='truncate text-13px font-semibold text-[var(--control-text)]'>
+                    {selectedEvent.eventType}
+                  </span>
+                  <span
+                    className='shrink-0 rd-4px px-4px py-1px text-10px'
+                    style={{ background: `${eventAccent(selectedEvent)}18`, color: eventAccent(selectedEvent) }}
+                  >
+                    {selectedEvent.streamMode}
+                  </span>
+                  <span className='text-[var(--control-border)]'>|</span>
+                  <span className='truncate text-11px text-[var(--control-subtle)]'>
+                    {namespaceLabel(selectedEvent)}
+                  </span>
+                  <span className='shrink-0 text-11px text-[var(--control-subtle)]'>
+                    {formatCompactDateTime(selectedEvent.timestamp)}
+                  </span>
+                </div>
                 <SegmentedTabs
                   value={debugDetailTab}
                   tabs={[
@@ -213,37 +245,14 @@ export default function EventsPanel(props: EventsPanelProps) {
                   onChange={(value) => setDebugDetailTab(value as DebugDetailTab)}
                 />
               </div>
-              <div className='grid grid-cols-2 gap-x-10px gap-y-6px text-12px'>
-                <span className='text-[var(--control-subtle)]'>type</span>
-                <span className='truncate text-right'>{selectedEvent.eventType}</span>
-                <span className='text-[var(--control-subtle)]'>time</span>
-                <span className='truncate text-right'>{formatCompactDateTime(selectedEvent.timestamp)}</span>
-                <span className='text-[var(--control-subtle)]'>namespace</span>
-                <span className='truncate text-right'>{namespaceLabel(selectedEvent)}</span>
-              </div>
             </div>
             <div className='control-scroll control-scroll-strong min-h-0 flex-1 overflow-y-scroll overflow-x-hidden px-14px py-12px'>
               {debugDetailTab === 'payload' ? (
-                <pre
-                  className='!m-0 overflow-auto whitespace-pre-wrap break-words rd-10px p-10px text-12px'
-                  style={{ background: 'rgba(255,45,149,0.03)', border: '1px solid rgba(255,45,149,0.10)' }}
-                >
-                  {stringifyValue(selectedEvent.payload) ?? 'n/a'}
-                </pre>
+                <PayloadView label='payload' value={selectedEvent.payload} color='rgba(255,45,149' />
               ) : debugDetailTab === 'metadata' ? (
-                <pre
-                  className='!m-0 overflow-auto whitespace-pre-wrap break-words rd-10px p-10px text-12px'
-                  style={{ background: 'rgba(0,240,255,0.03)', border: '1px solid rgba(0,240,255,0.08)' }}
-                >
-                  {stringifyValue(selectedEvent.metadata) ?? 'n/a'}
-                </pre>
+                <PayloadView label='metadata' value={selectedEvent.metadata} color='rgba(0,240,255' />
               ) : (
-                <pre
-                  className='!m-0 overflow-auto whitespace-pre-wrap break-words rd-10px p-10px text-12px'
-                  style={{ background: 'rgba(57,255,20,0.03)', border: '1px solid rgba(57,255,20,0.10)' }}
-                >
-                  {stringifyValue(selectedEvent.publicEvent) ?? 'n/a'}
-                </pre>
+                <PayloadView label='public event' value={selectedEvent.publicEvent} color='rgba(57,255,20' />
               )}
             </div>
           </>
@@ -254,5 +263,26 @@ export default function EventsPanel(props: EventsPanelProps) {
         )}
       </div>
     </div>
+  );
+}
+
+/** Collapsible JSON payload view */
+function PayloadView(props: { label: string; value: unknown; color: string }) {
+  const text = stringifyValue(props.value) ?? 'n/a';
+  const isLarge = text.length > 2000;
+
+  return (
+    <CollapsibleSection label={props.label} defaultOpen>
+      <pre
+        className='!m-0 overflow-auto whitespace-pre-wrap break-words rd-10px p-10px text-12px'
+        style={{
+          background: `${props.color},0.03)`,
+          border: `1px solid ${props.color},0.10)`,
+          maxHeight: isLarge ? '400px' : undefined,
+        }}
+      >
+        {text}
+      </pre>
+    </CollapsibleSection>
   );
 }

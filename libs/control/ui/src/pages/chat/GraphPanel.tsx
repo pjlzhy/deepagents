@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Button, Empty, Spin, Tag, Typography } from '@arco-design/web-react';
+import { Button, Empty, Spin, Typography } from '@arco-design/web-react';
 import type { AgentGraphDTO } from '@/shared/types/api';
 import {
   buildGraphFocus,
@@ -21,9 +21,7 @@ import {
   graphNodeSummary,
   lineClampStyle,
   traceAccent,
-  traceDurationLabel,
   traceStatusLabel,
-  traceSummary,
   stringifyValue,
   type GraphDetailTab,
 } from '@/shared/utils/telemetryHelpers';
@@ -37,6 +35,8 @@ import {
   graphCanvasEdgePath,
 } from '@/shared/utils/graphLayout';
 import SegmentedTabs from '@/shared/components/telemetry/SegmentedTabs';
+import TraceTreeRow from '@/shared/components/telemetry/TraceTreeRow';
+import CollapsibleSection from '@/shared/components/telemetry/CollapsibleSection';
 
 type GraphPanelProps = {
   graphData?: AgentGraphDTO;
@@ -226,7 +226,12 @@ export default function GraphPanel(props: GraphPanelProps) {
                           <span className='min-w-0 flex-1 text-13px font-semibold text-[var(--control-text)]' style={lineClampStyle(1)}>
                             {node.label}
                           </span>
-                          <Tag size='small' color='arcoblue'>{traceStatusLabel(status)}</Tag>
+                          <span
+                            className='shrink-0 rd-4px px-4px py-1px text-10px'
+                            style={{ background: `${accent}18`, color: accent }}
+                          >
+                            {traceStatusLabel(status)}
+                          </span>
                         </div>
                         <div className='mt-6px text-10px uppercase tracking-widest text-[var(--control-subtle)]' style={lineClampStyle(1)}>
                           {node.graphID}
@@ -234,10 +239,20 @@ export default function GraphPanel(props: GraphPanelProps) {
                         <div className='mt-8px text-12px leading-18px text-[var(--control-subtle)]' style={lineClampStyle(2)}>
                           {graphNodeSummary(node, props.traceSpans)}
                         </div>
-                        <div className='mt-8px flex flex-wrap gap-6px'>
-                          <Tag size='small' color='purple'>{node.kind}</Tag>
-                          {graphNodeRelatedSpans(node, props.traceSpans).length > 0 ? <Tag size='small' color='green'>spans {graphNodeRelatedSpans(node, props.traceSpans).length}</Tag> : null}
-                          {node.isCluster ? <Tag size='small' color='magenta'>nodes {node.memberCount}</Tag> : null}
+                        <div className='mt-6px flex flex-wrap items-center gap-4px'>
+                          <span className='rd-4px px-4px py-1px text-10px' style={{ background: 'rgba(157,78,221,0.15)', color: '#c084fc' }}>
+                            {node.kind}
+                          </span>
+                          {graphNodeRelatedSpans(node, props.traceSpans).length > 0 ? (
+                            <span className='rd-4px px-4px py-1px text-10px' style={{ background: 'rgba(57,255,20,0.1)', color: '#39ff14' }}>
+                              {graphNodeRelatedSpans(node, props.traceSpans).length} spans
+                            </span>
+                          ) : null}
+                          {node.isCluster ? (
+                            <span className='rd-4px px-4px py-1px text-10px' style={{ background: 'rgba(255,45,149,0.1)', color: '#ff2d95' }}>
+                              {node.memberCount} nodes
+                            </span>
+                          ) : null}
                         </div>
                         {node.isCluster ? (
                           <div className='mt-8px flex justify-end'>
@@ -268,9 +283,19 @@ export default function GraphPanel(props: GraphPanelProps) {
           style={{ maxHeight: '280px' }}
         >
           <div className='flex items-center justify-between px-14px py-8px'>
-            <span className='text-11px uppercase tracking-widest text-[var(--control-subtle)]'>
-              {selectedGraphNode.label}
-            </span>
+            <div className='flex min-w-0 flex-1 items-center gap-8px'>
+              <span
+                className='inline-block h-8px w-8px shrink-0 rd-full'
+                style={{ background: traceAccent(graphNodeStatus(selectedGraphNode, props.traceSpans)), boxShadow: `0 0 6px ${traceAccent(graphNodeStatus(selectedGraphNode, props.traceSpans))}` }}
+              />
+              <span className='truncate text-12px font-semibold text-[var(--control-text)]'>
+                {selectedGraphNode.label}
+              </span>
+              <span className='text-[var(--control-border)]'>|</span>
+              <span className='text-10px text-[var(--control-subtle)]'>
+                {graphNodeScopeLabel(selectedGraphNode)}
+              </span>
+            </div>
             <SegmentedTabs
               value={graphDetailTab}
               tabs={[
@@ -283,39 +308,38 @@ export default function GraphPanel(props: GraphPanelProps) {
           </div>
           <div className='control-scroll control-scroll-strong overflow-y-scroll overflow-x-hidden px-14px pb-10px' style={{ maxHeight: '220px' }}>
             {graphDetailTab === 'data' ? (
-              <pre
-                className='!m-0 overflow-auto whitespace-pre-wrap break-words rd-10px p-10px text-12px'
-                style={{ background: 'rgba(0,240,255,0.03)', border: '1px solid rgba(0,240,255,0.08)' }}
-              >
-                {stringifyValue(selectedGraphNode.rawData) ?? 'n/a'}
-              </pre>
+              <CollapsibleSection label='Data' defaultOpen>
+                <pre
+                  className='!m-0 overflow-auto whitespace-pre-wrap break-words rd-10px p-10px text-12px'
+                  style={{ background: 'rgba(0,240,255,0.03)', border: '1px solid rgba(0,240,255,0.08)' }}
+                >
+                  {stringifyValue(selectedGraphNode.rawData) ?? 'n/a'}
+                </pre>
+              </CollapsibleSection>
             ) : graphDetailTab === 'metadata' ? (
-              <pre
-                className='!m-0 overflow-auto whitespace-pre-wrap break-words rd-10px p-10px text-12px'
-                style={{ background: 'rgba(255,45,149,0.03)', border: '1px solid rgba(255,45,149,0.10)' }}
-              >
-                {stringifyValue(selectedGraphNode.metadata) ?? 'n/a'}
-              </pre>
+              <CollapsibleSection label='Metadata' defaultOpen>
+                <pre
+                  className='!m-0 overflow-auto whitespace-pre-wrap break-words rd-10px p-10px text-12px'
+                  style={{ background: 'rgba(255,45,149,0.03)', border: '1px solid rgba(255,45,149,0.10)' }}
+                >
+                  {stringifyValue(selectedGraphNode.metadata) ?? 'n/a'}
+                </pre>
+              </CollapsibleSection>
             ) : (
-              <div className='flex flex-col gap-6px'>
+              <div className='flex flex-col'>
                 {selectedGraphRelatedSpans.length === 0 ? (
                   <Typography.Text className='text-12px text-[var(--control-subtle)]'>No related spans</Typography.Text>
                 ) : (
                   selectedGraphRelatedSpans.map((span) => (
-                    <div
+                    <TraceTreeRow
                       key={span.id}
-                      className='rd-10px px-10px py-8px'
-                      style={{ background: 'rgba(16,22,48,0.76)', border: '1px solid rgba(0,240,255,0.08)' }}
-                    >
-                      <div className='flex items-center gap-8px'>
-                        <Tag size='small' color='arcoblue'>{traceStatusLabel(span.status)}</Tag>
-                        <span className='text-12px text-[var(--control-text)]'>{span.nodeName}</span>
-                        <span className='ml-auto text-11px text-[var(--control-subtle)]'>{traceDurationLabel(span)}</span>
-                      </div>
-                      <div className='mt-6px text-12px leading-18px text-[var(--control-subtle)]'>
-                        {traceSummary(span)}
-                      </div>
-                    </div>
+                      span={span}
+                      active={false}
+                      expandable={false}
+                      expanded={false}
+                      onSelect={() => {}}
+                      indentLevel={0}
+                    />
                   ))
                 )}
               </div>

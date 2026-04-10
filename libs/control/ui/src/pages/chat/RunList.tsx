@@ -1,10 +1,9 @@
-import { Button, Empty, Spin, Tag, Typography } from '@arco-design/web-react';
+import { Empty, Spin } from '@arco-design/web-react';
 import {
   CYAN,
   formatCompactDateTime,
   telemetryStatusFromRun,
   formatTelemetryStatus,
-  truncate,
 } from '@/shared/utils/telemetryHelpers';
 import type { HTTPTelemetryRunDTO } from '@/shared/types/api';
 
@@ -27,54 +26,55 @@ function runDurationLabel(run: HTTPTelemetryRunDTO): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+function compactCounts(run: HTTPTelemetryRunDTO): string {
+  const parts: string[] = [];
+  if (run.node_step_count) parts.push(`${run.node_step_count}N`);
+  if (run.model_step_count) parts.push(`${run.model_step_count}M`);
+  if (run.tool_step_count) parts.push(`${run.tool_step_count}T`);
+  if (run.hitl_wait_count) parts.push(`${run.hitl_wait_count}H`);
+  return parts.join(' · ');
+}
+
 export default function RunList(props: RunListProps) {
   return (
     <div className='flex h-full min-h-0 flex-col overflow-hidden'>
-      <div className='flex items-center justify-between border-b border-solid border-[var(--control-border)] px-14px py-10px'>
+      <div className='flex items-center justify-between border-b border-solid border-[var(--control-border)] px-12px py-8px'>
         <span className='text-11px uppercase tracking-widest text-[var(--control-subtle)]'>run history</span>
-        <Typography.Text className='text-12px text-[var(--control-subtle)]'>
-          {props.runs.length} runs
-        </Typography.Text>
+        <span className='text-11px text-[var(--control-subtle)]'>{props.runs.length} runs</span>
       </div>
 
-      <div className='control-scroll control-scroll-strong min-h-0 flex-1 overflow-y-scroll overflow-x-hidden px-10px py-10px'>
+      <div className='control-scroll control-scroll-strong min-h-0 flex-1 overflow-y-scroll overflow-x-hidden py-4px'>
         {props.loading ? (
           <div className='flex h-full items-center justify-center'>
             <Spin />
           </div>
         ) : props.runs.length === 0 && !props.liveRunId ? (
           <div className='flex h-full items-center justify-center'>
-            <Empty description='No runs found for this conversation' />
+            <Empty description='No runs found' />
           </div>
         ) : (
-          <div className='flex flex-col gap-8px'>
-            {/* Live run indicator */}
+          <div className='flex flex-col'>
+            {/* Live run */}
             {props.liveRunId ? (
               <button
                 type='button'
-                className='cursor-pointer border-none rd-12px px-12px py-10px text-left transition-all duration-200'
+                className='flex w-full cursor-pointer items-center gap-6px border-none bg-transparent px-10px py-6px text-left transition-colors duration-150'
                 style={{
-                  background: props.selectedRunId === props.liveRunId ? `${CYAN}14` : 'rgba(16,22,48,0.76)',
-                  border: `1px solid ${props.selectedRunId === props.liveRunId ? `${CYAN}55` : 'rgba(0,240,255,0.08)'}`,
-                  boxShadow: props.selectedRunId === props.liveRunId ? `0 0 12px ${CYAN}20` : 'none',
+                  background: props.selectedRunId === props.liveRunId ? `${CYAN}0a` : 'transparent',
+                  borderLeft: props.selectedRunId === props.liveRunId ? `2px solid ${CYAN}` : '2px solid transparent',
                 }}
                 onClick={() => props.onSelectRun(props.liveRunId!)}
+                onMouseEnter={(e) => { if (props.selectedRunId !== props.liveRunId) (e.currentTarget as HTMLElement).style.background = 'rgba(0,240,255,0.04)'; }}
+                onMouseLeave={(e) => { if (props.selectedRunId !== props.liveRunId) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
               >
-                <div className='flex items-center gap-8px'>
-                  <span
-                    className='inline-block h-8px w-8px shrink-0 rd-full'
-                    style={{
-                      background: CYAN,
-                      boxShadow: `0 0 8px ${CYAN}`,
-                      animation: 'pulse 2s ease-in-out infinite',
-                    }}
-                  />
-                  <span className='text-12px font-semibold text-[var(--control-text)]'>Live Run</span>
-                  <Tag size='small' color='arcoblue'>streaming</Tag>
-                </div>
-                <div className='mt-6px text-12px text-[var(--control-subtle)]'>
-                  {truncate(props.liveRunId, 40)}
-                </div>
+                <span
+                  className='inline-block h-7px w-7px shrink-0 rd-full'
+                  style={{ background: CYAN, boxShadow: `0 0 6px ${CYAN}`, animation: 'pulse 2s ease-in-out infinite' }}
+                />
+                <span className='text-12px font-medium text-[var(--control-text)]'>Live Run</span>
+                <span className='rd-4px px-4px py-1px text-10px' style={{ background: `${CYAN}18`, color: CYAN }}>
+                  streaming
+                </span>
               </button>
             ) : null}
 
@@ -86,56 +86,57 @@ export default function RunList(props: RunListProps) {
               const telemetryStatus = telemetryStatusFromRun(run.status);
               const statusView = formatTelemetryStatus(telemetryStatus);
               const label = `Run ${formatCompactDateTime(run.started_at)}`;
+              const counts = compactCounts(run);
 
               return (
                 <button
                   key={runId}
                   type='button'
-                  className='group cursor-pointer border-none rd-12px px-12px py-10px text-left transition-all duration-200'
+                  className='group flex w-full cursor-pointer flex-col border-none bg-transparent px-10px py-5px text-left transition-colors duration-150'
                   style={{
-                    background: active ? `${statusView.color}14` : 'rgba(16,22,48,0.76)',
-                    border: `1px solid ${active ? `${statusView.color}55` : 'rgba(0,240,255,0.08)'}`,
-                    boxShadow: active ? `0 0 12px ${statusView.color}20` : 'none',
+                    background: active ? `${statusView.color}0a` : 'transparent',
+                    borderLeft: active ? `2px solid ${statusView.color}` : '2px solid transparent',
                   }}
                   onClick={() => props.onSelectRun(runId)}
+                  onMouseEnter={(e) => { if (!active) (e.currentTarget as HTMLElement).style.background = 'rgba(0,240,255,0.04)'; }}
+                  onMouseLeave={(e) => { if (!active) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
                 >
-                  <div className='flex items-center gap-8px'>
+                  {/* Line 1: dot + time + status badge + duration */}
+                  <div className='flex items-center gap-6px'>
                     <span
-                      className='inline-block h-8px w-8px shrink-0 rd-full'
+                      className='inline-block h-7px w-7px shrink-0 rd-full'
                       style={{ background: statusView.color }}
                     />
-                    <span className='text-12px font-semibold text-[var(--control-text)]'>
+                    <span className='text-12px font-medium text-[var(--control-text)]'>
                       {formatCompactDateTime(run.started_at)}
                     </span>
-                    <Tag size='small' color='arcoblue'>{statusView.text}</Tag>
-                    <span className='ml-auto text-11px text-[var(--control-subtle)]'>
+                    <span
+                      className='shrink-0 rd-4px px-4px py-1px text-10px'
+                      style={{ background: `${statusView.color}18`, color: statusView.color }}
+                    >
+                      {statusView.text}
+                    </span>
+                    <span className='ml-auto shrink-0 text-11px text-[var(--control-subtle)]'>
                       {runDurationLabel(run)}
                     </span>
                   </div>
-                  {run.reasoning_summary ? (
-                    <div className='mt-6px text-12px leading-18px text-[var(--control-subtle)]'>
-                      {truncate(run.reasoning_summary, 120)}
-                    </div>
-                  ) : null}
-                  <div className='mt-8px flex flex-wrap gap-6px'>
-                    {run.node_step_count ? <Tag size='small' color='purple'>nodes {run.node_step_count}</Tag> : null}
-                    {run.model_step_count ? <Tag size='small' color='arcoblue'>model {run.model_step_count}</Tag> : null}
-                    {run.tool_step_count ? <Tag size='small' color='orange'>tools {run.tool_step_count}</Tag> : null}
-                  </div>
-                  {/* Snapshot button - visible on hover or when selected */}
-                  {props.onViewSnapshot ? (
-                    <div className={`mt-8px flex justify-end transition-opacity duration-200 ${active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
-                      <Button
-                        size='mini'
-                        type='text'
-                        className='control-quiet-icon-button'
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          props.onViewSnapshot!(runId, label);
-                        }}
-                      >
-                        View Snapshot
-                      </Button>
+                  {/* Line 2: compact counts + snapshot link */}
+                  {(counts || (active && props.onViewSnapshot)) ? (
+                    <div className='mt-2px flex items-center gap-6px pl-13px'>
+                      {counts ? (
+                        <span className='text-10px text-[var(--control-subtle)]'>{counts}</span>
+                      ) : null}
+                      {active && props.onViewSnapshot ? (
+                        <span
+                          role='button'
+                          tabIndex={0}
+                          className='ml-auto cursor-pointer text-10px text-[var(--control-accent)] opacity-80 hover:opacity-100'
+                          onClick={(e) => { e.stopPropagation(); props.onViewSnapshot!(runId, label); }}
+                          onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); props.onViewSnapshot!(runId, label); } }}
+                        >
+                          Snapshot
+                        </span>
+                      ) : null}
                     </div>
                   ) : null}
                 </button>
