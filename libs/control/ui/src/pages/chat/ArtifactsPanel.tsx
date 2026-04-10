@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import useSWR from 'swr';
 import { DownloadOne, Close, Code, FileText, FolderOne } from '@icon-park/react';
 import { Button, Message, Spin, Typography } from '@arco-design/web-react';
@@ -60,6 +60,26 @@ function formatSize(bytes?: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function normalizeWorkspacePath(path?: string): string {
+  const candidate = (path ?? '.').trim().replace(/\\/g, '/');
+  if (!candidate || candidate === '.') return '.';
+  const normalized = candidate.replace(/^\.\/+/, '').replace(/\/+$/, '');
+  return normalized || '.';
+}
+
+function parentWorkspacePath(path: string): string {
+  const normalized = normalizeWorkspacePath(path);
+  if (normalized === '.') return '.';
+  const parts = normalized.split('/');
+  parts.pop();
+  return parts.join('/') || '.';
+}
+
+function formatWorkspacePath(path: string): string {
+  const normalized = normalizeWorkspacePath(path);
+  return normalized === '.' ? '/' : `/${normalized}`;
+}
+
 async function downloadFile(agentName: string, threadId: string, path: string, filename: string): Promise<void> {
   const blob = await controlClient.agents.downloadWorkspaceFilesBlob(agentName, threadId, [path]);
   const url = URL.createObjectURL(blob);
@@ -88,10 +108,15 @@ export default function ArtifactsPanel(props: ArtifactsPanelProps) {
   const { agentName, threadId, artifacts, loading, onClose } = props;
   const [activeTab, setActiveTab] = useState<ActiveTab>('artifacts');
   const [downloadingPath, setDownloadingPath] = useState<string | null>(null);
+  const [workspacePath, setWorkspacePath] = useState('.');
+
+  useEffect(() => {
+    setWorkspacePath('.');
+  }, [agentName, threadId]);
 
   const workspaceQuery = useSWR(
-    activeTab === 'workspace' ? ['workspace-files', agentName, threadId] : null,
-    () => controlClient.agents.listWorkspaceFiles(agentName, threadId),
+    activeTab === 'workspace' ? ['workspace-files', agentName, threadId, workspacePath] : null,
+    () => controlClient.agents.listWorkspaceFiles(agentName, threadId, workspacePath),
   );
 
   async function handleDownload(path: string, filename: string): Promise<void> {
@@ -167,10 +192,12 @@ export default function ArtifactsPanel(props: ArtifactsPanelProps) {
           />
         ) : (
           <WorkspaceFilesList
+            currentPath={workspacePath}
             files={workspaceQuery.data?.files ?? []}
             loading={workspaceQuery.isLoading}
             downloadingPath={downloadingPath}
             onDownload={handleDownload}
+            onNavigate={(path) => setWorkspacePath(normalizeWorkspacePath(path))}
           />
         )}
       </div>
@@ -282,30 +309,21 @@ function ArtifactsList(props: {
 // ---------------------------------------------------------------------------
 
 function WorkspaceFilesList(props: {
+  currentPath: string;
   files: WorkspaceFileInfoDTO[];
   loading?: boolean;
   downloadingPath: string | null;
   onDownload: (path: string, filename: string) => void;
+  onNavigate: (path: string) => void;
 }) {
-  const { files, loading, downloadingPath, onDownload } = props;
-
-  if (loading) {
-    return (
-      <div className='flex h-80px items-center justify-center'>
-        <Spin size={20} />
-      </div>
-    );
-  }
-
-  if (files.length === 0) {
-    return (
-      <div className='flex flex-col items-center justify-center py-24px'>
-        <Typography.Text className='text-12px text-[var(--control-subtle)]'>
-          Workspace is empty
-        </Typography.Text>
-      </div>
-    );
-  }
+  const {
+    currentPath,
+    files,
+    loading,
+    downloadingPath,
+    onDownload,
+    onNavigate,
+  } = props;
 
   const sorted = [...files].sort((a, b) => {
     if (a.is_dir && !b.is_dir) return -1;
@@ -314,8 +332,56 @@ function WorkspaceFilesList(props: {
   });
 
   return (
-    <div className='flex flex-col gap-4px'>
-      {sorted.map((file) => {
+    <div className='flex flex-col gap-8px'>
+      <div
+        className='rd-8px px-10px py-8px'
+        style={{
+          background: 'rgba(16,22,48,0.44)',
+          border: '1px solid rgba(0,240,255,0.06)',
+        }}
+      >
+        <div className='mb-4px flex items-center gap-8px'>
+          <Button
+            type='text'
+            size='mini'
+            className='text-11px'
+            style={{ padding: 0 }}
+            disabled={normalizeWorkspacePath(currentPath) === '.'}
+            onClick={() => onNavigate('.')}
+          >
+            root
+          </Button>
+          <Button
+            type='text'
+            size='mini'
+            className='text-11px'
+            style={{ padding: 0 }}
+            disabled={normalizeWorkspacePath(currentPath) === '.'}
+            onClick={() => onNavigate(parentWorkspacePath(currentPath))}
+          >
+            up
+          </Button>
+        </div>
+        <div className='truncate text-11px font-mono text-[var(--control-subtle)]'>
+          {formatWorkspacePath(currentPath)}
+        </div>
+      </div>
+
+      {loading ? (
+        <div className='flex h-80px items-center justify-center'>
+          <Spin size={20} />
+        </div>
+      ) : null}
+
+      {!loading && sorted.length === 0 ? (
+        <div className='flex flex-col items-center justify-center py-24px'>
+          <Typography.Text className='text-12px text-[var(--control-subtle)]'>
+            Workspace is empty
+          </Typography.Text>
+        </div>
+      ) : null}
+
+      {!loading ? sorted.map((file) => {
         const path = file.path ?? '';
         const name = path.replace(/\/$/, '').split('/').pop() ?? path;
         const isDir = file.is_dir ?? false;
@@ -329,7 +395,9 @@ function WorkspaceFilesList(props: {
             style={{
               background: 'rgba(16,22,48,0.50)',
               border: '1px solid rgba(0,240,255,0.05)',
+              cursor: isDir ? 'pointer' : 'default',
             }}
+            onClick={isDir ? () => onNavigate(path) : undefined}
           >
             {isDir ? (
               <FolderOne theme='outline' size='14' fill={ic} />
@@ -339,6 +407,14 @@ function WorkspaceFilesList(props: {
             <span className='min-w-0 flex-1 truncate text-12px font-mono' style={{ color: 'var(--control-text)' }}>
               {name}
             </span>
+            {isDir ? (
+              <span
+                className='shrink-0 text-10px uppercase text-[var(--control-subtle)]'
+                style={{ letterSpacing: '0.06em' }}
+              >
+                open
+              </span>
+            ) : null}
             {!isDir && file.size !== undefined ? (
               <span className='shrink-0 text-10px text-[var(--control-subtle)]'>{formatSize(file.size)}</span>
             ) : null}
@@ -354,7 +430,7 @@ function WorkspaceFilesList(props: {
             ) : null}
           </div>
         );
-      })}
+      }) : null}
     </div>
   );
 }

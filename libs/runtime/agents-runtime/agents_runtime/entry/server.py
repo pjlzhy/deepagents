@@ -1069,10 +1069,6 @@ class SessionQueryServicer(runtime_pb2_grpc.SessionQueryServicer):
             await context.abort(grpc.StatusCode.INTERNAL, str(exc))
             return pb2.ListThreadArtifactsResponse()
 
-        if artifacts is None:
-            await context.abort(grpc.StatusCode.NOT_FOUND, f"thread '{thread_id}' not found")
-            return pb2.ListThreadArtifactsResponse()
-
         return pb2.ListThreadArtifactsResponse(
             thread_id=thread_id,
             artifacts=[

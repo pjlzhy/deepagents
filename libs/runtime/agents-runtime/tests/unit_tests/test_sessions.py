@@ -19,6 +19,7 @@ from agents_runtime.sessions import (
     get_session,
     get_session_messages,
     get_thread_agent,
+    get_thread_artifacts,
     list_threads,
     thread_exists,
 )
@@ -281,6 +282,22 @@ def test_get_session_and_messages_use_latest_checkpoint_view() -> None:
         "second reply",
     ]
     assert second_page.next_page_token == ""
+
+
+def test_get_thread_artifacts_returns_empty_without_checkpoints_table() -> None:
+    """Artifact lookup should be empty before checkpoint storage is initialized."""
+
+    async def scenario() -> list[dict[str, str]]:
+        conn = await aiosqlite.connect(":memory:")
+        try:
+            with patch.object(runtime_sessions, "_connect", _patched_connect(conn)):
+                return await get_thread_artifacts("thread-a", agent_name="alpha")
+        finally:
+            await conn.close()
+
+    artifacts = asyncio.run(scenario())
+
+    assert artifacts == []
 
 
 def test_session_queries_filter_by_agent_before_thread() -> None:

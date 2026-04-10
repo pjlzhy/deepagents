@@ -781,22 +781,24 @@ async def get_thread_artifacts(
     *,
     agent_name: str | None = None,
     db_path: Path | None = None,
-) -> list[dict[str, str]] | None:
+) -> list[dict[str, str]]:
     """Read artifact entries from the latest checkpoint for one thread.
 
-    Returns a list of artifact dicts (each with an ``id`` key) or ``None``
-    if the thread/checkpoint cannot be found.
+    Returns a list of artifact dicts (each with an ``id`` key). When no
+    checkpoint storage exists yet, or no checkpoint has been persisted for the
+    requested thread, an empty list is returned.
     """
-    # resolved_db_path = db_path or default_db_path()
-
     async with _connect(db_path) as conn:
+        if not await _table_exists(conn, "checkpoints"):
+            return []
+
         row = await _load_checkpoint_row(
             conn,
             thread_id=thread_id,
             agent_name=agent_name,
         )
         if row is None:
-            return None
+            return []
 
         _, type_str, blob, _ = row
         serde = await _get_jsonplus_serializer()

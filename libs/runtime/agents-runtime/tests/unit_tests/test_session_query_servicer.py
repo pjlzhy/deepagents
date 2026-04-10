@@ -284,3 +284,27 @@ def test_delete_session_and_get_latest_session_follow_runtime_state() -> None:
     assert latest_before.session.agent_status == pb2.AGENT_RUNTIME_STATUS_RUNNING
     assert delete_response.deleted is True
     assert latest_after.found is False
+
+
+def test_list_thread_artifacts_returns_empty_when_no_checkpoints_exist() -> None:
+    """ListThreadArtifacts should return an empty payload before first checkpoint."""
+
+    async def scenario() -> pb2.ListThreadArtifactsResponse:
+        conn = await aiosqlite.connect(":memory:")
+        try:
+            servicer = SessionQueryServicer(_FakeManager([]))
+            with patch.object(runtime_sessions, "_connect", _patched_connect(conn)):
+                return await servicer.ListThreadArtifacts(
+                    pb2.ListThreadArtifactsRequest(
+                        thread_id="thread-a",
+                        agent_name="alpha",
+                    ),
+                    None,
+                )
+        finally:
+            await conn.close()
+
+    response = asyncio.run(scenario())
+
+    assert response.thread_id == "thread-a"
+    assert list(response.artifacts) == []
