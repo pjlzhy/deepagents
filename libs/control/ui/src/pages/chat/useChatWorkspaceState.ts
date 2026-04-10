@@ -79,7 +79,6 @@ export function useChatWorkspaceState() {
   const [uploadingFiles, setUploadingFiles] = useState(false);
   const [uploadedWorkspaceFiles, setUploadedWorkspaceFiles] = useState<string[]>([]);
   const [runtimeState, setRuntimeState] = useState(() => createRuntimeStateFromHistory([]));
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [artifactsPanelOpen, setArtifactsPanelOpen] = useState(false);
 
   // New state for Runs integration
@@ -357,8 +356,6 @@ export function useChatWorkspaceState() {
     uploadingFiles,
     uploadedWorkspaceFiles,
     runtimeState,
-    sidebarCollapsed,
-    setSidebarCollapsed,
     artifactsPanelOpen,
     setArtifactsPanelOpen,
 

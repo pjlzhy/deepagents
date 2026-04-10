@@ -1,5 +1,5 @@
-import { RobotOne, FolderOpen } from '@icon-park/react';
-import { Button, Spin, Typography } from '@arco-design/web-react';
+import { RobotOne, FolderOpen, Add } from '@icon-park/react';
+import { Button, Select, Spin, Typography } from '@arco-design/web-react';
 import { useMemo } from 'react';
 import {
   createConversationTimeline,
@@ -65,41 +65,47 @@ export default function ChatWorkspacePage() {
 
   return (
     <div className='flex h-full min-h-0 overflow-hidden rd-4px'>
-      {/* Thread sidebar */}
+      {/* Thread sidebar — fixed, thread list only */}
       <ThreadSidebar
-        agentOptions={state.agentOptions}
-        selectedAgentName={state.selectedAgentName}
         selectedThreadId={state.selectedThreadId}
         sessions={state.sessionItems}
-        disabled={state.runActive}
-        collapsed={state.sidebarCollapsed}
-        onAgentChange={state.handleAgentChange}
+        selectedAgentName={state.selectedAgentName}
         onThreadSelect={state.handleThreadSelect}
-        onNewChat={state.handleNewConversation}
-        onToggleCollapse={() => state.setSidebarCollapsed((prev) => !prev)}
       />
 
       {/* Main area + artifacts panel */}
       <div className='flex min-w-0 flex-1 min-h-0'>
         <div className='flex min-w-0 flex-1 flex-col bg-[var(--control-panel)]'>
-          {/* Top bar */}
+          {/* Top bar — now includes agent select + new chat */}
           <div
-            className='flex shrink-0 items-center justify-between px-20px py-10px'
+            className='flex shrink-0 items-center justify-between px-14px py-8px'
             style={{
               borderBottom: '1px solid var(--control-border)',
               background: 'rgba(0,240,255,0.02)',
             }}
           >
-            <div className='flex items-center gap-10px'>
-              <div
-                className='w-28px h-28px rd-8px flex-center shrink-0'
-                style={{ background: 'rgba(0,240,255,0.08)' }}
+            <div className='flex items-center gap-8px'>
+              {/* Agent select */}
+              <Select
+                allowClear
+                size='small'
+                placeholder='Agent'
+                options={state.agentOptions}
+                value={state.selectedAgentName}
+                disabled={state.runActive}
+                style={{ width: '160px' }}
+                onChange={state.handleAgentChange}
+              />
+              {/* New Chat */}
+              <Button
+                size='small'
+                type='primary'
+                icon={<Add theme='outline' size='12' fill='currentColor' />}
+                disabled={!state.selectedAgentName || state.runActive}
+                onClick={state.handleNewConversation}
               >
-                <RobotOne size={16} fill={[CYAN]} />
-              </div>
-              <Typography.Text className='font-semibold text-[var(--control-text)]'>
-                {state.selectedAgentName || 'No agent selected'}
-              </Typography.Text>
+                New Chat
+              </Button>
               {/* Tab switcher */}
               <SegmentedTabs
                 value={state.activeTab}
@@ -176,7 +182,7 @@ export default function ChatWorkspacePage() {
                     <Typography.Text className='text-center text-13px text-[var(--control-subtle)]'>
                       {state.selectedAgentName
                         ? 'Type a message below to get started.'
-                        : 'Choose an agent from the sidebar, then start chatting.'}
+                        : 'Choose an agent from the header, then start chatting.'}
                     </Typography.Text>
                   </div>
                 ) : (
