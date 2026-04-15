@@ -16,7 +16,7 @@ import {
 } from '@/features/chat/runtimeEventParser';
 import { controlClient } from '@/shared/api/controlClient';
 import type { HTTPAgentEventDTO, HTTPTelemetryEventDTO, SessionMessageDTO } from '@/shared/types/api';
-import { type TelemetryEventVM } from '@/features/telemetry/traceModel';
+import { type TelemetryEventVM } from '@/features/telemetry/eventModel';
 import {
   isTelemetryEvent as isTelemetryPayload,
   normalizeTelemetryEvent,
@@ -41,7 +41,7 @@ function isRuntimeEvent(payload: unknown): payload is HTTPAgentEventDTO {
 }
 
 function isTelemetryEvent(payload: unknown): payload is HTTPTelemetryEventDTO {
-  return typeof payload === 'object' && payload !== null && ('event_type' in payload || 'public_event' in payload);
+  return typeof payload === 'object' && payload !== null && 'event_type' in payload;
 }
 
 type StatusStyle = { text: string; color: string; dot: string };

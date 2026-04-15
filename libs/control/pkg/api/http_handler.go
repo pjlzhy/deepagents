@@ -212,7 +212,8 @@ func (d *recordingTelemetryDownstream) SendTelemetryEvent(
 ) error {
 	if d.recorder != nil {
 		if err := d.recorder.RecordTelemetryEvent(ctx, event); err != nil {
-			return err
+			fmt.Printf("recording telemetry event: %v\n", err)
+			//return err
 		}
 	}
 	return d.downstream.SendTelemetryEvent(ctx, event)
@@ -353,24 +354,26 @@ type httpAgentEvent struct {
 }
 
 type httpTelemetryEvent struct {
-	RunID       string          `json:"run_id,omitempty"`
-	AgentName   string          `json:"agent_name,omitempty"`
-	Timestamp   string          `json:"timestamp,omitempty"`
-	EventID     string          `json:"event_id,omitempty"`
-	Attempt     int32           `json:"attempt,omitempty"`
-	Seq         int64           `json:"seq,omitempty"`
-	Namespace   []string        `json:"namespace,omitempty"`
-	StreamMode  string          `json:"stream_mode,omitempty"`
-	EventType   string          `json:"event_type,omitempty"`
-	NodeName    string          `json:"node_name,omitempty"`
-	TaskID      string          `json:"task_id,omitempty"`
-	ModelCallID string          `json:"model_call_id,omitempty"`
-	ToolCallID  string          `json:"tool_call_id,omitempty"`
-	InterruptID string          `json:"interrupt_id,omitempty"`
-	MessageID   string          `json:"message_id,omitempty"`
-	Metadata    json.RawMessage `json:"metadata,omitempty"`
-	Payload     json.RawMessage `json:"payload,omitempty"`
-	PublicEvent json.RawMessage `json:"public_event,omitempty"`
+	RunID         string          `json:"run_id,omitempty"`
+	ThreadID      string          `json:"thread_id,omitempty"`
+	AgentName     string          `json:"agent_name,omitempty"`
+	Timestamp     string          `json:"timestamp,omitempty"`
+	SchemaVersion uint32          `json:"schema_version,omitempty"`
+	Retention     string          `json:"retention,omitempty"`
+	EventID       string          `json:"event_id,omitempty"`
+	Attempt       int32           `json:"attempt,omitempty"`
+	Seq           int64           `json:"seq,omitempty"`
+	Namespace     []string        `json:"namespace,omitempty"`
+	StreamMode    string          `json:"stream_mode,omitempty"`
+	EventType     string          `json:"event_type,omitempty"`
+	NodeName      string          `json:"node_name,omitempty"`
+	TaskID        string          `json:"task_id,omitempty"`
+	ModelCallID   string          `json:"model_call_id,omitempty"`
+	ToolCallID    string          `json:"tool_call_id,omitempty"`
+	InterruptID   string          `json:"interrupt_id,omitempty"`
+	MessageID     string          `json:"message_id,omitempty"`
+	Metadata      json.RawMessage `json:"metadata,omitempty"`
+	Payload       json.RawMessage `json:"payload,omitempty"`
 }
 
 type telemetryRunResponse struct {
@@ -397,38 +400,6 @@ type telemetryRunResponse struct {
 	LastEventAt       string          `json:"last_event_at,omitempty"`
 	CreatedAt         string          `json:"created_at,omitempty"`
 	UpdatedAt         string          `json:"updated_at,omitempty"`
-}
-
-type telemetryStepResponse struct {
-	StepID             string            `json:"step_id,omitempty"`
-	RunID              string            `json:"run_id,omitempty"`
-	ParentStepID       string            `json:"parent_step_id,omitempty"`
-	Kind               string            `json:"kind,omitempty"`
-	Title              string            `json:"title,omitempty"`
-	Namespace          []string          `json:"namespace,omitempty"`
-	Status             string            `json:"status,omitempty"`
-	StartedAt          string            `json:"started_at,omitempty"`
-	FinishedAt         string            `json:"finished_at,omitempty"`
-	Depth              int32             `json:"depth,omitempty"`
-	Step               int32             `json:"step,omitempty"`
-	TaskID             string            `json:"task_id,omitempty"`
-	ModelCallID        string            `json:"model_call_id,omitempty"`
-	ToolCallID         string            `json:"tool_call_id,omitempty"`
-	InterruptID        string            `json:"interrupt_id,omitempty"`
-	MessageID          string            `json:"message_id,omitempty"`
-	Input              json.RawMessage   `json:"input,omitempty"`
-	Output             json.RawMessage   `json:"output,omitempty"`
-	Error              string            `json:"error,omitempty"`
-	Triggers           []string          `json:"triggers,omitempty"`
-	Reasoning          []string          `json:"reasoning,omitempty"`
-	ReasoningEncrypted bool              `json:"reasoning_encrypted,omitempty"`
-	Messages           []string          `json:"messages,omitempty"`
-	ToolCalls          []string          `json:"tool_calls,omitempty"`
-	Updates            []json.RawMessage `json:"updates,omitempty"`
-	Custom             []json.RawMessage `json:"custom,omitempty"`
-	RelatedEventIDs    []string          `json:"related_event_ids,omitempty"`
-	Order              int32             `json:"order,omitempty"`
-	Synthetic          bool              `json:"synthetic,omitempty"`
 }
 
 type httpActionRequest struct {
@@ -532,10 +503,6 @@ type telemetryRunSnapshotQuery struct {
 type telemetryRunsListResponse struct {
 	Runs []telemetryRunResponse `json:"runs"`
 	pageResponse
-}
-
-type telemetryStepsListResponse struct {
-	Steps []telemetryStepResponse `json:"steps"`
 }
 
 type telemetryEventsListResponse struct {
@@ -1453,55 +1420,54 @@ func newHTTPAgentEvent(event runtimeclient.AgentEvent) httpAgentEvent {
 
 func newHTTPTelemetryEvent(event runtimeclient.TelemetryEvent) httpTelemetryEvent {
 	response := httpTelemetryEvent{
-		RunID:       event.RunID,
-		AgentName:   event.AgentName,
-		EventID:     event.EventID,
-		Attempt:     event.Attempt,
-		Seq:         event.Seq,
-		Namespace:   event.Namespace,
-		StreamMode:  event.StreamMode,
-		EventType:   event.EventType,
-		NodeName:    event.NodeName,
-		TaskID:      event.TaskID,
-		ModelCallID: event.ModelCallID,
-		ToolCallID:  event.ToolCallID,
-		InterruptID: event.InterruptID,
-		MessageID:   event.MessageID,
-		Metadata:    event.Metadata,
-		Payload:     event.Payload,
+		RunID:         event.RunID,
+		ThreadID:      event.ThreadID,
+		AgentName:     event.AgentName,
+		SchemaVersion: event.SchemaVersion,
+		Retention:     string(event.Retention),
+		EventID:       event.EventID,
+		Attempt:       event.Attempt,
+		Seq:           event.Seq,
+		Namespace:     event.Namespace,
+		StreamMode:    event.StreamMode,
+		EventType:     event.EventType,
+		NodeName:      event.NodeName,
+		TaskID:        event.TaskID,
+		ModelCallID:   event.ModelCallID,
+		ToolCallID:    event.ToolCallID,
+		InterruptID:   event.InterruptID,
+		MessageID:     event.MessageID,
+		Metadata:      event.Metadata,
+		Payload:       event.Payload,
 	}
 	if !event.Timestamp.IsZero() {
 		response.Timestamp = event.Timestamp.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")
-	}
-	if event.PublicEvent != nil {
-		payload, err := json.Marshal(newHTTPAgentEvent(*event.PublicEvent))
-		if err == nil {
-			response.PublicEvent = payload
-		}
 	}
 	return response
 }
 
 func newHTTPTelemetryEventRecord(event domain.TelemetryEventRecord) httpTelemetryEvent {
 	response := httpTelemetryEvent{
-		RunID:       event.RunID,
-		AgentName:   event.AgentName,
-		Timestamp:   formatOptionalTime(event.Timestamp),
-		EventID:     event.EventID,
-		Attempt:     event.Attempt,
-		Seq:         event.Seq,
-		Namespace:   event.Namespace,
-		StreamMode:  event.StreamMode,
-		EventType:   event.EventType,
-		NodeName:    event.NodeName,
-		TaskID:      event.TaskID,
-		ModelCallID: event.ModelCallID,
-		ToolCallID:  event.ToolCallID,
-		InterruptID: event.InterruptID,
-		MessageID:   event.MessageID,
-		Metadata:    event.Metadata,
-		Payload:     event.Payload,
-		PublicEvent: event.PublicEvent,
+		RunID:         event.RunID,
+		ThreadID:      event.ThreadID,
+		AgentName:     event.AgentName,
+		Timestamp:     formatOptionalTime(event.Timestamp),
+		SchemaVersion: event.SchemaVersion,
+		Retention:     string(runtimeclient.TelemetryEventRetentionDurable),
+		EventID:       event.EventID,
+		Attempt:       event.Attempt,
+		Seq:           event.Seq,
+		Namespace:     event.Namespace,
+		StreamMode:    event.StreamMode,
+		EventType:     event.EventType,
+		NodeName:      event.NodeName,
+		TaskID:        event.TaskID,
+		ModelCallID:   event.ModelCallID,
+		ToolCallID:    event.ToolCallID,
+		InterruptID:   event.InterruptID,
+		MessageID:     event.MessageID,
+		Metadata:      event.Metadata,
+		Payload:       event.Payload,
 	}
 	return response
 }
@@ -1531,40 +1497,6 @@ func newHTTPTelemetryRunResponse(run domain.TelemetryRun) telemetryRunResponse {
 		LastEventAt:       formatOptionalTime(run.LastEventAt),
 		CreatedAt:         formatOptionalTime(run.CreatedAt),
 		UpdatedAt:         formatOptionalTime(run.UpdatedAt),
-	}
-}
-
-func newHTTPTelemetryStepResponse(step domain.TelemetryStep) telemetryStepResponse {
-	return telemetryStepResponse{
-		StepID:             step.StepID,
-		RunID:              step.RunID,
-		ParentStepID:       step.ParentStepID,
-		Kind:               string(step.Kind),
-		Title:              step.Title,
-		Namespace:          step.Namespace,
-		Status:             string(step.Status),
-		StartedAt:          formatOptionalTime(step.StartedAt),
-		FinishedAt:         formatOptionalTime(step.FinishedAt),
-		Depth:              step.Depth,
-		Step:               step.Step,
-		TaskID:             step.TaskID,
-		ModelCallID:        step.ModelCallID,
-		ToolCallID:         step.ToolCallID,
-		InterruptID:        step.InterruptID,
-		MessageID:          step.MessageID,
-		Input:              step.Input,
-		Output:             step.Output,
-		Error:              step.Error,
-		Triggers:           step.Triggers,
-		Reasoning:          step.Reasoning,
-		ReasoningEncrypted: step.ReasoningEncrypted,
-		Messages:           step.Messages,
-		ToolCalls:          step.ToolCalls,
-		Updates:            step.Updates,
-		Custom:             step.Custom,
-		RelatedEventIDs:    step.RelatedEventIDs,
-		Order:              step.Order,
-		Synthetic:          step.Synthetic,
 	}
 }
 

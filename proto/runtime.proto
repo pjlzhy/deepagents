@@ -261,64 +261,138 @@ message ErrorOccurred {
   string error_type = 2;
 }
 
-// Structured telemetry event for monitoring and auditing-oriented consumers.
+enum TelemetryRetention {
+  TELEMETRY_RETENTION_UNSPECIFIED = 0;
+  TELEMETRY_RETENTION_DURABLE = 1;
+  TELEMETRY_RETENTION_STREAM_ONLY = 2;
+}
+
+// Structured runtime audit/live event for monitoring, persistence, and replay-oriented
+// consumers.
+//
+// This message is the compact event envelope streamed from runtime to control. It does
+// not include the synthetic SSE-only `run_session` handshake event injected by control.
 message TelemetryEvent {
-  // Unique identifier for this execution run.
+  // Runtime-assigned execution run identifier.
+  //
+  // Source: runtime manager when one `Run` / `RunTelemetry` request starts.
   string run_id = 1;
 
-  // Agent name that produced this event.
+  // Producing top-level agent name.
+  //
+  // Source: `RunRequest.agent_name`.
   string agent_name = 2;
 
-  // When this event was created.
+  // Event creation time.
+  //
+  // Source: runtime-owned lifecycle events use their emit time; LangGraph-derived events
+  // use the stream arrival time or the debug wrapper timestamp when available.
   google.protobuf.Timestamp timestamp = 3;
 
+  // Runtime conversation thread associated with this run.
+  //
+  // Source: `RunRequest.thread_id` or the runtime-generated thread id for new threads.
+  string thread_id = 4;
+
+  // Stable schema version for this telemetry envelope.
+  //
+  // Source: runtime telemetry implementation constant.
+  uint32 schema_version = 5;
+
   // LangGraph namespace path. Empty means the root graph.
-  repeated string ns = 4;
+  //
+  // Source: LangGraph stream part `ns`, for example `["task:research"]`.
+  repeated string namespace = 6;
 
   // Original stream mode, for example `messages`, `updates`, `debug`,
   // `custom`, or runtime-owned `lifecycle`.
-  string stream_mode = 5;
+  //
+  // Source: LangGraph stream mode or runtime lifecycle wrapper.
+  string stream_mode = 7;
 
-  // Fine-grained telemetry event type within the stream mode, for example
-  // `text`, `reasoning`, `checkpoint`, `task`, or `interrupt`.
-  string event_type = 6;
+  // Fine-grained event type normalized within the stream mode.
+  //
+  // Source:
+  // - lifecycle events come from public runtime events such as `run_started`,
+  //   `text_done`, `tool_call_start`, `tool_result`, `hitl_request`, `run_ended`,
+  //   `run_canceled`, and `error`
+  // - messages events come from AI / tool message blocks such as `text`,
+  //   `reasoning`, `tool_call`, `tool_call_chunk`, and derived `tool_call_done`
+  // - updates events currently surface `interrupt`
+  // - debug events currently surface `task` and `task_result`
+  // - custom events surface `custom`
+  string event_type = 8;
 
-  // Structured metadata associated with the event.
-  google.protobuf.Struct metadata = 7;
+  // Controls whether control should persist this event or treat it as live-only.
+  //
+  // Source: runtime retention policy derived from `event_type`.
+  TelemetryRetention retention = 20;
 
-  // Structured main payload associated with the event.
-  google.protobuf.Value payload = 8;
+  // Optional compact diagnostic metadata after dropping envelope duplicates.
+  //
+  // Source: LangGraph message/debug metadata, for example `langgraph_step`,
+  // `langgraph_triggers`, `ls_model_name`, `ls_provider`, or `lc_agent_name`.
+  google.protobuf.Struct metadata = 9;
 
-  // Optional compatibility projection when this telemetry event can be mapped
-  // into the existing public `AgentEvent` transport.
-  AgentEvent public_event = 9;
+  // Event-specific compact payload after stripping framework redundancy.
+  //
+  // Examples:
+  // - `text` / `text_done`: `{ "text": "hello" }`
+  // - `reasoning`: `{ "text": "..." }` or `{ "summary": [{"text": "..."}] }`
+  // - `tool_call_chunk`: `{ "args_text": "{\\"command\\":" }`
+  // - `tool_call_start`: `{ "args": { "command": "pwd" } }`
+  // - `tool_result`: `{ "content": "...", "is_error": false, "data": {...} }`
+  // - `hitl_request`: `{ "action_requests": [...], "review_configs": [...] }`
+  // - `run_ended`: `{ "stats": {...} }`
+  google.protobuf.Value payload = 10;
 
-  // Stable telemetry event identifier within the durable event ledger.
-  string event_id = 10;
+  // Stable telemetry event identifier within one run attempt.
+  //
+  // Source: runtime manager currently formats this as `run_id:attempt:seq`.
+  string event_id = 11;
 
   // Run attempt number. The first attempt is 1.
-  int32 attempt = 11;
+  //
+  // Source: runtime manager retry/attempt counter.
+  int32 attempt = 12;
 
   // Strictly increasing event sequence within one run attempt.
-  int64 seq = 12;
+  //
+  // Source: runtime manager sequence counter.
+  int64 seq = 13;
 
   // Best-effort resolved node name for UI and history queries.
-  string node_name = 13;
+  //
+  // Source: derived from LangGraph node metadata or compact payload hints.
+  // Examples: `run`, `model`, `researcher`, `execute`.
+  string node_name = 14;
 
   // Stable node task identifier when the event belongs to one debug task/task_result.
-  string task_id = 14;
+  //
+  // Source: debug `task` / `task_result` payload id.
+  string task_id = 15;
 
   // Stable model call identifier when the event belongs to one model interaction.
-  string model_call_id = 15;
+  //
+  // Source: AI message id / response id. Common on `text` and `reasoning`.
+  string model_call_id = 16;
 
   // Stable tool call identifier when the event belongs to one tool interaction.
-  string tool_call_id = 16;
+  //
+  // Source: tool-call block id or tool message correlation id. Common on
+  // `tool_call_chunk`, `tool_call_start`, `tool_call_done`, and `tool_result`.
+  string tool_call_id = 17;
 
   // Stable HITL interrupt identifier when the event belongs to one HITL wait.
-  string interrupt_id = 17;
+  //
+  // Source: HITL interrupt payload. Common on `interrupt` and `hitl_request`.
+  string interrupt_id = 18;
 
   // Stable message identifier when the event belongs to one message block sequence.
-  string message_id = 18;
+  //
+  // Source: message-block id from LangGraph/OpenAI content blocks. Common on `text`,
+  // `reasoning`, and `tool_call_chunk`.
+  string message_id = 19;
 }
 
 // -----------------------------------------------------------------------------

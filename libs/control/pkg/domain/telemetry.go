@@ -60,78 +60,24 @@ const (
 
 // TelemetryEventRecord captures one persisted telemetry event.
 type TelemetryEventRecord struct {
-	EventID     string
-	RunID       string
-	AgentName   string
-	Attempt     int32
-	Seq         int64
-	Timestamp   time.Time
-	Namespace   []string
-	StreamMode  string
-	EventType   string
-	NodeName    string
-	TaskID      string
-	ModelCallID string
-	ToolCallID  string
-	InterruptID string
-	MessageID   string
-	Metadata    json.RawMessage
-	Payload     json.RawMessage
-	PublicEvent json.RawMessage
-	CreatedAt   time.Time
-}
-
-// TelemetryStepKind describes one projected trace step kind.
-type TelemetryStepKind string
-
-const (
-	TelemetryStepKindRun   TelemetryStepKind = "run"
-	TelemetryStepKindNode  TelemetryStepKind = "node"
-	TelemetryStepKindModel TelemetryStepKind = "model"
-	TelemetryStepKindTool  TelemetryStepKind = "tool"
-	TelemetryStepKindHITL  TelemetryStepKind = "hitl"
-)
-
-// TelemetryStepStatus describes one projected trace step status.
-type TelemetryStepStatus string
-
-const (
-	TelemetryStepStatusRunning     TelemetryStepStatus = "running"
-	TelemetryStepStatusCompleted   TelemetryStepStatus = "completed"
-	TelemetryStepStatusFailed      TelemetryStepStatus = "failed"
-	TelemetryStepStatusInterrupted TelemetryStepStatus = "interrupted"
-	TelemetryStepStatusObserved    TelemetryStepStatus = "observed"
-)
-
-// TelemetryStep captures one control-projected trace step.
-type TelemetryStep struct {
-	StepID             string
-	RunID              string
-	ParentStepID       string
-	Kind               TelemetryStepKind
-	Title              string
-	Namespace          []string
-	Status             TelemetryStepStatus
-	StartedAt          time.Time
-	FinishedAt         time.Time
-	Depth              int32
-	Step               int32
-	TaskID             string
-	ModelCallID        string
-	ToolCallID         string
-	InterruptID        string
-	MessageID          string
-	Input              json.RawMessage
-	Output             json.RawMessage
-	Error              string
-	Triggers           []string
-	Reasoning          []string
-	ReasoningEncrypted bool
-	Messages           []string
-	ToolCalls          []string
-	Updates            []json.RawMessage
-	Custom             []json.RawMessage
-	RelatedEventIDs    []string
-	Order              int32
-	Synthetic          bool
+	EventID       string
+	RunID         string
+	ThreadID      string
+	AgentName     string
+	SchemaVersion uint32
+	Attempt       int32
+	Seq           int64
+	Timestamp     time.Time
+	Namespace     []string
+	StreamMode    string
+	EventType     string
+	NodeName      string
+	TaskID        string
+	ModelCallID   string
+	ToolCallID    string
+	InterruptID   string
+	MessageID     string
+	Metadata      json.RawMessage
+	Payload       json.RawMessage
+	CreatedAt     time.Time
 }

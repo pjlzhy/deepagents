@@ -23,7 +23,6 @@ type AgentService interface {
 		position domain.TelemetryRunSnapshotPosition,
 		query domain.SessionMessageQuery,
 	) (domain.SessionMessagePage, error)
-	ListTelemetrySteps(ctx context.Context, runID string) ([]domain.TelemetryStep, error)
 	ListTelemetryEvents(
 		ctx context.Context,
 		runID string,
@@ -131,14 +130,6 @@ func (s *Server) GetTelemetryRunSnapshot(
 	query domain.SessionMessageQuery,
 ) (domain.SessionMessagePage, error) {
 	return s.service.GetTelemetryRunSnapshot(ctx, runID, position, query)
-}
-
-// ListTelemetrySteps forwards one telemetry step projection query to the backing service.
-func (s *Server) ListTelemetrySteps(
-	ctx context.Context,
-	runID string,
-) ([]domain.TelemetryStep, error) {
-	return s.service.ListTelemetrySteps(ctx, runID)
 }
 
 // ListTelemetryEvents forwards one telemetry event page query to the backing service.

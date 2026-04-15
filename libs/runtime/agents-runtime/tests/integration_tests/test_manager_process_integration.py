@@ -961,13 +961,17 @@ def test_grpc_run_telemetry_preserves_debug_custom_reasoning_and_namespace() -> 
         assert "run_ended" in event_types
 
         reasoning_event = next(event for event in events if event.event_type == "reasoning")
-        assert list(reasoning_event.ns) == ["task:research"]
-        assert reasoning_event.metadata.fields["langgraph_node"].string_value == "researcher"
+        assert reasoning_event.thread_id == "thread-grpc-telemetry-1"
+        assert reasoning_event.schema_version == 1
+        assert list(reasoning_event.namespace) == ["task:research"]
+        assert reasoning_event.node_name == "researcher"
+        assert "langgraph_node" not in reasoning_event.metadata.fields
         assert reasoning_event.payload.struct_value.fields["summary"].list_value.values[0].struct_value.fields["text"].string_value == "subagent thought"
-        assert reasoning_event.HasField("public_event") is False
+        assert "id" not in reasoning_event.payload.struct_value.fields
+        assert "model_call_id" not in reasoning_event.payload.struct_value.fields
 
         debug_event = next(event for event in events if event.event_type == "task")
-        assert list(debug_event.ns) == ["task:research"]
+        assert list(debug_event.namespace) == ["task:research"]
         assert debug_event.stream_mode == "debug"
         assert debug_event.metadata.fields["step"].number_value == 2
 

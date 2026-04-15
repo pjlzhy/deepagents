@@ -141,7 +141,9 @@ CREATE TABLE IF NOT EXISTS telemetry_events (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	event_id TEXT NOT NULL,
 	run_id TEXT NOT NULL,
+	thread_id TEXT NOT NULL,
 	agent_name TEXT NOT NULL,
+	schema_version INTEGER NOT NULL,
 	attempt INTEGER NOT NULL,
 	seq INTEGER NOT NULL,
 	timestamp TEXT NOT NULL,
@@ -156,7 +158,7 @@ CREATE TABLE IF NOT EXISTS telemetry_events (
 	message_id TEXT NOT NULL,
 	metadata_json TEXT NOT NULL,
 	payload_json TEXT NOT NULL,
-	public_event_json TEXT NOT NULL,
+	public_event_json TEXT NOT NULL DEFAULT 'null',
 	created_at TEXT NOT NULL
 );
 `
@@ -264,6 +266,12 @@ func (s *SQLite) init(ctx context.Context) error {
 		return fmt.Errorf("migrate sqlite schema: %w", err)
 	}
 	if err := ensureSQLiteColumn(ctx, s.db, "telemetry_runs", "turn_index", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return fmt.Errorf("migrate sqlite schema: %w", err)
+	}
+	if err := ensureSQLiteColumn(ctx, s.db, "telemetry_events", "thread_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return fmt.Errorf("migrate sqlite schema: %w", err)
+	}
+	if err := ensureSQLiteColumn(ctx, s.db, "telemetry_events", "schema_version", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return fmt.Errorf("migrate sqlite schema: %w", err)
 	}
 	if err := ensureSQLiteSurrogatePrimaryKeys(ctx, s.db); err != nil {

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import useSWR from 'swr';
 import { controlClient } from '@/shared/api/controlClient';
-import type { TelemetryEventVM } from '@/features/telemetry/traceModel';
+import type { TelemetryEventVM } from '@/features/telemetry/eventModel';
 import RunList from './RunList';
 import RunDetail from './RunDetail';
 

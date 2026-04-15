@@ -412,3 +412,55 @@ chat 历史关联：
 - `snapshot` 像 commit 前后 tree
 
 这也是后续扩展 `run diff`、`artifact diff`、`workspace diff` 的自然基础。
+
+
+
+层级表
+
+1. LangGraph 原始流
+
+- messages
+- updates
+- debug
+- custom
+
+2. langgraph_api run stream
+
+- metadata
+- messages/metadata
+- messages/partial
+- messages/complete
+- updates 或只暴露 interrupt 对应的 values
+- debug 仅显式订阅时暴露
+- custom
+- events
+
+3. langgraph_api thread stream
+
+- lifecycle
+- run_modes
+- state_update
+
+4. 你们当前 control 视图
+
+- telemetry raw events
+- telemetry projected steps
+- session query / checkpoint snapshot
+
+对齐关系
+
+- LangGraph messages -> langgraph_api messages/* -> 你们的 reasoning/text/tool_call/tool_result
+- LangGraph debug.task/task_result/checkpoint -> langgraph_api 内部聚合输入 -> 你们现在直接持久化并投影 node/model/tool/hitl step
+- LangGraph updates.__interrupt__ -> langgraph_api 重点保留的 interrupt/value -> 你们的 interrupt/hitl_request
+- LangGraph updates 普通状态增量 -> langgraph_api thread state_update / run updates -> 你们的 state_update
+
+职责区别
+
+- messages
+  - 适合做用户可见内容、模型调用内容
+- debug
+  - 适合做执行边界、step 边界、checkpoint 聚合
+- updates
+  - 适合做状态快照/interrupt，不适合做精确 step event
+- thread stream
+  - 适合看当前线程状态，不适合还原一次 run 的精细执行树

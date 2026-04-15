@@ -321,41 +321,38 @@ func (s *testRuntimeServer) RunTelemetry(
 	s.receivedTelemetryRun = first.GetRunRequest()
 
 	if err := stream.Send(&runtimev1.TelemetryEvent{
-		RunId:      "run-telemetry-1",
-		AgentName:  s.receivedTelemetryRun.GetAgentName(),
-		Timestamp:  timestamppb.New(time.Unix(200, 0)),
-		EventId:    "run-telemetry-1:1:1",
-		Attempt:    1,
-		Seq:        1,
-		NodeName:   "run",
-		StreamMode: "lifecycle",
-		EventType:  "run_started",
-		PublicEvent: &runtimev1.AgentEvent{
-			RunId:     "run-telemetry-1",
-			AgentName: s.receivedTelemetryRun.GetAgentName(),
-			Timestamp: timestamppb.New(time.Unix(200, 0)),
-			Payload: &runtimev1.AgentEvent_RunStarted{
-				RunStarted: &runtimev1.RunStarted{ThreadId: s.receivedTelemetryRun.GetThreadId()},
-			},
-		},
+		RunId:         "run-telemetry-1",
+		ThreadId:      s.receivedTelemetryRun.GetThreadId(),
+		AgentName:     s.receivedTelemetryRun.GetAgentName(),
+		Timestamp:     timestamppb.New(time.Unix(200, 0)),
+		SchemaVersion: 1,
+		EventId:       "run-telemetry-1:1:1",
+		Attempt:       1,
+		Seq:           1,
+		NodeName:      "run",
+		StreamMode:    "lifecycle",
+		EventType:     "run_started",
+		Payload:       mustValueValue(map[string]any{"thread_id": s.receivedTelemetryRun.GetThreadId()}),
 	}); err != nil {
 		return err
 	}
 
 	if err := stream.Send(&runtimev1.TelemetryEvent{
-		RunId:       "run-telemetry-1",
-		AgentName:   s.receivedTelemetryRun.GetAgentName(),
-		Timestamp:   timestamppb.New(time.Unix(201, 0)),
-		EventId:     "run-telemetry-1:1:2",
-		Attempt:     1,
-		Seq:         2,
-		NodeName:    "planner",
-		MessageId:   "msg-1",
-		ModelCallId: "msg-1",
-		Ns:          []string{"task:research"},
-		StreamMode:  "messages",
-		EventType:   "reasoning",
-		Metadata:    mustStructValue(map[string]any{"langgraph_node": "planner"}),
+		RunId:         "run-telemetry-1",
+		ThreadId:      s.receivedTelemetryRun.GetThreadId(),
+		AgentName:     s.receivedTelemetryRun.GetAgentName(),
+		Timestamp:     timestamppb.New(time.Unix(201, 0)),
+		SchemaVersion: 1,
+		EventId:       "run-telemetry-1:1:2",
+		Attempt:       1,
+		Seq:           2,
+		NodeName:      "planner",
+		MessageId:     "msg-1",
+		ModelCallId:   "msg-1",
+		Namespace:     []string{"task:research"},
+		StreamMode:    "messages",
+		EventType:     "reasoning",
+		Metadata:      mustStructValue(map[string]any{"langgraph_node": "planner"}),
 		Payload: mustValueValue(map[string]any{
 			"summary": []any{
 				map[string]any{"type": "summary_text", "text": "thinking..."},
@@ -366,18 +363,20 @@ func (s *testRuntimeServer) RunTelemetry(
 	}
 
 	if err := stream.Send(&runtimev1.TelemetryEvent{
-		RunId:      "run-telemetry-1",
-		AgentName:  s.receivedTelemetryRun.GetAgentName(),
-		Timestamp:  timestamppb.New(time.Unix(202, 0)),
-		EventId:    "run-telemetry-1:1:3",
-		Attempt:    1,
-		Seq:        3,
-		NodeName:   "research",
-		TaskId:     "task-1",
-		Ns:         []string{"task:research"},
-		StreamMode: "debug",
-		EventType:  "task",
-		Metadata:   mustStructValue(map[string]any{"step": 2}),
+		RunId:         "run-telemetry-1",
+		ThreadId:      s.receivedTelemetryRun.GetThreadId(),
+		AgentName:     s.receivedTelemetryRun.GetAgentName(),
+		Timestamp:     timestamppb.New(time.Unix(202, 0)),
+		SchemaVersion: 1,
+		EventId:       "run-telemetry-1:1:3",
+		Attempt:       1,
+		Seq:           3,
+		NodeName:      "research",
+		TaskId:        "task-1",
+		Namespace:     []string{"task:research"},
+		StreamMode:    "debug",
+		EventType:     "task",
+		Metadata:      mustStructValue(map[string]any{"step": 2}),
 		Payload: mustValueValue(map[string]any{
 			"id":       "task-1",
 			"name":     "research",
@@ -388,34 +387,30 @@ func (s *testRuntimeServer) RunTelemetry(
 	}
 
 	if err := stream.Send(&runtimev1.TelemetryEvent{
-		RunId:      "run-telemetry-1",
-		AgentName:  s.receivedTelemetryRun.GetAgentName(),
-		Timestamp:  timestamppb.New(time.Unix(203, 0)),
-		StreamMode: "lifecycle",
-		EventType:  "hitl_request",
-		PublicEvent: &runtimev1.AgentEvent{
-			RunId:     "run-telemetry-1",
-			AgentName: s.receivedTelemetryRun.GetAgentName(),
-			Timestamp: timestamppb.New(time.Unix(203, 0)),
-			Payload: &runtimev1.AgentEvent_HitlRequest{
-				HitlRequest: &runtimev1.HITLRequest{
-					InterruptId: "interrupt-1",
-					ActionRequests: []*runtimev1.ActionRequest{
-						{
-							Name:        "write_file",
-							Args:        mustStructValue(map[string]any{"path": "/tmp/a.txt"}),
-							Description: "Write /tmp/a.txt",
-						},
-					},
-					ReviewConfigs: []*runtimev1.ReviewConfig{
-						{
-							ActionName:       "write_file",
-							AllowedDecisions: []string{"approve", "reject"},
-						},
-					},
+		RunId:         "run-telemetry-1",
+		ThreadId:      s.receivedTelemetryRun.GetThreadId(),
+		AgentName:     s.receivedTelemetryRun.GetAgentName(),
+		Timestamp:     timestamppb.New(time.Unix(203, 0)),
+		SchemaVersion: 1,
+		StreamMode:    "lifecycle",
+		EventType:     "hitl_request",
+		InterruptId:   "interrupt-1",
+		Payload: mustValueValue(map[string]any{
+			"interrupt_id": "interrupt-1",
+			"action_requests": []any{
+				map[string]any{
+					"name":        "write_file",
+					"args":        map[string]any{"path": "/tmp/a.txt"},
+					"description": "Write /tmp/a.txt",
 				},
 			},
-		},
+			"review_configs": []any{
+				map[string]any{
+					"action_name":       "write_file",
+					"allowed_decisions": []any{"approve", "reject"},
+				},
+			},
+		}),
 	}); err != nil {
 		return err
 	}
@@ -433,19 +428,14 @@ func (s *testRuntimeServer) RunTelemetry(
 	s.receivedTelemetryCancel = last.GetCancel()
 
 	return stream.Send(&runtimev1.TelemetryEvent{
-		RunId:      "run-telemetry-1",
-		AgentName:  s.receivedTelemetryRun.GetAgentName(),
-		Timestamp:  timestamppb.New(time.Unix(204, 0)),
-		StreamMode: "lifecycle",
-		EventType:  "run_canceled",
-		PublicEvent: &runtimev1.AgentEvent{
-			RunId:     "run-telemetry-1",
-			AgentName: s.receivedTelemetryRun.GetAgentName(),
-			Timestamp: timestamppb.New(time.Unix(204, 0)),
-			Payload: &runtimev1.AgentEvent_RunCanceled{
-				RunCanceled: &runtimev1.RunCanceled{Reason: s.receivedTelemetryCancel.GetReason()},
-			},
-		},
+		RunId:         "run-telemetry-1",
+		ThreadId:      s.receivedTelemetryRun.GetThreadId(),
+		AgentName:     s.receivedTelemetryRun.GetAgentName(),
+		Timestamp:     timestamppb.New(time.Unix(204, 0)),
+		SchemaVersion: 1,
+		StreamMode:    "lifecycle",
+		EventType:     "run_canceled",
+		Payload:       mustValueValue(map[string]any{"reason": s.receivedTelemetryCancel.GetReason()}),
 	})
 }
 
@@ -971,8 +961,8 @@ func TestGRPCClientRunTelemetryStream(t *testing.T) {
 	if first.EventID != "run-telemetry-1:1:1" || first.Attempt != 1 || first.Seq != 1 || first.NodeName != "run" {
 		t.Fatalf("unexpected first telemetry identifiers: %#v", first)
 	}
-	if first.PublicEvent == nil || first.PublicEvent.ThreadID != "thread-telemetry-1" {
-		t.Fatalf("unexpected first telemetry public event: %#v", first.PublicEvent)
+	if first.ThreadID != "thread-telemetry-1" || first.SchemaVersion != 1 {
+		t.Fatalf("unexpected first telemetry audit fields: %#v", first)
 	}
 
 	second := <-stream.Events()
@@ -1004,11 +994,11 @@ func TestGRPCClientRunTelemetryStream(t *testing.T) {
 	}
 
 	fourth := <-stream.Events()
-	if fourth.EventType != "hitl_request" || fourth.PublicEvent == nil || fourth.PublicEvent.InterruptID != "interrupt-1" {
+	if fourth.EventType != "hitl_request" || fourth.InterruptID != "interrupt-1" {
 		t.Fatalf("unexpected fourth telemetry event: %#v", fourth)
 	}
-	if len(fourth.PublicEvent.Actions) != 1 || fourth.PublicEvent.Actions[0].Name != "write_file" {
-		t.Fatalf("unexpected telemetry HITL action mapping: %#v", fourth.PublicEvent)
+	if !payloadContains(t, fourth.Payload, "interrupt_id", "interrupt-1") {
+		t.Fatalf("unexpected telemetry HITL payload: %s", string(fourth.Payload))
 	}
 
 	if err := stream.SendHITLDecision(context.Background(), "interrupt-1", []ToolDecision{
@@ -1021,7 +1011,7 @@ func TestGRPCClientRunTelemetryStream(t *testing.T) {
 	}
 
 	fifth := <-stream.Events()
-	if fifth.EventType != "run_canceled" || fifth.PublicEvent == nil || fifth.PublicEvent.Reason != "stop telemetry" {
+	if fifth.EventType != "run_canceled" || !payloadContains(t, fifth.Payload, "reason", "stop telemetry") {
 		t.Fatalf("unexpected fifth telemetry event: %#v", fifth)
 	}
 

@@ -110,26 +110,42 @@ type AgentEvent struct {
 	ReviewConfigs []ReviewConfig
 }
 
-// TelemetryEvent captures one telemetry-grade runtime event.
+// TelemetryEventRetention controls whether one telemetry event should be persisted.
+type TelemetryEventRetention string
+
+const (
+	TelemetryEventRetentionUnspecified TelemetryEventRetention = ""
+	TelemetryEventRetentionDurable     TelemetryEventRetention = "durable"
+	TelemetryEventRetentionStreamOnly  TelemetryEventRetention = "stream_only"
+)
+
+// TelemetryEvent captures one audit-grade runtime event.
 type TelemetryEvent struct {
-	RunID       string
-	AgentName   string
-	Timestamp   time.Time
-	EventID     string
-	Attempt     int32
-	Seq         int64
-	Namespace   []string
-	StreamMode  string
-	EventType   string
-	NodeName    string
-	TaskID      string
-	ModelCallID string
-	ToolCallID  string
-	InterruptID string
-	MessageID   string
-	Metadata    json.RawMessage
-	Payload     json.RawMessage
-	PublicEvent *AgentEvent
+	RunID         string
+	ThreadID      string
+	AgentName     string
+	Timestamp     time.Time
+	SchemaVersion uint32
+	Retention     TelemetryEventRetention
+	EventID       string
+	Attempt       int32
+	Seq           int64
+	Namespace     []string
+	StreamMode    string
+	EventType     string
+	NodeName      string
+	TaskID        string
+	ModelCallID   string
+	ToolCallID    string
+	InterruptID   string
+	MessageID     string
+	Metadata      json.RawMessage
+	Payload       json.RawMessage
+}
+
+// ShouldPersistTelemetryEvent returns whether the event belongs in the durable audit store.
+func ShouldPersistTelemetryEvent(event TelemetryEvent) bool {
+	return event.Retention != TelemetryEventRetentionStreamOnly
 }
 
 // RunStream 表示一条已建立的 southbound 运行流。

@@ -11,6 +11,12 @@ from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 
 DESCRIPTOR: _descriptor.FileDescriptor
 
+class TelemetryRetention(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    TELEMETRY_RETENTION_UNSPECIFIED: _ClassVar[TelemetryRetention]
+    TELEMETRY_RETENTION_DURABLE: _ClassVar[TelemetryRetention]
+    TELEMETRY_RETENTION_STREAM_ONLY: _ClassVar[TelemetryRetention]
+
 class ImagePullPolicy(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     IMAGE_PULL_POLICY_UNSPECIFIED: _ClassVar[ImagePullPolicy]
@@ -39,6 +45,9 @@ class SessionMessageRole(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     SESSION_MESSAGE_ROLE_HUMAN: _ClassVar[SessionMessageRole]
     SESSION_MESSAGE_ROLE_AI: _ClassVar[SessionMessageRole]
     SESSION_MESSAGE_ROLE_TOOL: _ClassVar[SessionMessageRole]
+TELEMETRY_RETENTION_UNSPECIFIED: TelemetryRetention
+TELEMETRY_RETENTION_DURABLE: TelemetryRetention
+TELEMETRY_RETENTION_STREAM_ONLY: TelemetryRetention
 IMAGE_PULL_POLICY_UNSPECIFIED: ImagePullPolicy
 IMAGE_PULL_POLICY_IF_NOT_PRESENT: ImagePullPolicy
 IMAGE_PULL_POLICY_ALWAYS: ImagePullPolicy
@@ -259,16 +268,18 @@ class ErrorOccurred(_message.Message):
     def __init__(self, message: _Optional[str] = ..., error_type: _Optional[str] = ...) -> None: ...
 
 class TelemetryEvent(_message.Message):
-    __slots__ = ("run_id", "agent_name", "timestamp", "ns", "stream_mode", "event_type", "metadata", "payload", "public_event", "event_id", "attempt", "seq", "node_name", "task_id", "model_call_id", "tool_call_id", "interrupt_id", "message_id")
+    __slots__ = ("run_id", "agent_name", "timestamp", "thread_id", "schema_version", "namespace", "stream_mode", "event_type", "retention", "metadata", "payload", "event_id", "attempt", "seq", "node_name", "task_id", "model_call_id", "tool_call_id", "interrupt_id", "message_id")
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
     AGENT_NAME_FIELD_NUMBER: _ClassVar[int]
     TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
-    NS_FIELD_NUMBER: _ClassVar[int]
+    THREAD_ID_FIELD_NUMBER: _ClassVar[int]
+    SCHEMA_VERSION_FIELD_NUMBER: _ClassVar[int]
+    NAMESPACE_FIELD_NUMBER: _ClassVar[int]
     STREAM_MODE_FIELD_NUMBER: _ClassVar[int]
     EVENT_TYPE_FIELD_NUMBER: _ClassVar[int]
+    RETENTION_FIELD_NUMBER: _ClassVar[int]
     METADATA_FIELD_NUMBER: _ClassVar[int]
     PAYLOAD_FIELD_NUMBER: _ClassVar[int]
-    PUBLIC_EVENT_FIELD_NUMBER: _ClassVar[int]
     EVENT_ID_FIELD_NUMBER: _ClassVar[int]
     ATTEMPT_FIELD_NUMBER: _ClassVar[int]
     SEQ_FIELD_NUMBER: _ClassVar[int]
@@ -281,12 +292,14 @@ class TelemetryEvent(_message.Message):
     run_id: str
     agent_name: str
     timestamp: _timestamp_pb2.Timestamp
-    ns: _containers.RepeatedScalarFieldContainer[str]
+    thread_id: str
+    schema_version: int
+    namespace: _containers.RepeatedScalarFieldContainer[str]
     stream_mode: str
     event_type: str
+    retention: TelemetryRetention
     metadata: _struct_pb2.Struct
     payload: _struct_pb2.Value
-    public_event: AgentEvent
     event_id: str
     attempt: int
     seq: int
@@ -296,7 +309,7 @@ class TelemetryEvent(_message.Message):
     tool_call_id: str
     interrupt_id: str
     message_id: str
-    def __init__(self, run_id: _Optional[str] = ..., agent_name: _Optional[str] = ..., timestamp: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., ns: _Optional[_Iterable[str]] = ..., stream_mode: _Optional[str] = ..., event_type: _Optional[str] = ..., metadata: _Optional[_Union[_struct_pb2.Struct, _Mapping]] = ..., payload: _Optional[_Union[_struct_pb2.Value, _Mapping]] = ..., public_event: _Optional[_Union[AgentEvent, _Mapping]] = ..., event_id: _Optional[str] = ..., attempt: _Optional[int] = ..., seq: _Optional[int] = ..., node_name: _Optional[str] = ..., task_id: _Optional[str] = ..., model_call_id: _Optional[str] = ..., tool_call_id: _Optional[str] = ..., interrupt_id: _Optional[str] = ..., message_id: _Optional[str] = ...) -> None: ...
+    def __init__(self, run_id: _Optional[str] = ..., agent_name: _Optional[str] = ..., timestamp: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., thread_id: _Optional[str] = ..., schema_version: _Optional[int] = ..., namespace: _Optional[_Iterable[str]] = ..., stream_mode: _Optional[str] = ..., event_type: _Optional[str] = ..., retention: _Optional[_Union[TelemetryRetention, str]] = ..., metadata: _Optional[_Union[_struct_pb2.Struct, _Mapping]] = ..., payload: _Optional[_Union[_struct_pb2.Value, _Mapping]] = ..., event_id: _Optional[str] = ..., attempt: _Optional[int] = ..., seq: _Optional[int] = ..., node_name: _Optional[str] = ..., task_id: _Optional[str] = ..., model_call_id: _Optional[str] = ..., tool_call_id: _Optional[str] = ..., interrupt_id: _Optional[str] = ..., message_id: _Optional[str] = ...) -> None: ...
 
 class SyncSkillRequest(_message.Message):
     __slots__ = ("name", "content", "description", "tags", "files")

@@ -33,6 +33,55 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type TelemetryRetention int32
+
+const (
+	TelemetryRetention_TELEMETRY_RETENTION_UNSPECIFIED TelemetryRetention = 0
+	TelemetryRetention_TELEMETRY_RETENTION_DURABLE     TelemetryRetention = 1
+	TelemetryRetention_TELEMETRY_RETENTION_STREAM_ONLY TelemetryRetention = 2
+)
+
+// Enum value maps for TelemetryRetention.
+var (
+	TelemetryRetention_name = map[int32]string{
+		0: "TELEMETRY_RETENTION_UNSPECIFIED",
+		1: "TELEMETRY_RETENTION_DURABLE",
+		2: "TELEMETRY_RETENTION_STREAM_ONLY",
+	}
+	TelemetryRetention_value = map[string]int32{
+		"TELEMETRY_RETENTION_UNSPECIFIED": 0,
+		"TELEMETRY_RETENTION_DURABLE":     1,
+		"TELEMETRY_RETENTION_STREAM_ONLY": 2,
+	}
+)
+
+func (x TelemetryRetention) Enum() *TelemetryRetention {
+	p := new(TelemetryRetention)
+	*p = x
+	return p
+}
+
+func (x TelemetryRetention) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (TelemetryRetention) Descriptor() protoreflect.EnumDescriptor {
+	return file_runtime_proto_enumTypes[0].Descriptor()
+}
+
+func (TelemetryRetention) Type() protoreflect.EnumType {
+	return &file_runtime_proto_enumTypes[0]
+}
+
+func (x TelemetryRetention) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use TelemetryRetention.Descriptor instead.
+func (TelemetryRetention) EnumDescriptor() ([]byte, []int) {
+	return file_runtime_proto_rawDescGZIP(), []int{0}
+}
+
 type ImagePullPolicy int32
 
 const (
@@ -69,11 +118,11 @@ func (x ImagePullPolicy) String() string {
 }
 
 func (ImagePullPolicy) Descriptor() protoreflect.EnumDescriptor {
-	return file_runtime_proto_enumTypes[0].Descriptor()
+	return file_runtime_proto_enumTypes[1].Descriptor()
 }
 
 func (ImagePullPolicy) Type() protoreflect.EnumType {
-	return &file_runtime_proto_enumTypes[0]
+	return &file_runtime_proto_enumTypes[1]
 }
 
 func (x ImagePullPolicy) Number() protoreflect.EnumNumber {
@@ -82,7 +131,7 @@ func (x ImagePullPolicy) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ImagePullPolicy.Descriptor instead.
 func (ImagePullPolicy) EnumDescriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{0}
+	return file_runtime_proto_rawDescGZIP(), []int{1}
 }
 
 type AgentRuntimeStatus int32
@@ -124,11 +173,11 @@ func (x AgentRuntimeStatus) String() string {
 }
 
 func (AgentRuntimeStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_runtime_proto_enumTypes[1].Descriptor()
+	return file_runtime_proto_enumTypes[2].Descriptor()
 }
 
 func (AgentRuntimeStatus) Type() protoreflect.EnumType {
-	return &file_runtime_proto_enumTypes[1]
+	return &file_runtime_proto_enumTypes[2]
 }
 
 func (x AgentRuntimeStatus) Number() protoreflect.EnumNumber {
@@ -137,7 +186,7 @@ func (x AgentRuntimeStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use AgentRuntimeStatus.Descriptor instead.
 func (AgentRuntimeStatus) EnumDescriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{1}
+	return file_runtime_proto_rawDescGZIP(), []int{2}
 }
 
 type SessionHistoryMode int32
@@ -173,11 +222,11 @@ func (x SessionHistoryMode) String() string {
 }
 
 func (SessionHistoryMode) Descriptor() protoreflect.EnumDescriptor {
-	return file_runtime_proto_enumTypes[2].Descriptor()
+	return file_runtime_proto_enumTypes[3].Descriptor()
 }
 
 func (SessionHistoryMode) Type() protoreflect.EnumType {
-	return &file_runtime_proto_enumTypes[2]
+	return &file_runtime_proto_enumTypes[3]
 }
 
 func (x SessionHistoryMode) Number() protoreflect.EnumNumber {
@@ -186,7 +235,7 @@ func (x SessionHistoryMode) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use SessionHistoryMode.Descriptor instead.
 func (SessionHistoryMode) EnumDescriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{2}
+	return file_runtime_proto_rawDescGZIP(), []int{3}
 }
 
 type SessionMessageRole int32
@@ -228,11 +277,11 @@ func (x SessionMessageRole) String() string {
 }
 
 func (SessionMessageRole) Descriptor() protoreflect.EnumDescriptor {
-	return file_runtime_proto_enumTypes[3].Descriptor()
+	return file_runtime_proto_enumTypes[4].Descriptor()
 }
 
 func (SessionMessageRole) Type() protoreflect.EnumType {
-	return &file_runtime_proto_enumTypes[3]
+	return &file_runtime_proto_enumTypes[4]
 }
 
 func (x SessionMessageRole) Number() protoreflect.EnumNumber {
@@ -241,7 +290,7 @@ func (x SessionMessageRole) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use SessionMessageRole.Descriptor instead.
 func (SessionMessageRole) EnumDescriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{3}
+	return file_runtime_proto_rawDescGZIP(), []int{4}
 }
 
 type ClientMessage struct {
@@ -1599,7 +1648,7 @@ func (x *ErrorOccurred) GetErrorType() string {
 	return ""
 }
 
-// Structured telemetry event for monitoring and auditing-oriented consumers.
+// Structured run audit event for monitoring, persistence, and replay-oriented consumers.
 type TelemetryEvent struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Unique identifier for this execution run.
@@ -1608,39 +1657,42 @@ type TelemetryEvent struct {
 	AgentName string `protobuf:"bytes,2,opt,name=agent_name,json=agentName,proto3" json:"agent_name,omitempty"`
 	// When this event was created.
 	Timestamp *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	// Runtime conversation thread associated with this run.
+	ThreadId string `protobuf:"bytes,4,opt,name=thread_id,json=threadId,proto3" json:"thread_id,omitempty"`
+	// Stable schema version for persisted audit events.
+	SchemaVersion uint32 `protobuf:"varint,5,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
 	// LangGraph namespace path. Empty means the root graph.
-	Ns []string `protobuf:"bytes,4,rep,name=ns,proto3" json:"ns,omitempty"`
+	Namespace []string `protobuf:"bytes,6,rep,name=namespace,proto3" json:"namespace,omitempty"`
 	// Original stream mode, for example `messages`, `updates`, `debug`,
 	// `custom`, or runtime-owned `lifecycle`.
-	StreamMode string `protobuf:"bytes,5,opt,name=stream_mode,json=streamMode,proto3" json:"stream_mode,omitempty"`
-	// Fine-grained telemetry event type within the stream mode, for example
+	StreamMode string `protobuf:"bytes,7,opt,name=stream_mode,json=streamMode,proto3" json:"stream_mode,omitempty"`
+	// Fine-grained audit event type within the stream mode, for example
 	// `text`, `reasoning`, `checkpoint`, `task`, or `interrupt`.
-	EventType string `protobuf:"bytes,6,opt,name=event_type,json=eventType,proto3" json:"event_type,omitempty"`
+	EventType string `protobuf:"bytes,8,opt,name=event_type,json=eventType,proto3" json:"event_type,omitempty"`
+	// Controls whether control should persist this event or treat it as live-only.
+	Retention TelemetryRetention `protobuf:"varint,20,opt,name=retention,proto3,enum=agents.runtime.v1.TelemetryRetention" json:"retention,omitempty"`
 	// Structured metadata associated with the event.
-	Metadata *structpb.Struct `protobuf:"bytes,7,opt,name=metadata,proto3" json:"metadata,omitempty"`
+	Metadata *structpb.Struct `protobuf:"bytes,9,opt,name=metadata,proto3" json:"metadata,omitempty"`
 	// Structured main payload associated with the event.
-	Payload *structpb.Value `protobuf:"bytes,8,opt,name=payload,proto3" json:"payload,omitempty"`
-	// Optional compatibility projection when this telemetry event can be mapped
-	// into the existing public `AgentEvent` transport.
-	PublicEvent *AgentEvent `protobuf:"bytes,9,opt,name=public_event,json=publicEvent,proto3" json:"public_event,omitempty"`
+	Payload *structpb.Value `protobuf:"bytes,10,opt,name=payload,proto3" json:"payload,omitempty"`
 	// Stable telemetry event identifier within the durable event ledger.
-	EventId string `protobuf:"bytes,10,opt,name=event_id,json=eventId,proto3" json:"event_id,omitempty"`
+	EventId string `protobuf:"bytes,11,opt,name=event_id,json=eventId,proto3" json:"event_id,omitempty"`
 	// Run attempt number. The first attempt is 1.
-	Attempt int32 `protobuf:"varint,11,opt,name=attempt,proto3" json:"attempt,omitempty"`
+	Attempt int32 `protobuf:"varint,12,opt,name=attempt,proto3" json:"attempt,omitempty"`
 	// Strictly increasing event sequence within one run attempt.
-	Seq int64 `protobuf:"varint,12,opt,name=seq,proto3" json:"seq,omitempty"`
+	Seq int64 `protobuf:"varint,13,opt,name=seq,proto3" json:"seq,omitempty"`
 	// Best-effort resolved node name for UI and history queries.
-	NodeName string `protobuf:"bytes,13,opt,name=node_name,json=nodeName,proto3" json:"node_name,omitempty"`
+	NodeName string `protobuf:"bytes,14,opt,name=node_name,json=nodeName,proto3" json:"node_name,omitempty"`
 	// Stable node task identifier when the event belongs to one debug task/task_result.
-	TaskId string `protobuf:"bytes,14,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	TaskId string `protobuf:"bytes,15,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
 	// Stable model call identifier when the event belongs to one model interaction.
-	ModelCallId string `protobuf:"bytes,15,opt,name=model_call_id,json=modelCallId,proto3" json:"model_call_id,omitempty"`
+	ModelCallId string `protobuf:"bytes,16,opt,name=model_call_id,json=modelCallId,proto3" json:"model_call_id,omitempty"`
 	// Stable tool call identifier when the event belongs to one tool interaction.
-	ToolCallId string `protobuf:"bytes,16,opt,name=tool_call_id,json=toolCallId,proto3" json:"tool_call_id,omitempty"`
+	ToolCallId string `protobuf:"bytes,17,opt,name=tool_call_id,json=toolCallId,proto3" json:"tool_call_id,omitempty"`
 	// Stable HITL interrupt identifier when the event belongs to one HITL wait.
-	InterruptId string `protobuf:"bytes,17,opt,name=interrupt_id,json=interruptId,proto3" json:"interrupt_id,omitempty"`
+	InterruptId string `protobuf:"bytes,18,opt,name=interrupt_id,json=interruptId,proto3" json:"interrupt_id,omitempty"`
 	// Stable message identifier when the event belongs to one message block sequence.
-	MessageId     string `protobuf:"bytes,18,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
+	MessageId     string `protobuf:"bytes,19,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1696,9 +1748,23 @@ func (x *TelemetryEvent) GetTimestamp() *timestamppb.Timestamp {
 	return nil
 }
 
-func (x *TelemetryEvent) GetNs() []string {
+func (x *TelemetryEvent) GetThreadId() string {
 	if x != nil {
-		return x.Ns
+		return x.ThreadId
+	}
+	return ""
+}
+
+func (x *TelemetryEvent) GetSchemaVersion() uint32 {
+	if x != nil {
+		return x.SchemaVersion
+	}
+	return 0
+}
+
+func (x *TelemetryEvent) GetNamespace() []string {
+	if x != nil {
+		return x.Namespace
 	}
 	return nil
 }
@@ -1717,6 +1783,13 @@ func (x *TelemetryEvent) GetEventType() string {
 	return ""
 }
 
+func (x *TelemetryEvent) GetRetention() TelemetryRetention {
+	if x != nil {
+		return x.Retention
+	}
+	return TelemetryRetention_TELEMETRY_RETENTION_UNSPECIFIED
+}
+
 func (x *TelemetryEvent) GetMetadata() *structpb.Struct {
 	if x != nil {
 		return x.Metadata
@@ -1727,13 +1800,6 @@ func (x *TelemetryEvent) GetMetadata() *structpb.Struct {
 func (x *TelemetryEvent) GetPayload() *structpb.Value {
 	if x != nil {
 		return x.Payload
-	}
-	return nil
-}
-
-func (x *TelemetryEvent) GetPublicEvent() *AgentEvent {
-	if x != nil {
-		return x.PublicEvent
 	}
 	return nil
 }
@@ -5351,32 +5417,34 @@ const file_runtime_proto_rawDesc = "" +
 	"\rErrorOccurred\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\x12\x1d\n" +
 	"\n" +
-	"error_type\x18\x02 \x01(\tR\terrorType\"\xfe\x04\n" +
+	"error_type\x18\x02 \x01(\tR\terrorType\"\xd3\x05\n" +
 	"\x0eTelemetryEvent\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x1d\n" +
 	"\n" +
 	"agent_name\x18\x02 \x01(\tR\tagentName\x128\n" +
-	"\ttimestamp\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\x12\x0e\n" +
-	"\x02ns\x18\x04 \x03(\tR\x02ns\x12\x1f\n" +
-	"\vstream_mode\x18\x05 \x01(\tR\n" +
+	"\ttimestamp\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\x12\x1b\n" +
+	"\tthread_id\x18\x04 \x01(\tR\bthreadId\x12%\n" +
+	"\x0eschema_version\x18\x05 \x01(\rR\rschemaVersion\x12\x1c\n" +
+	"\tnamespace\x18\x06 \x03(\tR\tnamespace\x12\x1f\n" +
+	"\vstream_mode\x18\a \x01(\tR\n" +
 	"streamMode\x12\x1d\n" +
 	"\n" +
-	"event_type\x18\x06 \x01(\tR\teventType\x123\n" +
-	"\bmetadata\x18\a \x01(\v2\x17.google.protobuf.StructR\bmetadata\x120\n" +
-	"\apayload\x18\b \x01(\v2\x16.google.protobuf.ValueR\apayload\x12@\n" +
-	"\fpublic_event\x18\t \x01(\v2\x1d.agents.runtime.v1.AgentEventR\vpublicEvent\x12\x19\n" +
-	"\bevent_id\x18\n" +
-	" \x01(\tR\aeventId\x12\x18\n" +
-	"\aattempt\x18\v \x01(\x05R\aattempt\x12\x10\n" +
-	"\x03seq\x18\f \x01(\x03R\x03seq\x12\x1b\n" +
-	"\tnode_name\x18\r \x01(\tR\bnodeName\x12\x17\n" +
-	"\atask_id\x18\x0e \x01(\tR\x06taskId\x12\"\n" +
-	"\rmodel_call_id\x18\x0f \x01(\tR\vmodelCallId\x12 \n" +
-	"\ftool_call_id\x18\x10 \x01(\tR\n" +
+	"event_type\x18\b \x01(\tR\teventType\x12C\n" +
+	"\tretention\x18\x14 \x01(\x0e2%.agents.runtime.v1.TelemetryRetentionR\tretention\x123\n" +
+	"\bmetadata\x18\t \x01(\v2\x17.google.protobuf.StructR\bmetadata\x120\n" +
+	"\apayload\x18\n" +
+	" \x01(\v2\x16.google.protobuf.ValueR\apayload\x12\x19\n" +
+	"\bevent_id\x18\v \x01(\tR\aeventId\x12\x18\n" +
+	"\aattempt\x18\f \x01(\x05R\aattempt\x12\x10\n" +
+	"\x03seq\x18\r \x01(\x03R\x03seq\x12\x1b\n" +
+	"\tnode_name\x18\x0e \x01(\tR\bnodeName\x12\x17\n" +
+	"\atask_id\x18\x0f \x01(\tR\x06taskId\x12\"\n" +
+	"\rmodel_call_id\x18\x10 \x01(\tR\vmodelCallId\x12 \n" +
+	"\ftool_call_id\x18\x11 \x01(\tR\n" +
 	"toolCallId\x12!\n" +
-	"\finterrupt_id\x18\x11 \x01(\tR\vinterruptId\x12\x1d\n" +
+	"\finterrupt_id\x18\x12 \x01(\tR\vinterruptId\x12\x1d\n" +
 	"\n" +
-	"message_id\x18\x12 \x01(\tR\tmessageId\"\xaa\x01\n" +
+	"message_id\x18\x13 \x01(\tR\tmessageId\"\xaa\x01\n" +
 	"\x10SyncSkillRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\tR\acontent\x12 \n" +
@@ -5660,7 +5728,11 @@ const file_runtime_proto_rawDesc = "" +
 	" \x01(\x03R\x04size\"{\n" +
 	"\x1bListThreadArtifactsResponse\x12\x1b\n" +
 	"\tthread_id\x18\x01 \x01(\tR\bthreadId\x12?\n" +
-	"\tartifacts\x18\x02 \x03(\v2!.agents.runtime.v1.ThreadArtifactR\tartifacts*\x95\x01\n" +
+	"\tartifacts\x18\x02 \x03(\v2!.agents.runtime.v1.ThreadArtifactR\tartifacts*\x7f\n" +
+	"\x12TelemetryRetention\x12#\n" +
+	"\x1fTELEMETRY_RETENTION_UNSPECIFIED\x10\x00\x12\x1f\n" +
+	"\x1bTELEMETRY_RETENTION_DURABLE\x10\x01\x12#\n" +
+	"\x1fTELEMETRY_RETENTION_STREAM_ONLY\x10\x02*\x95\x01\n" +
 	"\x0fImagePullPolicy\x12!\n" +
 	"\x1dIMAGE_PULL_POLICY_UNSPECIFIED\x10\x00\x12$\n" +
 	" IMAGE_PULL_POLICY_IF_NOT_PRESENT\x10\x01\x12\x1c\n" +
@@ -5719,209 +5791,210 @@ func file_runtime_proto_rawDescGZIP() []byte {
 	return file_runtime_proto_rawDescData
 }
 
-var file_runtime_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
+var file_runtime_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
 var file_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 80)
 var file_runtime_proto_goTypes = []any{
-	(ImagePullPolicy)(0),                       // 0: agents.runtime.v1.ImagePullPolicy
-	(AgentRuntimeStatus)(0),                    // 1: agents.runtime.v1.AgentRuntimeStatus
-	(SessionHistoryMode)(0),                    // 2: agents.runtime.v1.SessionHistoryMode
-	(SessionMessageRole)(0),                    // 3: agents.runtime.v1.SessionMessageRole
-	(*ClientMessage)(nil),                      // 4: agents.runtime.v1.ClientMessage
-	(*RunRequest)(nil),                         // 5: agents.runtime.v1.RunRequest
-	(*HITLDecision)(nil),                       // 6: agents.runtime.v1.HITLDecision
-	(*Action)(nil),                             // 7: agents.runtime.v1.Action
-	(*Decision)(nil),                           // 8: agents.runtime.v1.Decision
-	(*CancelRequest)(nil),                      // 9: agents.runtime.v1.CancelRequest
-	(*AgentEvent)(nil),                         // 10: agents.runtime.v1.AgentEvent
-	(*RunStarted)(nil),                         // 11: agents.runtime.v1.RunStarted
-	(*TextDelta)(nil),                          // 12: agents.runtime.v1.TextDelta
-	(*TextDone)(nil),                           // 13: agents.runtime.v1.TextDone
-	(*ToolCallStart)(nil),                      // 14: agents.runtime.v1.ToolCallStart
-	(*ToolCallDone)(nil),                       // 15: agents.runtime.v1.ToolCallDone
-	(*ToolResult)(nil),                         // 16: agents.runtime.v1.ToolResult
-	(*HITLRequest)(nil),                        // 17: agents.runtime.v1.HITLRequest
-	(*ActionRequest)(nil),                      // 18: agents.runtime.v1.ActionRequest
-	(*ReviewConfig)(nil),                       // 19: agents.runtime.v1.ReviewConfig
-	(*RunEnded)(nil),                           // 20: agents.runtime.v1.RunEnded
-	(*RunCanceled)(nil),                        // 21: agents.runtime.v1.RunCanceled
-	(*UsageStats)(nil),                         // 22: agents.runtime.v1.UsageStats
-	(*ErrorOccurred)(nil),                      // 23: agents.runtime.v1.ErrorOccurred
-	(*TelemetryEvent)(nil),                     // 24: agents.runtime.v1.TelemetryEvent
-	(*SyncSkillRequest)(nil),                   // 25: agents.runtime.v1.SyncSkillRequest
-	(*SyncMcpRequest)(nil),                     // 26: agents.runtime.v1.SyncMcpRequest
-	(*SyncAgentSpecRequest)(nil),               // 27: agents.runtime.v1.SyncAgentSpecRequest
-	(*SubagentSpec)(nil),                       // 28: agents.runtime.v1.SubagentSpec
-	(*McpServerConfig)(nil),                    // 29: agents.runtime.v1.McpServerConfig
-	(*PromptSpec)(nil),                         // 30: agents.runtime.v1.PromptSpec
-	(*ToolsSpec)(nil),                          // 31: agents.runtime.v1.ToolsSpec
-	(*SandboxSpec)(nil),                        // 32: agents.runtime.v1.SandboxSpec
-	(*SandboxExecutionPolicy)(nil),             // 33: agents.runtime.v1.SandboxExecutionPolicy
-	(*SandboxEnvVar)(nil),                      // 34: agents.runtime.v1.SandboxEnvVar
-	(*LocalSandboxSpec)(nil),                   // 35: agents.runtime.v1.LocalSandboxSpec
-	(*ImageReference)(nil),                     // 36: agents.runtime.v1.ImageReference
-	(*DockerSandboxSpec)(nil),                  // 37: agents.runtime.v1.DockerSandboxSpec
-	(*DockerResourceSpec)(nil),                 // 38: agents.runtime.v1.DockerResourceSpec
-	(*KubernetesSandboxSpec)(nil),              // 39: agents.runtime.v1.KubernetesSandboxSpec
-	(*KubernetesResourceRequirements)(nil),     // 40: agents.runtime.v1.KubernetesResourceRequirements
-	(*SkillFile)(nil),                          // 41: agents.runtime.v1.SkillFile
-	(*SkillContent)(nil),                       // 42: agents.runtime.v1.SkillContent
-	(*ModelConfig)(nil),                        // 43: agents.runtime.v1.ModelConfig
-	(*AssembleRequest)(nil),                    // 44: agents.runtime.v1.AssembleRequest
-	(*AssembleResponse)(nil),                   // 45: agents.runtime.v1.AssembleResponse
-	(*GetAgentGraphRequest)(nil),               // 46: agents.runtime.v1.GetAgentGraphRequest
-	(*GetAgentGraphResponse)(nil),              // 47: agents.runtime.v1.GetAgentGraphResponse
-	(*UploadWorkspaceFileMetadata)(nil),        // 48: agents.runtime.v1.UploadWorkspaceFileMetadata
-	(*UploadWorkspaceFileStreamRequest)(nil),   // 49: agents.runtime.v1.UploadWorkspaceFileStreamRequest
-	(*UploadWorkspaceFileStreamResponse)(nil),  // 50: agents.runtime.v1.UploadWorkspaceFileStreamResponse
-	(*DownloadWorkspaceFileStreamRequest)(nil), // 51: agents.runtime.v1.DownloadWorkspaceFileStreamRequest
-	(*DownloadWorkspaceFileChunk)(nil),         // 52: agents.runtime.v1.DownloadWorkspaceFileChunk
-	(*ListWorkspaceFilesRequest)(nil),          // 53: agents.runtime.v1.ListWorkspaceFilesRequest
-	(*WorkspaceFileInfo)(nil),                  // 54: agents.runtime.v1.WorkspaceFileInfo
-	(*ListWorkspaceFilesResponse)(nil),         // 55: agents.runtime.v1.ListWorkspaceFilesResponse
-	(*RemoveResourceRequest)(nil),              // 56: agents.runtime.v1.RemoveResourceRequest
-	(*SyncResponse)(nil),                       // 57: agents.runtime.v1.SyncResponse
-	(*HealthRequest)(nil),                      // 58: agents.runtime.v1.HealthRequest
-	(*AgentHealth)(nil),                        // 59: agents.runtime.v1.AgentHealth
-	(*HealthResponse)(nil),                     // 60: agents.runtime.v1.HealthResponse
-	(*ListSessionsRequest)(nil),                // 61: agents.runtime.v1.ListSessionsRequest
-	(*ListSessionsResponse)(nil),               // 62: agents.runtime.v1.ListSessionsResponse
-	(*GetSessionRequest)(nil),                  // 63: agents.runtime.v1.GetSessionRequest
-	(*GetSessionResponse)(nil),                 // 64: agents.runtime.v1.GetSessionResponse
-	(*GetLatestSessionRequest)(nil),            // 65: agents.runtime.v1.GetLatestSessionRequest
-	(*GetLatestSessionResponse)(nil),           // 66: agents.runtime.v1.GetLatestSessionResponse
-	(*DeleteSessionRequest)(nil),               // 67: agents.runtime.v1.DeleteSessionRequest
-	(*DeleteSessionResponse)(nil),              // 68: agents.runtime.v1.DeleteSessionResponse
-	(*GetSessionMessagesRequest)(nil),          // 69: agents.runtime.v1.GetSessionMessagesRequest
-	(*GetSessionMessagesResponse)(nil),         // 70: agents.runtime.v1.GetSessionMessagesResponse
-	(*SessionSummary)(nil),                     // 71: agents.runtime.v1.SessionSummary
-	(*SessionDetail)(nil),                      // 72: agents.runtime.v1.SessionDetail
-	(*SessionMessage)(nil),                     // 73: agents.runtime.v1.SessionMessage
-	(*ListThreadArtifactsRequest)(nil),         // 74: agents.runtime.v1.ListThreadArtifactsRequest
-	(*ThreadArtifact)(nil),                     // 75: agents.runtime.v1.ThreadArtifact
-	(*ListThreadArtifactsResponse)(nil),        // 76: agents.runtime.v1.ListThreadArtifactsResponse
-	nil,                                        // 77: agents.runtime.v1.RunRequest.MetadataEntry
-	nil,                                        // 78: agents.runtime.v1.SyncMcpRequest.EnvEntry
-	nil,                                        // 79: agents.runtime.v1.McpServerConfig.EnvEntry
-	nil,                                        // 80: agents.runtime.v1.SandboxSpec.ResourcesEntry
-	nil,                                        // 81: agents.runtime.v1.KubernetesResourceRequirements.RequestsEntry
-	nil,                                        // 82: agents.runtime.v1.KubernetesResourceRequirements.LimitsEntry
-	nil,                                        // 83: agents.runtime.v1.ModelConfig.ExtraParamsEntry
-	(*structpb.Struct)(nil),                    // 84: google.protobuf.Struct
-	(*timestamppb.Timestamp)(nil),              // 85: google.protobuf.Timestamp
-	(*structpb.Value)(nil),                     // 86: google.protobuf.Value
+	(TelemetryRetention)(0),                    // 0: agents.runtime.v1.TelemetryRetention
+	(ImagePullPolicy)(0),                       // 1: agents.runtime.v1.ImagePullPolicy
+	(AgentRuntimeStatus)(0),                    // 2: agents.runtime.v1.AgentRuntimeStatus
+	(SessionHistoryMode)(0),                    // 3: agents.runtime.v1.SessionHistoryMode
+	(SessionMessageRole)(0),                    // 4: agents.runtime.v1.SessionMessageRole
+	(*ClientMessage)(nil),                      // 5: agents.runtime.v1.ClientMessage
+	(*RunRequest)(nil),                         // 6: agents.runtime.v1.RunRequest
+	(*HITLDecision)(nil),                       // 7: agents.runtime.v1.HITLDecision
+	(*Action)(nil),                             // 8: agents.runtime.v1.Action
+	(*Decision)(nil),                           // 9: agents.runtime.v1.Decision
+	(*CancelRequest)(nil),                      // 10: agents.runtime.v1.CancelRequest
+	(*AgentEvent)(nil),                         // 11: agents.runtime.v1.AgentEvent
+	(*RunStarted)(nil),                         // 12: agents.runtime.v1.RunStarted
+	(*TextDelta)(nil),                          // 13: agents.runtime.v1.TextDelta
+	(*TextDone)(nil),                           // 14: agents.runtime.v1.TextDone
+	(*ToolCallStart)(nil),                      // 15: agents.runtime.v1.ToolCallStart
+	(*ToolCallDone)(nil),                       // 16: agents.runtime.v1.ToolCallDone
+	(*ToolResult)(nil),                         // 17: agents.runtime.v1.ToolResult
+	(*HITLRequest)(nil),                        // 18: agents.runtime.v1.HITLRequest
+	(*ActionRequest)(nil),                      // 19: agents.runtime.v1.ActionRequest
+	(*ReviewConfig)(nil),                       // 20: agents.runtime.v1.ReviewConfig
+	(*RunEnded)(nil),                           // 21: agents.runtime.v1.RunEnded
+	(*RunCanceled)(nil),                        // 22: agents.runtime.v1.RunCanceled
+	(*UsageStats)(nil),                         // 23: agents.runtime.v1.UsageStats
+	(*ErrorOccurred)(nil),                      // 24: agents.runtime.v1.ErrorOccurred
+	(*TelemetryEvent)(nil),                     // 25: agents.runtime.v1.TelemetryEvent
+	(*SyncSkillRequest)(nil),                   // 26: agents.runtime.v1.SyncSkillRequest
+	(*SyncMcpRequest)(nil),                     // 27: agents.runtime.v1.SyncMcpRequest
+	(*SyncAgentSpecRequest)(nil),               // 28: agents.runtime.v1.SyncAgentSpecRequest
+	(*SubagentSpec)(nil),                       // 29: agents.runtime.v1.SubagentSpec
+	(*McpServerConfig)(nil),                    // 30: agents.runtime.v1.McpServerConfig
+	(*PromptSpec)(nil),                         // 31: agents.runtime.v1.PromptSpec
+	(*ToolsSpec)(nil),                          // 32: agents.runtime.v1.ToolsSpec
+	(*SandboxSpec)(nil),                        // 33: agents.runtime.v1.SandboxSpec
+	(*SandboxExecutionPolicy)(nil),             // 34: agents.runtime.v1.SandboxExecutionPolicy
+	(*SandboxEnvVar)(nil),                      // 35: agents.runtime.v1.SandboxEnvVar
+	(*LocalSandboxSpec)(nil),                   // 36: agents.runtime.v1.LocalSandboxSpec
+	(*ImageReference)(nil),                     // 37: agents.runtime.v1.ImageReference
+	(*DockerSandboxSpec)(nil),                  // 38: agents.runtime.v1.DockerSandboxSpec
+	(*DockerResourceSpec)(nil),                 // 39: agents.runtime.v1.DockerResourceSpec
+	(*KubernetesSandboxSpec)(nil),              // 40: agents.runtime.v1.KubernetesSandboxSpec
+	(*KubernetesResourceRequirements)(nil),     // 41: agents.runtime.v1.KubernetesResourceRequirements
+	(*SkillFile)(nil),                          // 42: agents.runtime.v1.SkillFile
+	(*SkillContent)(nil),                       // 43: agents.runtime.v1.SkillContent
+	(*ModelConfig)(nil),                        // 44: agents.runtime.v1.ModelConfig
+	(*AssembleRequest)(nil),                    // 45: agents.runtime.v1.AssembleRequest
+	(*AssembleResponse)(nil),                   // 46: agents.runtime.v1.AssembleResponse
+	(*GetAgentGraphRequest)(nil),               // 47: agents.runtime.v1.GetAgentGraphRequest
+	(*GetAgentGraphResponse)(nil),              // 48: agents.runtime.v1.GetAgentGraphResponse
+	(*UploadWorkspaceFileMetadata)(nil),        // 49: agents.runtime.v1.UploadWorkspaceFileMetadata
+	(*UploadWorkspaceFileStreamRequest)(nil),   // 50: agents.runtime.v1.UploadWorkspaceFileStreamRequest
+	(*UploadWorkspaceFileStreamResponse)(nil),  // 51: agents.runtime.v1.UploadWorkspaceFileStreamResponse
+	(*DownloadWorkspaceFileStreamRequest)(nil), // 52: agents.runtime.v1.DownloadWorkspaceFileStreamRequest
+	(*DownloadWorkspaceFileChunk)(nil),         // 53: agents.runtime.v1.DownloadWorkspaceFileChunk
+	(*ListWorkspaceFilesRequest)(nil),          // 54: agents.runtime.v1.ListWorkspaceFilesRequest
+	(*WorkspaceFileInfo)(nil),                  // 55: agents.runtime.v1.WorkspaceFileInfo
+	(*ListWorkspaceFilesResponse)(nil),         // 56: agents.runtime.v1.ListWorkspaceFilesResponse
+	(*RemoveResourceRequest)(nil),              // 57: agents.runtime.v1.RemoveResourceRequest
+	(*SyncResponse)(nil),                       // 58: agents.runtime.v1.SyncResponse
+	(*HealthRequest)(nil),                      // 59: agents.runtime.v1.HealthRequest
+	(*AgentHealth)(nil),                        // 60: agents.runtime.v1.AgentHealth
+	(*HealthResponse)(nil),                     // 61: agents.runtime.v1.HealthResponse
+	(*ListSessionsRequest)(nil),                // 62: agents.runtime.v1.ListSessionsRequest
+	(*ListSessionsResponse)(nil),               // 63: agents.runtime.v1.ListSessionsResponse
+	(*GetSessionRequest)(nil),                  // 64: agents.runtime.v1.GetSessionRequest
+	(*GetSessionResponse)(nil),                 // 65: agents.runtime.v1.GetSessionResponse
+	(*GetLatestSessionRequest)(nil),            // 66: agents.runtime.v1.GetLatestSessionRequest
+	(*GetLatestSessionResponse)(nil),           // 67: agents.runtime.v1.GetLatestSessionResponse
+	(*DeleteSessionRequest)(nil),               // 68: agents.runtime.v1.DeleteSessionRequest
+	(*DeleteSessionResponse)(nil),              // 69: agents.runtime.v1.DeleteSessionResponse
+	(*GetSessionMessagesRequest)(nil),          // 70: agents.runtime.v1.GetSessionMessagesRequest
+	(*GetSessionMessagesResponse)(nil),         // 71: agents.runtime.v1.GetSessionMessagesResponse
+	(*SessionSummary)(nil),                     // 72: agents.runtime.v1.SessionSummary
+	(*SessionDetail)(nil),                      // 73: agents.runtime.v1.SessionDetail
+	(*SessionMessage)(nil),                     // 74: agents.runtime.v1.SessionMessage
+	(*ListThreadArtifactsRequest)(nil),         // 75: agents.runtime.v1.ListThreadArtifactsRequest
+	(*ThreadArtifact)(nil),                     // 76: agents.runtime.v1.ThreadArtifact
+	(*ListThreadArtifactsResponse)(nil),        // 77: agents.runtime.v1.ListThreadArtifactsResponse
+	nil,                                        // 78: agents.runtime.v1.RunRequest.MetadataEntry
+	nil,                                        // 79: agents.runtime.v1.SyncMcpRequest.EnvEntry
+	nil,                                        // 80: agents.runtime.v1.McpServerConfig.EnvEntry
+	nil,                                        // 81: agents.runtime.v1.SandboxSpec.ResourcesEntry
+	nil,                                        // 82: agents.runtime.v1.KubernetesResourceRequirements.RequestsEntry
+	nil,                                        // 83: agents.runtime.v1.KubernetesResourceRequirements.LimitsEntry
+	nil,                                        // 84: agents.runtime.v1.ModelConfig.ExtraParamsEntry
+	(*structpb.Struct)(nil),                    // 85: google.protobuf.Struct
+	(*timestamppb.Timestamp)(nil),              // 86: google.protobuf.Timestamp
+	(*structpb.Value)(nil),                     // 87: google.protobuf.Value
 }
 var file_runtime_proto_depIdxs = []int32{
-	5,  // 0: agents.runtime.v1.ClientMessage.run_request:type_name -> agents.runtime.v1.RunRequest
-	6,  // 1: agents.runtime.v1.ClientMessage.hitl_decision:type_name -> agents.runtime.v1.HITLDecision
-	9,  // 2: agents.runtime.v1.ClientMessage.cancel:type_name -> agents.runtime.v1.CancelRequest
-	77, // 3: agents.runtime.v1.RunRequest.metadata:type_name -> agents.runtime.v1.RunRequest.MetadataEntry
-	8,  // 4: agents.runtime.v1.HITLDecision.decisions:type_name -> agents.runtime.v1.Decision
-	84, // 5: agents.runtime.v1.Action.args:type_name -> google.protobuf.Struct
-	7,  // 6: agents.runtime.v1.Decision.edited_action:type_name -> agents.runtime.v1.Action
-	85, // 7: agents.runtime.v1.AgentEvent.timestamp:type_name -> google.protobuf.Timestamp
-	11, // 8: agents.runtime.v1.AgentEvent.run_started:type_name -> agents.runtime.v1.RunStarted
-	12, // 9: agents.runtime.v1.AgentEvent.text_delta:type_name -> agents.runtime.v1.TextDelta
-	13, // 10: agents.runtime.v1.AgentEvent.text_done:type_name -> agents.runtime.v1.TextDone
-	14, // 11: agents.runtime.v1.AgentEvent.tool_call_start:type_name -> agents.runtime.v1.ToolCallStart
-	15, // 12: agents.runtime.v1.AgentEvent.tool_call_done:type_name -> agents.runtime.v1.ToolCallDone
-	16, // 13: agents.runtime.v1.AgentEvent.tool_result:type_name -> agents.runtime.v1.ToolResult
-	17, // 14: agents.runtime.v1.AgentEvent.hitl_request:type_name -> agents.runtime.v1.HITLRequest
-	20, // 15: agents.runtime.v1.AgentEvent.run_ended:type_name -> agents.runtime.v1.RunEnded
-	23, // 16: agents.runtime.v1.AgentEvent.error:type_name -> agents.runtime.v1.ErrorOccurred
-	21, // 17: agents.runtime.v1.AgentEvent.run_canceled:type_name -> agents.runtime.v1.RunCanceled
-	84, // 18: agents.runtime.v1.ToolCallStart.args:type_name -> google.protobuf.Struct
-	86, // 19: agents.runtime.v1.ToolResult.payload:type_name -> google.protobuf.Value
-	18, // 20: agents.runtime.v1.HITLRequest.action_requests:type_name -> agents.runtime.v1.ActionRequest
-	19, // 21: agents.runtime.v1.HITLRequest.review_configs:type_name -> agents.runtime.v1.ReviewConfig
-	84, // 22: agents.runtime.v1.ActionRequest.args:type_name -> google.protobuf.Struct
-	84, // 23: agents.runtime.v1.ReviewConfig.args_schema:type_name -> google.protobuf.Struct
-	22, // 24: agents.runtime.v1.RunEnded.stats:type_name -> agents.runtime.v1.UsageStats
-	85, // 25: agents.runtime.v1.TelemetryEvent.timestamp:type_name -> google.protobuf.Timestamp
-	84, // 26: agents.runtime.v1.TelemetryEvent.metadata:type_name -> google.protobuf.Struct
-	86, // 27: agents.runtime.v1.TelemetryEvent.payload:type_name -> google.protobuf.Value
-	10, // 28: agents.runtime.v1.TelemetryEvent.public_event:type_name -> agents.runtime.v1.AgentEvent
-	41, // 29: agents.runtime.v1.SyncSkillRequest.files:type_name -> agents.runtime.v1.SkillFile
-	78, // 30: agents.runtime.v1.SyncMcpRequest.env:type_name -> agents.runtime.v1.SyncMcpRequest.EnvEntry
-	30, // 31: agents.runtime.v1.SyncAgentSpecRequest.prompt:type_name -> agents.runtime.v1.PromptSpec
-	42, // 32: agents.runtime.v1.SyncAgentSpecRequest.skills:type_name -> agents.runtime.v1.SkillContent
-	31, // 33: agents.runtime.v1.SyncAgentSpecRequest.tools:type_name -> agents.runtime.v1.ToolsSpec
-	28, // 34: agents.runtime.v1.SyncAgentSpecRequest.subagents:type_name -> agents.runtime.v1.SubagentSpec
-	32, // 35: agents.runtime.v1.SyncAgentSpecRequest.sandbox:type_name -> agents.runtime.v1.SandboxSpec
-	29, // 36: agents.runtime.v1.SyncAgentSpecRequest.mcp_servers:type_name -> agents.runtime.v1.McpServerConfig
-	43, // 37: agents.runtime.v1.SyncAgentSpecRequest.model_config:type_name -> agents.runtime.v1.ModelConfig
-	42, // 38: agents.runtime.v1.SubagentSpec.skills:type_name -> agents.runtime.v1.SkillContent
-	43, // 39: agents.runtime.v1.SubagentSpec.model_config:type_name -> agents.runtime.v1.ModelConfig
-	79, // 40: agents.runtime.v1.McpServerConfig.env:type_name -> agents.runtime.v1.McpServerConfig.EnvEntry
-	80, // 41: agents.runtime.v1.SandboxSpec.resources:type_name -> agents.runtime.v1.SandboxSpec.ResourcesEntry
-	33, // 42: agents.runtime.v1.SandboxSpec.execution:type_name -> agents.runtime.v1.SandboxExecutionPolicy
-	34, // 43: agents.runtime.v1.SandboxSpec.env:type_name -> agents.runtime.v1.SandboxEnvVar
-	35, // 44: agents.runtime.v1.SandboxSpec.local:type_name -> agents.runtime.v1.LocalSandboxSpec
-	37, // 45: agents.runtime.v1.SandboxSpec.docker:type_name -> agents.runtime.v1.DockerSandboxSpec
-	39, // 46: agents.runtime.v1.SandboxSpec.kubernetes:type_name -> agents.runtime.v1.KubernetesSandboxSpec
-	0,  // 47: agents.runtime.v1.ImageReference.pull_policy:type_name -> agents.runtime.v1.ImagePullPolicy
-	36, // 48: agents.runtime.v1.DockerSandboxSpec.image:type_name -> agents.runtime.v1.ImageReference
-	38, // 49: agents.runtime.v1.DockerSandboxSpec.resources:type_name -> agents.runtime.v1.DockerResourceSpec
-	36, // 50: agents.runtime.v1.KubernetesSandboxSpec.image:type_name -> agents.runtime.v1.ImageReference
-	40, // 51: agents.runtime.v1.KubernetesSandboxSpec.resources:type_name -> agents.runtime.v1.KubernetesResourceRequirements
-	81, // 52: agents.runtime.v1.KubernetesResourceRequirements.requests:type_name -> agents.runtime.v1.KubernetesResourceRequirements.RequestsEntry
-	82, // 53: agents.runtime.v1.KubernetesResourceRequirements.limits:type_name -> agents.runtime.v1.KubernetesResourceRequirements.LimitsEntry
-	41, // 54: agents.runtime.v1.SkillContent.files:type_name -> agents.runtime.v1.SkillFile
-	83, // 55: agents.runtime.v1.ModelConfig.extra_params:type_name -> agents.runtime.v1.ModelConfig.ExtraParamsEntry
-	86, // 56: agents.runtime.v1.GetAgentGraphResponse.graph:type_name -> google.protobuf.Value
-	48, // 57: agents.runtime.v1.UploadWorkspaceFileStreamRequest.metadata:type_name -> agents.runtime.v1.UploadWorkspaceFileMetadata
-	54, // 58: agents.runtime.v1.ListWorkspaceFilesResponse.files:type_name -> agents.runtime.v1.WorkspaceFileInfo
-	1,  // 59: agents.runtime.v1.AgentHealth.status:type_name -> agents.runtime.v1.AgentRuntimeStatus
-	85, // 60: agents.runtime.v1.AgentHealth.last_invoked_at:type_name -> google.protobuf.Timestamp
-	59, // 61: agents.runtime.v1.HealthResponse.agents:type_name -> agents.runtime.v1.AgentHealth
-	71, // 62: agents.runtime.v1.ListSessionsResponse.sessions:type_name -> agents.runtime.v1.SessionSummary
-	72, // 63: agents.runtime.v1.GetSessionResponse.session:type_name -> agents.runtime.v1.SessionDetail
-	71, // 64: agents.runtime.v1.GetLatestSessionResponse.session:type_name -> agents.runtime.v1.SessionSummary
-	2,  // 65: agents.runtime.v1.GetSessionMessagesRequest.requested_mode:type_name -> agents.runtime.v1.SessionHistoryMode
-	2,  // 66: agents.runtime.v1.GetSessionMessagesResponse.actual_mode:type_name -> agents.runtime.v1.SessionHistoryMode
-	73, // 67: agents.runtime.v1.GetSessionMessagesResponse.messages:type_name -> agents.runtime.v1.SessionMessage
-	85, // 68: agents.runtime.v1.SessionSummary.updated_at:type_name -> google.protobuf.Timestamp
-	2,  // 69: agents.runtime.v1.SessionSummary.history_mode:type_name -> agents.runtime.v1.SessionHistoryMode
-	1,  // 70: agents.runtime.v1.SessionSummary.agent_status:type_name -> agents.runtime.v1.AgentRuntimeStatus
-	71, // 71: agents.runtime.v1.SessionDetail.summary:type_name -> agents.runtime.v1.SessionSummary
-	3,  // 72: agents.runtime.v1.SessionMessage.role:type_name -> agents.runtime.v1.SessionMessageRole
-	84, // 73: agents.runtime.v1.SessionMessage.raw:type_name -> google.protobuf.Struct
-	75, // 74: agents.runtime.v1.ListThreadArtifactsResponse.artifacts:type_name -> agents.runtime.v1.ThreadArtifact
-	4,  // 75: agents.runtime.v1.AgentExecutor.Run:input_type -> agents.runtime.v1.ClientMessage
-	4,  // 76: agents.runtime.v1.AgentTelemetry.RunTelemetry:input_type -> agents.runtime.v1.ClientMessage
-	25, // 77: agents.runtime.v1.ResourceSync.SyncSkill:input_type -> agents.runtime.v1.SyncSkillRequest
-	26, // 78: agents.runtime.v1.ResourceSync.SyncMcp:input_type -> agents.runtime.v1.SyncMcpRequest
-	27, // 79: agents.runtime.v1.ResourceSync.SyncAgentSpec:input_type -> agents.runtime.v1.SyncAgentSpecRequest
-	44, // 80: agents.runtime.v1.ResourceSync.Assemble:input_type -> agents.runtime.v1.AssembleRequest
-	46, // 81: agents.runtime.v1.ResourceSync.GetAgentGraph:input_type -> agents.runtime.v1.GetAgentGraphRequest
-	49, // 82: agents.runtime.v1.ResourceSync.UploadWorkspaceFileStream:input_type -> agents.runtime.v1.UploadWorkspaceFileStreamRequest
-	51, // 83: agents.runtime.v1.ResourceSync.DownloadWorkspaceFileStream:input_type -> agents.runtime.v1.DownloadWorkspaceFileStreamRequest
-	53, // 84: agents.runtime.v1.ResourceSync.ListWorkspaceFiles:input_type -> agents.runtime.v1.ListWorkspaceFilesRequest
-	56, // 85: agents.runtime.v1.ResourceSync.RemoveResource:input_type -> agents.runtime.v1.RemoveResourceRequest
-	58, // 86: agents.runtime.v1.ResourceSync.Health:input_type -> agents.runtime.v1.HealthRequest
-	61, // 87: agents.runtime.v1.SessionQuery.ListSessions:input_type -> agents.runtime.v1.ListSessionsRequest
-	63, // 88: agents.runtime.v1.SessionQuery.GetSession:input_type -> agents.runtime.v1.GetSessionRequest
-	69, // 89: agents.runtime.v1.SessionQuery.GetSessionMessages:input_type -> agents.runtime.v1.GetSessionMessagesRequest
-	65, // 90: agents.runtime.v1.SessionQuery.GetLatestSession:input_type -> agents.runtime.v1.GetLatestSessionRequest
-	67, // 91: agents.runtime.v1.SessionQuery.DeleteSession:input_type -> agents.runtime.v1.DeleteSessionRequest
-	74, // 92: agents.runtime.v1.SessionQuery.ListThreadArtifacts:input_type -> agents.runtime.v1.ListThreadArtifactsRequest
-	10, // 93: agents.runtime.v1.AgentExecutor.Run:output_type -> agents.runtime.v1.AgentEvent
-	24, // 94: agents.runtime.v1.AgentTelemetry.RunTelemetry:output_type -> agents.runtime.v1.TelemetryEvent
-	57, // 95: agents.runtime.v1.ResourceSync.SyncSkill:output_type -> agents.runtime.v1.SyncResponse
-	57, // 96: agents.runtime.v1.ResourceSync.SyncMcp:output_type -> agents.runtime.v1.SyncResponse
-	57, // 97: agents.runtime.v1.ResourceSync.SyncAgentSpec:output_type -> agents.runtime.v1.SyncResponse
-	45, // 98: agents.runtime.v1.ResourceSync.Assemble:output_type -> agents.runtime.v1.AssembleResponse
-	47, // 99: agents.runtime.v1.ResourceSync.GetAgentGraph:output_type -> agents.runtime.v1.GetAgentGraphResponse
-	50, // 100: agents.runtime.v1.ResourceSync.UploadWorkspaceFileStream:output_type -> agents.runtime.v1.UploadWorkspaceFileStreamResponse
-	52, // 101: agents.runtime.v1.ResourceSync.DownloadWorkspaceFileStream:output_type -> agents.runtime.v1.DownloadWorkspaceFileChunk
-	55, // 102: agents.runtime.v1.ResourceSync.ListWorkspaceFiles:output_type -> agents.runtime.v1.ListWorkspaceFilesResponse
-	57, // 103: agents.runtime.v1.ResourceSync.RemoveResource:output_type -> agents.runtime.v1.SyncResponse
-	60, // 104: agents.runtime.v1.ResourceSync.Health:output_type -> agents.runtime.v1.HealthResponse
-	62, // 105: agents.runtime.v1.SessionQuery.ListSessions:output_type -> agents.runtime.v1.ListSessionsResponse
-	64, // 106: agents.runtime.v1.SessionQuery.GetSession:output_type -> agents.runtime.v1.GetSessionResponse
-	70, // 107: agents.runtime.v1.SessionQuery.GetSessionMessages:output_type -> agents.runtime.v1.GetSessionMessagesResponse
-	66, // 108: agents.runtime.v1.SessionQuery.GetLatestSession:output_type -> agents.runtime.v1.GetLatestSessionResponse
-	68, // 109: agents.runtime.v1.SessionQuery.DeleteSession:output_type -> agents.runtime.v1.DeleteSessionResponse
-	76, // 110: agents.runtime.v1.SessionQuery.ListThreadArtifacts:output_type -> agents.runtime.v1.ListThreadArtifactsResponse
+	6,  // 0: agents.runtime.v1.ClientMessage.run_request:type_name -> agents.runtime.v1.RunRequest
+	7,  // 1: agents.runtime.v1.ClientMessage.hitl_decision:type_name -> agents.runtime.v1.HITLDecision
+	10, // 2: agents.runtime.v1.ClientMessage.cancel:type_name -> agents.runtime.v1.CancelRequest
+	78, // 3: agents.runtime.v1.RunRequest.metadata:type_name -> agents.runtime.v1.RunRequest.MetadataEntry
+	9,  // 4: agents.runtime.v1.HITLDecision.decisions:type_name -> agents.runtime.v1.Decision
+	85, // 5: agents.runtime.v1.Action.args:type_name -> google.protobuf.Struct
+	8,  // 6: agents.runtime.v1.Decision.edited_action:type_name -> agents.runtime.v1.Action
+	86, // 7: agents.runtime.v1.AgentEvent.timestamp:type_name -> google.protobuf.Timestamp
+	12, // 8: agents.runtime.v1.AgentEvent.run_started:type_name -> agents.runtime.v1.RunStarted
+	13, // 9: agents.runtime.v1.AgentEvent.text_delta:type_name -> agents.runtime.v1.TextDelta
+	14, // 10: agents.runtime.v1.AgentEvent.text_done:type_name -> agents.runtime.v1.TextDone
+	15, // 11: agents.runtime.v1.AgentEvent.tool_call_start:type_name -> agents.runtime.v1.ToolCallStart
+	16, // 12: agents.runtime.v1.AgentEvent.tool_call_done:type_name -> agents.runtime.v1.ToolCallDone
+	17, // 13: agents.runtime.v1.AgentEvent.tool_result:type_name -> agents.runtime.v1.ToolResult
+	18, // 14: agents.runtime.v1.AgentEvent.hitl_request:type_name -> agents.runtime.v1.HITLRequest
+	21, // 15: agents.runtime.v1.AgentEvent.run_ended:type_name -> agents.runtime.v1.RunEnded
+	24, // 16: agents.runtime.v1.AgentEvent.error:type_name -> agents.runtime.v1.ErrorOccurred
+	22, // 17: agents.runtime.v1.AgentEvent.run_canceled:type_name -> agents.runtime.v1.RunCanceled
+	85, // 18: agents.runtime.v1.ToolCallStart.args:type_name -> google.protobuf.Struct
+	87, // 19: agents.runtime.v1.ToolResult.payload:type_name -> google.protobuf.Value
+	19, // 20: agents.runtime.v1.HITLRequest.action_requests:type_name -> agents.runtime.v1.ActionRequest
+	20, // 21: agents.runtime.v1.HITLRequest.review_configs:type_name -> agents.runtime.v1.ReviewConfig
+	85, // 22: agents.runtime.v1.ActionRequest.args:type_name -> google.protobuf.Struct
+	85, // 23: agents.runtime.v1.ReviewConfig.args_schema:type_name -> google.protobuf.Struct
+	23, // 24: agents.runtime.v1.RunEnded.stats:type_name -> agents.runtime.v1.UsageStats
+	86, // 25: agents.runtime.v1.TelemetryEvent.timestamp:type_name -> google.protobuf.Timestamp
+	0,  // 26: agents.runtime.v1.TelemetryEvent.retention:type_name -> agents.runtime.v1.TelemetryRetention
+	85, // 27: agents.runtime.v1.TelemetryEvent.metadata:type_name -> google.protobuf.Struct
+	87, // 28: agents.runtime.v1.TelemetryEvent.payload:type_name -> google.protobuf.Value
+	42, // 29: agents.runtime.v1.SyncSkillRequest.files:type_name -> agents.runtime.v1.SkillFile
+	79, // 30: agents.runtime.v1.SyncMcpRequest.env:type_name -> agents.runtime.v1.SyncMcpRequest.EnvEntry
+	31, // 31: agents.runtime.v1.SyncAgentSpecRequest.prompt:type_name -> agents.runtime.v1.PromptSpec
+	43, // 32: agents.runtime.v1.SyncAgentSpecRequest.skills:type_name -> agents.runtime.v1.SkillContent
+	32, // 33: agents.runtime.v1.SyncAgentSpecRequest.tools:type_name -> agents.runtime.v1.ToolsSpec
+	29, // 34: agents.runtime.v1.SyncAgentSpecRequest.subagents:type_name -> agents.runtime.v1.SubagentSpec
+	33, // 35: agents.runtime.v1.SyncAgentSpecRequest.sandbox:type_name -> agents.runtime.v1.SandboxSpec
+	30, // 36: agents.runtime.v1.SyncAgentSpecRequest.mcp_servers:type_name -> agents.runtime.v1.McpServerConfig
+	44, // 37: agents.runtime.v1.SyncAgentSpecRequest.model_config:type_name -> agents.runtime.v1.ModelConfig
+	43, // 38: agents.runtime.v1.SubagentSpec.skills:type_name -> agents.runtime.v1.SkillContent
+	44, // 39: agents.runtime.v1.SubagentSpec.model_config:type_name -> agents.runtime.v1.ModelConfig
+	80, // 40: agents.runtime.v1.McpServerConfig.env:type_name -> agents.runtime.v1.McpServerConfig.EnvEntry
+	81, // 41: agents.runtime.v1.SandboxSpec.resources:type_name -> agents.runtime.v1.SandboxSpec.ResourcesEntry
+	34, // 42: agents.runtime.v1.SandboxSpec.execution:type_name -> agents.runtime.v1.SandboxExecutionPolicy
+	35, // 43: agents.runtime.v1.SandboxSpec.env:type_name -> agents.runtime.v1.SandboxEnvVar
+	36, // 44: agents.runtime.v1.SandboxSpec.local:type_name -> agents.runtime.v1.LocalSandboxSpec
+	38, // 45: agents.runtime.v1.SandboxSpec.docker:type_name -> agents.runtime.v1.DockerSandboxSpec
+	40, // 46: agents.runtime.v1.SandboxSpec.kubernetes:type_name -> agents.runtime.v1.KubernetesSandboxSpec
+	1,  // 47: agents.runtime.v1.ImageReference.pull_policy:type_name -> agents.runtime.v1.ImagePullPolicy
+	37, // 48: agents.runtime.v1.DockerSandboxSpec.image:type_name -> agents.runtime.v1.ImageReference
+	39, // 49: agents.runtime.v1.DockerSandboxSpec.resources:type_name -> agents.runtime.v1.DockerResourceSpec
+	37, // 50: agents.runtime.v1.KubernetesSandboxSpec.image:type_name -> agents.runtime.v1.ImageReference
+	41, // 51: agents.runtime.v1.KubernetesSandboxSpec.resources:type_name -> agents.runtime.v1.KubernetesResourceRequirements
+	82, // 52: agents.runtime.v1.KubernetesResourceRequirements.requests:type_name -> agents.runtime.v1.KubernetesResourceRequirements.RequestsEntry
+	83, // 53: agents.runtime.v1.KubernetesResourceRequirements.limits:type_name -> agents.runtime.v1.KubernetesResourceRequirements.LimitsEntry
+	42, // 54: agents.runtime.v1.SkillContent.files:type_name -> agents.runtime.v1.SkillFile
+	84, // 55: agents.runtime.v1.ModelConfig.extra_params:type_name -> agents.runtime.v1.ModelConfig.ExtraParamsEntry
+	87, // 56: agents.runtime.v1.GetAgentGraphResponse.graph:type_name -> google.protobuf.Value
+	49, // 57: agents.runtime.v1.UploadWorkspaceFileStreamRequest.metadata:type_name -> agents.runtime.v1.UploadWorkspaceFileMetadata
+	55, // 58: agents.runtime.v1.ListWorkspaceFilesResponse.files:type_name -> agents.runtime.v1.WorkspaceFileInfo
+	2,  // 59: agents.runtime.v1.AgentHealth.status:type_name -> agents.runtime.v1.AgentRuntimeStatus
+	86, // 60: agents.runtime.v1.AgentHealth.last_invoked_at:type_name -> google.protobuf.Timestamp
+	60, // 61: agents.runtime.v1.HealthResponse.agents:type_name -> agents.runtime.v1.AgentHealth
+	72, // 62: agents.runtime.v1.ListSessionsResponse.sessions:type_name -> agents.runtime.v1.SessionSummary
+	73, // 63: agents.runtime.v1.GetSessionResponse.session:type_name -> agents.runtime.v1.SessionDetail
+	72, // 64: agents.runtime.v1.GetLatestSessionResponse.session:type_name -> agents.runtime.v1.SessionSummary
+	3,  // 65: agents.runtime.v1.GetSessionMessagesRequest.requested_mode:type_name -> agents.runtime.v1.SessionHistoryMode
+	3,  // 66: agents.runtime.v1.GetSessionMessagesResponse.actual_mode:type_name -> agents.runtime.v1.SessionHistoryMode
+	74, // 67: agents.runtime.v1.GetSessionMessagesResponse.messages:type_name -> agents.runtime.v1.SessionMessage
+	86, // 68: agents.runtime.v1.SessionSummary.updated_at:type_name -> google.protobuf.Timestamp
+	3,  // 69: agents.runtime.v1.SessionSummary.history_mode:type_name -> agents.runtime.v1.SessionHistoryMode
+	2,  // 70: agents.runtime.v1.SessionSummary.agent_status:type_name -> agents.runtime.v1.AgentRuntimeStatus
+	72, // 71: agents.runtime.v1.SessionDetail.summary:type_name -> agents.runtime.v1.SessionSummary
+	4,  // 72: agents.runtime.v1.SessionMessage.role:type_name -> agents.runtime.v1.SessionMessageRole
+	85, // 73: agents.runtime.v1.SessionMessage.raw:type_name -> google.protobuf.Struct
+	76, // 74: agents.runtime.v1.ListThreadArtifactsResponse.artifacts:type_name -> agents.runtime.v1.ThreadArtifact
+	5,  // 75: agents.runtime.v1.AgentExecutor.Run:input_type -> agents.runtime.v1.ClientMessage
+	5,  // 76: agents.runtime.v1.AgentTelemetry.RunTelemetry:input_type -> agents.runtime.v1.ClientMessage
+	26, // 77: agents.runtime.v1.ResourceSync.SyncSkill:input_type -> agents.runtime.v1.SyncSkillRequest
+	27, // 78: agents.runtime.v1.ResourceSync.SyncMcp:input_type -> agents.runtime.v1.SyncMcpRequest
+	28, // 79: agents.runtime.v1.ResourceSync.SyncAgentSpec:input_type -> agents.runtime.v1.SyncAgentSpecRequest
+	45, // 80: agents.runtime.v1.ResourceSync.Assemble:input_type -> agents.runtime.v1.AssembleRequest
+	47, // 81: agents.runtime.v1.ResourceSync.GetAgentGraph:input_type -> agents.runtime.v1.GetAgentGraphRequest
+	50, // 82: agents.runtime.v1.ResourceSync.UploadWorkspaceFileStream:input_type -> agents.runtime.v1.UploadWorkspaceFileStreamRequest
+	52, // 83: agents.runtime.v1.ResourceSync.DownloadWorkspaceFileStream:input_type -> agents.runtime.v1.DownloadWorkspaceFileStreamRequest
+	54, // 84: agents.runtime.v1.ResourceSync.ListWorkspaceFiles:input_type -> agents.runtime.v1.ListWorkspaceFilesRequest
+	57, // 85: agents.runtime.v1.ResourceSync.RemoveResource:input_type -> agents.runtime.v1.RemoveResourceRequest
+	59, // 86: agents.runtime.v1.ResourceSync.Health:input_type -> agents.runtime.v1.HealthRequest
+	62, // 87: agents.runtime.v1.SessionQuery.ListSessions:input_type -> agents.runtime.v1.ListSessionsRequest
+	64, // 88: agents.runtime.v1.SessionQuery.GetSession:input_type -> agents.runtime.v1.GetSessionRequest
+	70, // 89: agents.runtime.v1.SessionQuery.GetSessionMessages:input_type -> agents.runtime.v1.GetSessionMessagesRequest
+	66, // 90: agents.runtime.v1.SessionQuery.GetLatestSession:input_type -> agents.runtime.v1.GetLatestSessionRequest
+	68, // 91: agents.runtime.v1.SessionQuery.DeleteSession:input_type -> agents.runtime.v1.DeleteSessionRequest
+	75, // 92: agents.runtime.v1.SessionQuery.ListThreadArtifacts:input_type -> agents.runtime.v1.ListThreadArtifactsRequest
+	11, // 93: agents.runtime.v1.AgentExecutor.Run:output_type -> agents.runtime.v1.AgentEvent
+	25, // 94: agents.runtime.v1.AgentTelemetry.RunTelemetry:output_type -> agents.runtime.v1.TelemetryEvent
+	58, // 95: agents.runtime.v1.ResourceSync.SyncSkill:output_type -> agents.runtime.v1.SyncResponse
+	58, // 96: agents.runtime.v1.ResourceSync.SyncMcp:output_type -> agents.runtime.v1.SyncResponse
+	58, // 97: agents.runtime.v1.ResourceSync.SyncAgentSpec:output_type -> agents.runtime.v1.SyncResponse
+	46, // 98: agents.runtime.v1.ResourceSync.Assemble:output_type -> agents.runtime.v1.AssembleResponse
+	48, // 99: agents.runtime.v1.ResourceSync.GetAgentGraph:output_type -> agents.runtime.v1.GetAgentGraphResponse
+	51, // 100: agents.runtime.v1.ResourceSync.UploadWorkspaceFileStream:output_type -> agents.runtime.v1.UploadWorkspaceFileStreamResponse
+	53, // 101: agents.runtime.v1.ResourceSync.DownloadWorkspaceFileStream:output_type -> agents.runtime.v1.DownloadWorkspaceFileChunk
+	56, // 102: agents.runtime.v1.ResourceSync.ListWorkspaceFiles:output_type -> agents.runtime.v1.ListWorkspaceFilesResponse
+	58, // 103: agents.runtime.v1.ResourceSync.RemoveResource:output_type -> agents.runtime.v1.SyncResponse
+	61, // 104: agents.runtime.v1.ResourceSync.Health:output_type -> agents.runtime.v1.HealthResponse
+	63, // 105: agents.runtime.v1.SessionQuery.ListSessions:output_type -> agents.runtime.v1.ListSessionsResponse
+	65, // 106: agents.runtime.v1.SessionQuery.GetSession:output_type -> agents.runtime.v1.GetSessionResponse
+	71, // 107: agents.runtime.v1.SessionQuery.GetSessionMessages:output_type -> agents.runtime.v1.GetSessionMessagesResponse
+	67, // 108: agents.runtime.v1.SessionQuery.GetLatestSession:output_type -> agents.runtime.v1.GetLatestSessionResponse
+	69, // 109: agents.runtime.v1.SessionQuery.DeleteSession:output_type -> agents.runtime.v1.DeleteSessionResponse
+	77, // 110: agents.runtime.v1.SessionQuery.ListThreadArtifacts:output_type -> agents.runtime.v1.ListThreadArtifactsResponse
 	93, // [93:111] is the sub-list for method output_type
 	75, // [75:93] is the sub-list for method input_type
 	75, // [75:75] is the sub-list for extension type_name
@@ -5965,7 +6038,7 @@ func file_runtime_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_runtime_proto_rawDesc), len(file_runtime_proto_rawDesc)),
-			NumEnums:      4,
+			NumEnums:      5,
 			NumMessages:   80,
 			NumExtensions: 0,
 			NumServices:   4,

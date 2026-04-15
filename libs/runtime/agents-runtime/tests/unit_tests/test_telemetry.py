@@ -7,8 +7,11 @@ from types import SimpleNamespace
 from langchain_core.messages import AIMessageChunk, ToolMessage
 
 from agents_runtime.converters import telemetry_event_to_proto
+from agents_runtime.generated import runtime_pb2 as pb2
 from agents_runtime.telemetry import (
     TelemetryParserState,
+    TELEMETRY_RETENTION_DURABLE,
+    TELEMETRY_RETENTION_STREAM_ONLY,
     finalize_telemetry_event,
     parse_telemetry_stream_part,
     telemetry_from_runtime_event,
@@ -44,10 +47,10 @@ def test_parse_telemetry_stream_part_keeps_non_root_reasoning_blocks() -> None:
     event = parsed.events[0]
     assert event.stream_mode == "messages"
     assert event.event_type == "reasoning"
-    assert event.ns == ("task:research",)
+    assert event.namespace == ("task:research",)
+    assert event.retention == TELEMETRY_RETENTION_STREAM_ONLY
     assert event.metadata["langgraph_node"] == "planner"
     assert event.payload["summary"][0]["text"] == "thinking..."
-    assert event.public_event is None
 
 
 def test_parse_telemetry_stream_part_uses_one_model_call_id_per_ai_message() -> None:
@@ -86,6 +89,43 @@ def test_parse_telemetry_stream_part_uses_one_model_call_id_per_ai_message() -> 
     assert parsed.events[1].payload["model_call_id"] == "resp_model_1"
 
 
+def test_finalize_telemetry_event_compacts_message_metadata_and_payload() -> None:
+    """Finalized telemetry should move correlation ids to the envelope."""
+
+    state = TelemetryParserState(run_id="run-telemetry", agent_name="demo-agent")
+    part = {
+        "type": "messages",
+        "ns": ("task:research",),
+        "data": (
+            AIMessageChunk(
+                id="resp_model_1",
+                content=[
+                    {
+                        "type": "reasoning",
+                        "summary": [{"type": "summary_text", "text": "thinking..."}],
+                        "id": "rs_1",
+                        "extras": {"encrypted_content": "secret"},
+                    }
+                ],
+            ),
+            {
+                "langgraph_node": "planner",
+                "langgraph_step": 2,
+                "updated_at": "2026-04-14T00:00:00+00:00",
+            },
+        ),
+    }
+
+    parsed = parse_telemetry_stream_part(part, state)
+    finalized = finalize_telemetry_event(parsed.events[0], attempt=1, seq=1)
+
+    assert finalized.node_name == "planner"
+    assert finalized.model_call_id == "resp_model_1"
+    assert finalized.message_id == "rs_1"
+    assert finalized.metadata == {"langgraph_step": 2}
+    assert finalized.payload == {"summary": [{"text": "thinking..."}]}
+
+
 def test_parse_telemetry_stream_part_emits_interrupt_only_for_updates() -> None:
     """Updates parts should only surface interrupts in telemetry mode."""
 
@@ -112,7 +152,8 @@ def test_parse_telemetry_stream_part_emits_interrupt_only_for_updates() -> None:
     assert "interrupt-1" in parsed.interrupts
     assert parsed.interrupts["interrupt-1"]["action_requests"][0]["name"] == "execute"
     assert [event.event_type for event in parsed.events] == ["interrupt"]
-    assert parsed.events[0].ns == ("task:worker",)
+    assert parsed.events[0].namespace == ("task:worker",)
+    assert parsed.events[0].retention == TELEMETRY_RETENTION_STREAM_ONLY
 
 
 def test_parse_telemetry_stream_part_emits_tool_result_projection() -> None:
@@ -150,8 +191,54 @@ def test_parse_telemetry_stream_part_emits_tool_result_projection() -> None:
         "tool_call_done",
         "tool_result",
     ]
+    assert parsed.events[0].retention == TELEMETRY_RETENTION_STREAM_ONLY
+    assert parsed.events[1].retention == TELEMETRY_RETENTION_DURABLE
     assert parsed.events[1].payload["payload"]["stdout"] == "ok"
-    assert parsed.events[1].public_event is not None
+
+
+def test_finalize_telemetry_event_compacts_tool_payloads() -> None:
+    """Finalized tool telemetry should keep only event-specific payload fields."""
+
+    state = TelemetryParserState(
+        run_id="run-tools",
+        agent_name="demo-agent",
+        tool_call_buffers={
+            ("0",): {
+                "name": "execute",
+                "id": "tool-call-1",
+                "args": {"command": "pwd"},
+                "args_text": "",
+                "started": True,
+            }
+        },
+    )
+    part = {
+        "type": "messages",
+        "ns": (),
+        "data": (
+            ToolMessage(
+                content="command finished",
+                artifact={"stdout": "ok"},
+                tool_call_id="tool-call-1",
+            ),
+            {"langgraph_node": "tools"},
+        ),
+    }
+
+    parsed = parse_telemetry_stream_part(part, state)
+    done = finalize_telemetry_event(parsed.events[0], attempt=1, seq=1)
+    result = finalize_telemetry_event(parsed.events[1], attempt=1, seq=2)
+
+    assert done.tool_call_id == "tool-call-1"
+    assert done.node_name == "execute"
+    assert done.payload == {}
+    assert result.tool_call_id == "tool-call-1"
+    assert result.node_name == "execute"
+    assert result.payload == {
+        "content": "command finished",
+        "is_error": False,
+        "data": {"stdout": "ok"},
+    }
 
 
 def test_parse_telemetry_stream_part_tracks_checkpoint_bounds_without_emitting() -> (
@@ -215,8 +302,8 @@ def test_parse_telemetry_stream_part_deduplicates_debug_tasks_and_compacts_state
     assert event.payload["input"]["skills_metadata"]["count"] == 1
 
 
-def test_telemetry_event_to_proto_preserves_public_event_and_namespace() -> None:
-    """Telemetry protobuf mapping should preserve namespace and embedded public event."""
+def test_telemetry_event_to_proto_preserves_audit_fields() -> None:
+    """Telemetry protobuf mapping should preserve namespace and audit metadata."""
 
     event = telemetry_from_runtime_event(
         events.run_start(
@@ -224,17 +311,18 @@ def test_telemetry_event_to_proto_preserves_public_event_and_namespace() -> None
             agent_name="demo-agent",
             thread_id="thread-1",
         ),
-        ns=("task:root",),
+        namespace=("task:root",),
     )
 
     proto = telemetry_event_to_proto(finalize_telemetry_event(event, attempt=1, seq=1))
 
-    assert list(proto.ns) == ["task:root"]
+    assert proto.thread_id == "thread-1"
+    assert proto.schema_version == 1
+    assert proto.retention == pb2.TELEMETRY_RETENTION_DURABLE
+    assert list(proto.namespace) == ["task:root"]
     assert proto.stream_mode == "lifecycle"
     assert proto.event_type == "run_started"
     assert proto.event_id == "run-proto:1:1"
     assert proto.attempt == 1
     assert proto.seq == 1
     assert proto.node_name == "run"
-    assert proto.HasField("public_event")
-    assert proto.public_event.run_started.thread_id == "thread-1"

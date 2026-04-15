@@ -431,29 +431,39 @@ func telemetryEventFromProto(event *runtimev1.TelemetryEvent) TelemetryEvent {
 	}
 
 	mapped := TelemetryEvent{
-		RunID:       event.GetRunId(),
-		AgentName:   event.GetAgentName(),
-		Timestamp:   timestampFromProto(event.GetTimestamp()),
-		EventID:     event.GetEventId(),
-		Attempt:     event.GetAttempt(),
-		Seq:         event.GetSeq(),
-		Namespace:   cloneStrings(event.GetNs()),
-		StreamMode:  event.GetStreamMode(),
-		EventType:   event.GetEventType(),
-		NodeName:    event.GetNodeName(),
-		TaskID:      event.GetTaskId(),
-		ModelCallID: event.GetModelCallId(),
-		ToolCallID:  event.GetToolCallId(),
-		InterruptID: event.GetInterruptId(),
-		MessageID:   event.GetMessageId(),
-		Metadata:    structToRawJSON(event.GetMetadata()),
-		Payload:     valueToRawJSON(event.GetPayload()),
-	}
-	if event.GetPublicEvent() != nil {
-		publicEvent := agentEventFromProto(event.GetPublicEvent())
-		mapped.PublicEvent = &publicEvent
+		RunID:         event.GetRunId(),
+		ThreadID:      event.GetThreadId(),
+		AgentName:     event.GetAgentName(),
+		Timestamp:     timestampFromProto(event.GetTimestamp()),
+		SchemaVersion: event.GetSchemaVersion(),
+		Retention:     telemetryRetentionFromProto(event.GetRetention()),
+		EventID:       event.GetEventId(),
+		Attempt:       event.GetAttempt(),
+		Seq:           event.GetSeq(),
+		Namespace:     cloneStrings(event.GetNamespace()),
+		StreamMode:    event.GetStreamMode(),
+		EventType:     event.GetEventType(),
+		NodeName:      event.GetNodeName(),
+		TaskID:        event.GetTaskId(),
+		ModelCallID:   event.GetModelCallId(),
+		ToolCallID:    event.GetToolCallId(),
+		InterruptID:   event.GetInterruptId(),
+		MessageID:     event.GetMessageId(),
+		Metadata:      structToRawJSON(event.GetMetadata()),
+		Payload:       valueToRawJSON(event.GetPayload()),
 	}
 	return mapped
+}
+
+func telemetryRetentionFromProto(retention runtimev1.TelemetryRetention) TelemetryEventRetention {
+	switch retention {
+	case runtimev1.TelemetryRetention_TELEMETRY_RETENTION_DURABLE:
+		return TelemetryEventRetentionDurable
+	case runtimev1.TelemetryRetention_TELEMETRY_RETENTION_STREAM_ONLY:
+		return TelemetryEventRetentionStreamOnly
+	default:
+		return TelemetryEventRetentionUnspecified
+	}
 }
 
 func actionRequestsFromProto(requests []*runtimev1.ActionRequest) []ActionRequest {

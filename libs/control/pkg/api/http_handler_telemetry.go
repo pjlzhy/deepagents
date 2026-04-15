@@ -12,7 +12,6 @@ func (h *HTTPHandler) registerTelemetryRoutes(api *gin.RouterGroup) {
 	telemetry.GET("/runs", h.handleListTelemetryRuns)
 	telemetry.GET("/runs/:run_id", h.handleGetTelemetryRun)
 	telemetry.GET("/runs/:run_id/snapshot", h.handleGetTelemetryRunSnapshot)
-	telemetry.GET("/runs/:run_id/steps", h.handleListTelemetrySteps)
 	telemetry.GET("/runs/:run_id/events", h.handleListTelemetryEvents)
 }
 
@@ -93,20 +92,4 @@ func (h *HTTPHandler) handleListTelemetryEvents(c *gin.Context) {
 		Events:       items,
 		pageResponse: newHTTPPageResponse(page.PageMetadata),
 	})
-}
-
-func (h *HTTPHandler) handleListTelemetrySteps(c *gin.Context) {
-	runID := strings.TrimSpace(c.Param("run_id"))
-	steps, err := h.service.ListTelemetrySteps(c.Request.Context(), runID)
-	if err != nil {
-		writeServiceError(c.Writer, err)
-		return
-	}
-
-	items := make([]telemetryStepResponse, 0, len(steps))
-	for _, item := range steps {
-		items = append(items, newHTTPTelemetryStepResponse(item))
-	}
-
-	writeJSON(c.Writer, http.StatusOK, telemetryStepsListResponse{Steps: items})
 }

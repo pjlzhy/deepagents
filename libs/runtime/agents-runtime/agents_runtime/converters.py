@@ -145,9 +145,12 @@ def telemetry_event_to_proto(event: TelemetryEvent) -> pb2.TelemetryEvent:
         "run_id": event.run_id,
         "agent_name": event.agent_name,
         "timestamp": _float_timestamp_to_proto(event.timestamp),
-        "ns": list(event.ns),
+        "thread_id": event.thread_id,
+        "schema_version": event.schema_version,
+        "namespace": list(event.namespace),
         "stream_mode": event.stream_mode,
         "event_type": event.event_type,
+        "retention": _telemetry_retention_to_proto(event.retention),
         "event_id": event.event_id,
         "attempt": event.attempt,
         "seq": event.seq,
@@ -163,8 +166,6 @@ def telemetry_event_to_proto(event: TelemetryEvent) -> pb2.TelemetryEvent:
     payload = _python_to_value(event.payload)
     if payload is not None:
         kwargs["payload"] = payload
-    if event.public_event is not None:
-        kwargs["public_event"] = runtime_event_to_agent_event(event.public_event)
     return pb2.TelemetryEvent(**kwargs)
 
 
@@ -172,6 +173,16 @@ def python_to_proto_value(value: Any) -> struct_pb2.Value | None:
     """Convert a JSON-like Python value to a protobuf Value."""
 
     return _python_to_value(value)
+
+
+def _telemetry_retention_to_proto(retention: str) -> int:
+    """Map one runtime retention string into the protobuf enum."""
+
+    mapping = {
+        "durable": pb2.TELEMETRY_RETENTION_DURABLE,
+        "stream_only": pb2.TELEMETRY_RETENTION_STREAM_ONLY,
+    }
+    return int(mapping.get(retention, pb2.TELEMETRY_RETENTION_UNSPECIFIED))
 
 
 # ══════════════════════════════════════════════════════════════════

@@ -448,22 +448,124 @@ export function reduceRuntimeEvent(state: RuntimeState, event: HTTPAgentEventDTO
 }
 
 export function telemetryEventToRuntimeEvent(event: HTTPTelemetryEventDTO): HTTPAgentEventDTO | null {
-  if (event.public_event && typeof event.public_event.type === 'string') {
-    return event.public_event;
-  }
-
   const fallbackType = event.event_type?.trim();
   if (!fallbackType) {
     return null;
   }
 
+  const payload = (
+    typeof event.payload === 'object' && event.payload !== null && !Array.isArray(event.payload)
+      ? event.payload as Record<string, unknown>
+      : undefined
+  );
+
+  const payloadText = typeof payload?.text === 'string'
+    ? payload.text
+    : typeof payload?.content === 'string'
+      ? payload.content
+      : undefined;
+  const toolName = typeof event.node_name === 'string' && event.node_name.trim()
+    ? event.node_name
+    : typeof payload?.tool_name === 'string'
+      ? payload.tool_name
+      : undefined;
+  const toolCallId = typeof event.tool_call_id === 'string' && event.tool_call_id.trim()
+    ? event.tool_call_id
+    : typeof payload?.tool_call_id === 'string'
+      ? payload.tool_call_id
+      : undefined;
+
   switch (fallbackType) {
+    case 'run_started':
+      return {
+        type: 'run_started',
+        run_id: event.run_id,
+        agent_name: event.agent_name,
+        timestamp: event.timestamp,
+        thread_id: event.thread_id ?? (typeof payload?.thread_id === 'string' ? payload.thread_id : undefined),
+      };
+    case 'text':
+      return {
+        type: 'text_delta',
+        run_id: event.run_id,
+        agent_name: event.agent_name,
+        timestamp: event.timestamp,
+        text: payloadText,
+      };
+    case 'text_done':
+      return {
+        type: 'text_done',
+        run_id: event.run_id,
+        agent_name: event.agent_name,
+        timestamp: event.timestamp,
+        text: payloadText,
+      };
+    case 'tool_call_start':
+      return {
+        type: 'tool_call_start',
+        run_id: event.run_id,
+        agent_name: event.agent_name,
+        timestamp: event.timestamp,
+        tool_name: toolName,
+        tool_call_id: toolCallId,
+        payload: payload?.args ?? event.payload,
+      };
+    case 'tool_call_done':
+      return {
+        type: 'tool_call_done',
+        run_id: event.run_id,
+        agent_name: event.agent_name,
+        timestamp: event.timestamp,
+        tool_name: toolName,
+        tool_call_id: toolCallId,
+      };
+    case 'tool_result':
+      return {
+        type: 'tool_result',
+        run_id: event.run_id,
+        agent_name: event.agent_name,
+        timestamp: event.timestamp,
+        tool_name: toolName,
+        tool_call_id: toolCallId,
+        text: payloadText,
+        payload: payload?.data ?? payload?.payload ?? event.payload,
+      };
+    case 'hitl_request':
+      return {
+        type: 'hitl_request',
+        run_id: event.run_id,
+        agent_name: event.agent_name,
+        timestamp: event.timestamp,
+        interrupt_id: typeof event.interrupt_id === 'string' && event.interrupt_id.trim()
+          ? event.interrupt_id
+          : typeof payload?.interrupt_id === 'string'
+            ? payload.interrupt_id
+            : undefined,
+        action_requests: Array.isArray(payload?.action_requests) ? payload.action_requests as HTTPActionRequestDTO[] : [],
+        review_configs: Array.isArray(payload?.review_configs) ? payload.review_configs as HTTPReviewConfigDTO[] : [],
+      };
+    case 'run_ended':
+      return {
+        type: 'run_ended',
+        run_id: event.run_id,
+        agent_name: event.agent_name,
+        timestamp: event.timestamp,
+      };
+    case 'run_canceled':
+      return {
+        type: 'run_canceled',
+        run_id: event.run_id,
+        agent_name: event.agent_name,
+        timestamp: event.timestamp,
+        reason: typeof payload?.reason === 'string' ? payload.reason : undefined,
+      };
     case 'error':
       return {
         type: 'error',
         run_id: event.run_id,
         agent_name: event.agent_name,
         timestamp: event.timestamp,
+        error_message: typeof payload?.message === 'string' ? payload.message : undefined,
       };
     default:
       return null;

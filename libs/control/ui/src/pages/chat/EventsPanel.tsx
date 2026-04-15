@@ -1,6 +1,6 @@
 import { useState, useMemo, useDeferredValue } from 'react';
 import { Button, Empty, Input, Select, Tag, Typography } from '@arco-design/web-react';
-import type { TelemetryEventVM } from '@/features/telemetry/traceModel';
+import type { TelemetryEventVM } from '@/features/telemetry/eventModel';
 import {
   eventAccent,
   formatCompactDateTime,
@@ -56,7 +56,6 @@ export default function EventsPanel(props: EventsPanelProps) {
         summarizeEvent(event),
         stringifyValue(event.metadata) ?? '',
         stringifyValue(event.payload) ?? '',
-        stringifyValue(event.publicEvent) ?? '',
       ];
       return haystacks.some((value) => value.toLowerCase().includes(searchNeedle));
     });
@@ -240,7 +239,6 @@ export default function EventsPanel(props: EventsPanelProps) {
                   tabs={[
                     { value: 'payload', label: 'Payload' },
                     { value: 'metadata', label: 'Metadata' },
-                    { value: 'public_event', label: 'Public' },
                   ]}
                   onChange={(value) => setDebugDetailTab(value as DebugDetailTab)}
                 />
@@ -249,10 +247,8 @@ export default function EventsPanel(props: EventsPanelProps) {
             <div className='control-scroll control-scroll-strong min-h-0 flex-1 overflow-y-scroll overflow-x-hidden px-14px py-12px'>
               {debugDetailTab === 'payload' ? (
                 <PayloadView label='payload' value={selectedEvent.payload} color='rgba(255,45,149' />
-              ) : debugDetailTab === 'metadata' ? (
-                <PayloadView label='metadata' value={selectedEvent.metadata} color='rgba(0,240,255' />
               ) : (
-                <PayloadView label='public event' value={selectedEvent.publicEvent} color='rgba(57,255,20' />
+                <PayloadView label='metadata' value={selectedEvent.metadata} color='rgba(0,240,255' />
               )}
             </div>
           </>

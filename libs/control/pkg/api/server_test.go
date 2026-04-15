@@ -33,9 +33,6 @@ type fakeAgentService struct {
 	getTelemetryRunSnapshotID       string
 	getTelemetryRunSnapshotPosition domain.TelemetryRunSnapshotPosition
 	getTelemetryRunSnapshotQuery    domain.SessionMessageQuery
-	listTelemetryStepsResp          []domain.TelemetryStep
-	listTelemetryStepsErr           error
-	listTelemetryStepsRunID         string
 	listTelemetryEventsResp         domain.ResourcePage[domain.TelemetryEventRecord]
 	listTelemetryEventsErr          error
 	listTelemetryEventsRunID        string
@@ -202,14 +199,6 @@ func (f *fakeAgentService) GetTelemetryRunSnapshot(
 	f.getTelemetryRunSnapshotPosition = position
 	f.getTelemetryRunSnapshotQuery = query
 	return f.getTelemetryRunSnapshotResp, f.getTelemetryRunSnapshotErr
-}
-
-func (f *fakeAgentService) ListTelemetrySteps(
-	_ context.Context,
-	runID string,
-) ([]domain.TelemetryStep, error) {
-	f.listTelemetryStepsRunID = runID
-	return f.listTelemetryStepsResp, f.listTelemetryStepsErr
 }
 
 func (f *fakeAgentService) ListTelemetryEvents(
@@ -752,15 +741,6 @@ func TestServerDelegatesTelemetryQueries(t *testing.T) {
 		service.getTelemetryRunSnapshotPosition != domain.TelemetryRunSnapshotPositionAfter ||
 		service.getTelemetryRunSnapshotQuery.PageSize != 100 {
 		t.Fatalf("unexpected telemetry snapshot lookup: snapshot=%#v service=%#v", snapshot, service)
-	}
-
-	service.listTelemetryStepsResp = []domain.TelemetryStep{{StepID: "step:run:run-1"}}
-	steps, err := server.ListTelemetrySteps(context.Background(), "run-1")
-	if err != nil {
-		t.Fatalf("ListTelemetrySteps: %v", err)
-	}
-	if len(steps) != 1 || steps[0].StepID != "step:run:run-1" || service.listTelemetryStepsRunID != "run-1" {
-		t.Fatalf("unexpected telemetry steps lookup: steps=%#v service=%#v", steps, service)
 	}
 
 	events, err := server.ListTelemetryEvents(context.Background(), "run-1", domain.PageQuery{PageSize: 20, PageNumber: 2})

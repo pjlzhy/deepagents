@@ -2,7 +2,9 @@ package runtimeclient
 
 import (
 	"context"
+	"encoding/json"
 	"io"
+	"strconv"
 	"sync"
 
 	runtimev1 "agentctl/pkg/proto"
@@ -173,12 +175,11 @@ func (s *grpcTelemetryStream) recvLoop() {
 			return
 		default:
 			s.events <- TelemetryEvent{
-				StreamMode: "lifecycle",
-				EventType:  "error",
-				PublicEvent: &AgentEvent{
-					Type:         AgentEventTypeError,
-					ErrorMessage: err.Error(),
-				},
+				SchemaVersion: 1,
+				Retention:     TelemetryEventRetentionDurable,
+				StreamMode:    "lifecycle",
+				EventType:     "error",
+				Payload:       json.RawMessage(`{"message":` + strconv.Quote(err.Error()) + `}`),
 			}
 			return
 		}

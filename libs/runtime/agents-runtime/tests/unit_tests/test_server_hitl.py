@@ -18,7 +18,11 @@ from agents_runtime.entry.server import (
     _translate_hitl_decisions,
 )
 from agents_runtime.generated import runtime_pb2 as pb2
-from agents_runtime.telemetry import TelemetryEvent, telemetry_from_runtime_event
+from agents_runtime.telemetry import (
+    TelemetryEvent,
+    finalize_telemetry_event,
+    telemetry_from_runtime_event,
+)
 
 
 class _FakeContext:
@@ -118,31 +122,39 @@ class _FakeTelemetryManager:
     ):
         del hitl_handler, cancel_event, cancel_reason, cancel_reason_getter
 
-        yield telemetry_from_runtime_event(
+        seq = 0
+
+        def _finalize(event: TelemetryEvent) -> TelemetryEvent:
+            nonlocal seq
+            seq += 1
+            return finalize_telemetry_event(event, attempt=1, seq=seq)
+
+        yield _finalize(telemetry_from_runtime_event(
             events.run_start(
                 run_id=run_config.run_id,
                 agent_name=name,
                 thread_id=run_config.thread_id,
             )
-        )
-        yield TelemetryEvent(
+        ))
+        yield _finalize(TelemetryEvent(
             stream_mode="messages",
             event_type="reasoning",
             payload={
                 "summary": [{"type": "summary_text", "text": "thinking..."}],
             },
-            ns=("task:research",),
+            namespace=("task:research",),
             metadata={"langgraph_node": "planner"},
             run_id=run_config.run_id,
+            thread_id=run_config.thread_id,
             agent_name=name,
-        )
-        yield telemetry_from_runtime_event(
+        ))
+        yield _finalize(telemetry_from_runtime_event(
             events.run_end(
                 run_id=run_config.run_id,
                 agent_name=name,
                 stats={},
             )
-        )
+        ))
 
 
 class _FakeGraphManager:
@@ -413,11 +425,12 @@ def test_run_telemetry_emits_structured_telemetry_events() -> None:
             "reasoning",
             "run_ended",
         ]
-        assert emitted[0].HasField("public_event")
-        assert emitted[0].public_event.run_started.thread_id == "thread-1"
-        assert list(emitted[1].ns) == ["task:research"]
+        assert emitted[0].thread_id == "thread-1"
+        assert emitted[0].schema_version == 1
+        assert list(emitted[1].namespace) == ["task:research"]
         assert emitted[1].stream_mode == "messages"
-        assert emitted[1].metadata.fields["langgraph_node"].string_value == "planner"
+        assert emitted[1].node_name == "planner"
+        assert "langgraph_node" not in emitted[1].metadata.fields
         assert (
             emitted[1]
             .payload.struct_value.fields["summary"]

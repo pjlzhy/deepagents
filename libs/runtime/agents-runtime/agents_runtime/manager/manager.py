@@ -97,6 +97,18 @@ class AgentPool:
         return agent.status()
 
 
+from langfuse import get_client
+from langfuse.langchain import CallbackHandler
+# Initialize Langfuse client
+langfuse = get_client()
+# Verify connection
+if langfuse.auth_check():
+    print("Langfuse client is authenticated and ready!")
+else:
+    print("Authentication failed. Please check your credentials and host.")
+# Initialize Langfuse CallbackHandler for LangChain (tracing)
+langfuse_handler = CallbackHandler()
+
 class AgentManager:
     """Manager-owned lifecycle controller for installed and compiled agents."""
 
@@ -546,6 +558,7 @@ class AgentManager:
                 "agent_name": name,
                 "updated_at": datetime.now(UTC).isoformat(),
             },
+            "callbacks": [langfuse_handler],
         }
         timeout_seconds = run_config.timeout_seconds
         if timeout_seconds is not None and timeout_seconds < 0:
@@ -558,6 +571,7 @@ class AgentManager:
                 self._telemetry_timeout_event(
                     agent_name=name,
                     run_id=run_id,
+                    thread_id=thread_id,
                     timeout_seconds=timeout_seconds,
                 ),
                 attempt=1,
@@ -607,6 +621,7 @@ class AgentManager:
                     yield next_event(self._telemetry_timeout_event(
                         agent_name=name,
                         run_id=run_id,
+                        thread_id=thread_id,
                         timeout_seconds=timeout_seconds,
                     ))
                     return
@@ -622,7 +637,8 @@ class AgentManager:
                             reason,
                             run_id=run_id,
                             agent_name=name,
-                        )
+                        ),
+                        thread_id=thread_id,
                     ))
                     return
 
@@ -634,6 +650,7 @@ class AgentManager:
                     yield next_event(self._telemetry_error_event_from_exception(
                         agent_name=name,
                         run_id=run_id,
+                        thread_id=thread_id,
                         exc=payload,
                     ))
                     return
@@ -802,6 +819,7 @@ class AgentManager:
             *,
             agent_name: str,
             run_id: str,
+            thread_id: str,
             timeout_seconds: float | None,
     ) -> TelemetryEvent:
         """Create the terminal timeout telemetry event for a run."""
@@ -811,7 +829,8 @@ class AgentManager:
                 agent_name=agent_name,
                 run_id=run_id,
                 timeout_seconds=timeout_seconds,
-            )
+            ),
+            thread_id=thread_id,
         )
 
     def _telemetry_error_event_from_exception(
@@ -819,6 +838,7 @@ class AgentManager:
             *,
             agent_name: str,
             run_id: str,
+            thread_id: str,
             exc: Exception,
     ) -> TelemetryEvent:
         """Convert an execution exception into the telemetry transport."""
@@ -828,7 +848,8 @@ class AgentManager:
                 agent_name=agent_name,
                 run_id=run_id,
                 exc=exc,
-            )
+            ),
+            thread_id=thread_id,
         )
 
 

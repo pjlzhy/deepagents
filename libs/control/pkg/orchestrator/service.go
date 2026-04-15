@@ -6,7 +6,6 @@ import (
 	registrypkg "agentctl/pkg/registry"
 	resolverpkg "agentctl/pkg/resolver"
 	"agentctl/pkg/runtimeclient"
-	"agentctl/pkg/telemetry"
 	"context"
 	"errors"
 	"fmt"
@@ -14,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"agentctl/pkg/telemetry"
 )
 
 var (
@@ -464,24 +465,6 @@ func (s *Service) ListTelemetryEvents(
 		return domain.ResourcePage[domain.TelemetryEventRecord]{}, err
 	}
 	return s.telemetryStore.ListEvents(ctx, runID, query)
-}
-
-// ListTelemetrySteps projects one telemetry run into product-facing trace steps.
-func (s *Service) ListTelemetrySteps(
-	ctx context.Context,
-	runID string,
-) ([]domain.TelemetryStep, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if _, err := s.telemetryStore.GetRun(ctx, runID); err != nil {
-		return nil, err
-	}
-	events, err := s.telemetryStore.LoadEvents(ctx, runID)
-	if err != nil {
-		return nil, err
-	}
-	return telemetry.BuildSteps(events), nil
 }
 
 type noopTelemetryStore struct{}

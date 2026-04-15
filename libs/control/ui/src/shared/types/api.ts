@@ -368,8 +368,11 @@ export type HTTPAgentEventDTO = {
 
 export type HTTPTelemetryEventDTO = {
   run_id?: string;
+  thread_id?: string;
   agent_name?: string;
   timestamp?: string;
+  schema_version?: number;
+  retention?: string;
   event_id?: string;
   attempt?: number;
   seq?: number;
@@ -384,7 +387,6 @@ export type HTTPTelemetryEventDTO = {
   message_id?: string;
   metadata?: unknown;
   payload?: unknown;
-  public_event?: HTTPAgentEventDTO;
 };
 
 export type HTTPTelemetryRunDTO = {
@@ -413,38 +415,6 @@ export type HTTPTelemetryRunDTO = {
   updated_at?: string;
 };
 
-export type HTTPTelemetryStepDTO = {
-  step_id?: string;
-  run_id?: string;
-  parent_step_id?: string;
-  kind?: 'run' | 'node' | 'model' | 'tool' | 'hitl' | string;
-  title?: string;
-  namespace?: string[];
-  status?: 'running' | 'completed' | 'failed' | 'interrupted' | 'observed' | string;
-  started_at?: string;
-  finished_at?: string;
-  depth?: number;
-  step?: number;
-  task_id?: string;
-  model_call_id?: string;
-  tool_call_id?: string;
-  interrupt_id?: string;
-  message_id?: string;
-  input?: unknown;
-  output?: unknown;
-  error?: string;
-  triggers?: string[];
-  reasoning?: string[];
-  reasoning_encrypted?: boolean;
-  messages?: string[];
-  tool_calls?: string[];
-  updates?: unknown[];
-  custom?: unknown[];
-  related_event_ids?: string[];
-  order?: number;
-  synthetic?: boolean;
-};
-
 export type TelemetryRunsListDTO = {
   runs: HTTPTelemetryRunDTO[];
   page_size?: number;
@@ -459,10 +429,6 @@ export type TelemetryEventsListDTO = {
   page_number?: number;
   total_size?: number;
   total_pages?: number;
-};
-
-export type TelemetryStepsListDTO = {
-  steps: HTTPTelemetryStepDTO[];
 };
 
 export type RuntimeEventType =

@@ -1,4 +1,4 @@
-"""Runtime-specific deep agent graph assembly."""
+"""Runtime-specific agent graph assembly."""
 
 from __future__ import annotations
 
@@ -64,7 +64,7 @@ Keep working until the task is fully complete. Don't stop partway and explain wh
 
 For longer tasks, provide brief progress updates at reasonable intervals — a concise sentence recapping what you've done and what's next."""
 
-def create_runtime_deep_agent(
+def create_runtime_agent(
     model: BaseChatModel,
     tools: Sequence[BaseTool | Callable | dict[str, Any]] | None = None,
     *,
@@ -168,7 +168,7 @@ def create_runtime_deep_agent(
         {
             "recursion_limit": 1000,
             "metadata": {
-                "ls_integration": "deepagents",
+                "ls_integration": "agents",
             },
         }
     )

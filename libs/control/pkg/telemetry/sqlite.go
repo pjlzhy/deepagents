@@ -45,6 +45,9 @@ func (s *SQLiteStore) RecordEvent(ctx context.Context, event runtimeclient.Telem
 	if strings.TrimSpace(event.EventID) == "" {
 		return errors.New("telemetry event event_id must not be empty")
 	}
+	if !runtimeclient.ShouldPersistTelemetryEvent(event) {
+		return nil
+	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -239,7 +242,9 @@ func (s *SQLiteStore) ListEvents(
 		`SELECT
 			event_id,
 			run_id,
+			thread_id,
 			agent_name,
+			schema_version,
 			attempt,
 			seq,
 			timestamp,
@@ -254,7 +259,6 @@ func (s *SQLiteStore) ListEvents(
 			message_id,
 			metadata_json,
 			payload_json,
-			public_event_json,
 			created_at
 		FROM telemetry_events
 		WHERE run_id = ?
@@ -310,7 +314,9 @@ func (s *SQLiteStore) LoadEvents(ctx context.Context, runID string) ([]domain.Te
 		`SELECT
 			event_id,
 			run_id,
+			thread_id,
 			agent_name,
+			schema_version,
 			attempt,
 			seq,
 			timestamp,
@@ -325,7 +331,6 @@ func (s *SQLiteStore) LoadEvents(ctx context.Context, runID string) ([]domain.Te
 			message_id,
 			metadata_json,
 			payload_json,
-			public_event_json,
 			created_at
 		FROM telemetry_events
 		WHERE run_id = ?
@@ -357,10 +362,7 @@ func (s *SQLiteStore) upsertRunSummary(
 	event runtimeclient.TelemetryEvent,
 	now time.Time,
 ) error {
-	threadID := ""
-	if event.PublicEvent != nil {
-		threadID = strings.TrimSpace(event.PublicEvent.ThreadID)
-	}
+	threadID := strings.TrimSpace(event.ThreadID)
 	startCheckpointID, endCheckpointID := extractTelemetryRunCheckpoints(event)
 	turnIndex, err := s.allocateTurnIndex(ctx, tx, event.RunID, event.AgentName, threadID)
 	if err != nil {
@@ -480,17 +482,15 @@ func (s *SQLiteStore) insertEvent(
 	if err != nil {
 		return false, fmt.Errorf("marshal telemetry namespace: %w", err)
 	}
-	publicEventJSON, err := marshalPublicEvent(event.PublicEvent)
-	if err != nil {
-		return false, fmt.Errorf("marshal telemetry public event: %w", err)
-	}
 
 	result, err := tx.ExecContext(
 		ctx,
 		`INSERT OR IGNORE INTO telemetry_events (
 			event_id,
 			run_id,
+			thread_id,
 			agent_name,
+			schema_version,
 			attempt,
 			seq,
 			timestamp,
@@ -507,10 +507,12 @@ func (s *SQLiteStore) insertEvent(
 			payload_json,
 			public_event_json,
 			created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		event.EventID,
 		event.RunID,
+		event.ThreadID,
 		event.AgentName,
+		event.SchemaVersion,
 		event.Attempt,
 		event.Seq,
 		isoTime(event.Timestamp),
@@ -525,7 +527,7 @@ func (s *SQLiteStore) insertEvent(
 		event.MessageID,
 		normalizeRawJSON(event.Metadata),
 		normalizeRawJSON(event.Payload),
-		publicEventJSON,
+		"null",
 		now.Format(time.RFC3339Nano),
 	)
 	if err != nil {
@@ -667,13 +669,14 @@ func scanTelemetryEvent(scanner telemetryEventScanner) (domain.TelemetryEventRec
 		timestamp     string
 		metadataJSON  string
 		payloadJSON   string
-		publicEvent   string
 		createdAt     string
 	)
 	if err := scanner.Scan(
 		&event.EventID,
 		&event.RunID,
+		&event.ThreadID,
 		&event.AgentName,
+		&event.SchemaVersion,
 		&event.Attempt,
 		&event.Seq,
 		&timestamp,
@@ -688,7 +691,6 @@ func scanTelemetryEvent(scanner telemetryEventScanner) (domain.TelemetryEventRec
 		&event.MessageID,
 		&metadataJSON,
 		&payloadJSON,
-		&publicEvent,
 		&createdAt,
 	); err != nil {
 		return domain.TelemetryEventRecord{}, fmt.Errorf("scan telemetry event: %w", err)
@@ -702,7 +704,6 @@ func scanTelemetryEvent(scanner telemetryEventScanner) (domain.TelemetryEventRec
 	}
 	event.Metadata = normalizeRawJSON(json.RawMessage(metadataJSON))
 	event.Payload = normalizeRawJSON(json.RawMessage(payloadJSON))
-	event.PublicEvent = normalizeRawJSON(json.RawMessage(publicEvent))
 	return event, nil
 }
 
@@ -832,50 +833,6 @@ func isTelemetryTerminalEvent(eventType string) bool {
 
 func marshalRawJSON(value any) (string, error) {
 	payload, err := json.Marshal(value)
-	if err != nil {
-		return "", err
-	}
-	return string(payload), nil
-}
-
-func marshalPublicEvent(event *runtimeclient.AgentEvent) (string, error) {
-	if event == nil {
-		return "null", nil
-	}
-	actionRequests := make([]map[string]any, 0, len(event.Actions))
-	for _, action := range event.Actions {
-		actionRequests = append(actionRequests, map[string]any{
-			"name":        action.Name,
-			"description": action.Description,
-			"arguments":   normalizeRawJSON(action.Arguments),
-		})
-	}
-	reviewConfigs := make([]map[string]any, 0, len(event.ReviewConfigs))
-	for _, config := range event.ReviewConfigs {
-		reviewConfigs = append(reviewConfigs, map[string]any{
-			"action_name":       config.ActionName,
-			"allowed_decisions": config.AllowedDecisions,
-			"args_schema":       normalizeRawJSON(config.ArgsSchema),
-		})
-	}
-
-	body := map[string]any{
-		"type":            string(event.Type),
-		"run_id":          event.RunID,
-		"agent_name":      event.AgentName,
-		"timestamp":       isoTime(event.Timestamp),
-		"thread_id":       event.ThreadID,
-		"text":            event.Text,
-		"tool_name":       event.ToolName,
-		"tool_call_id":    event.ToolCallID,
-		"interrupt_id":    event.InterruptID,
-		"reason":          event.Reason,
-		"error_message":   event.ErrorMessage,
-		"payload":         normalizeRawJSON(event.Payload),
-		"action_requests": actionRequests,
-		"review_configs":  reviewConfigs,
-	}
-	payload, err := json.Marshal(body)
 	if err != nil {
 		return "", err
 	}

@@ -49,7 +49,7 @@ from agents_runtime.runtime_backend import (
     ThreadRuntimeBackend,
     normalize_runtime_upload_path,
 )
-from agents_runtime.runtime_graph import create_runtime_deep_agent
+from agents_runtime.runtime_graph import create_runtime_agent
 from agents_runtime.sandbox.docker import DockerSandboxBackend
 from agents_runtime.sandbox.k8s import K8sSandboxBackend
 from agents_runtime.skills import RuntimeSkillsMiddleware
@@ -1064,7 +1064,7 @@ class RuntimeAgent:
 
         # 7. Compile the runnable graph via the runtime-specific builder.
         try:
-            graph = create_runtime_deep_agent(
+            graph = create_runtime_agent(
                 name=self.spec.name,
                 model=result.model,
                 tools=tools if tools else None,
@@ -1293,11 +1293,13 @@ class RuntimeAgent:
                 run_id=run_id,
                 agent_name=self.spec.name,
                 thread_id=thread_id,
-            )
+            ),
+            thread_id=thread_id,
         )
 
         parser_state = TelemetryParserState(
             run_id=run_id,
+            thread_id=thread_id,
             agent_name=self.spec.name,
         )
         wall_start = time.monotonic()
@@ -1314,7 +1316,7 @@ class RuntimeAgent:
                 stream_input,
                 config=config,
                 context=runtime_context,
-                stream_mode=["messages", "updates", "debug", "custom"],
+                stream_mode=["messages", "updates", "custom"], # "debug"
                 subgraphs=True,
                 version="v2",
             ):
@@ -1352,7 +1354,8 @@ class RuntimeAgent:
                         else [],
                         run_id=run_id,
                         agent_name=self.spec.name,
-                    )
+                    ),
+                    thread_id=thread_id,
                 )
 
                 if hitl_handler is not None:
@@ -1384,7 +1387,8 @@ class RuntimeAgent:
                     full_text,
                     run_id=run_id,
                     agent_name=self.spec.name,
-                )
+                ),
+                thread_id=thread_id,
             )
 
         yield telemetry_from_runtime_event(
@@ -1399,7 +1403,8 @@ class RuntimeAgent:
                 },
                 start_checkpoint_id=parser_state.start_checkpoint_id,
                 end_checkpoint_id=parser_state.end_checkpoint_id,
-            )
+            ),
+            thread_id=thread_id,
         )
         return
 

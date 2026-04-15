@@ -11,7 +11,19 @@ from langchain.agents.middleware.human_in_the_loop import HITLRequest
 from pydantic import TypeAdapter
 
 from agents_runtime import events
-from agents_runtime.events import RuntimeEvent, _UNSET
+from agents_runtime.events import RuntimeEvent
+from agents_runtime.langgraph_stream import (
+    CheckpointView,
+    CustomPartView,
+    DebugPartView,
+    MessageMetadataView,
+    MessageObjectView,
+    MessagesPartView,
+    TaskResultView,
+    TaskStartView,
+    UpdatesPartView,
+    wrap_stream_part,
+)
 from agents_runtime.runs import SessionStats
 from agents_runtime.spec import RuntimeEventType
 from agents_runtime.streams import (
@@ -22,34 +34,74 @@ from agents_runtime.streams import (
     _try_parse_tool_args,
 )
 
+AUDIT_SCHEMA_VERSION = 1
+TELEMETRY_RETENTION_DURABLE = "durable"
+TELEMETRY_RETENTION_STREAM_ONLY = "stream_only"
+
+_TELEMETRY_METADATA_DROP_KEYS = frozenset(
+    {
+        "agent_name",
+        "checkpoint_ns",
+        "langgraph_checkpoint_ns",
+        "langgraph_node",
+        "langgraph_path",
+        "ls_model_type",
+        "ls_temperature",
+        "run_id",
+        "thread_id",
+        "updated_at",
+    }
+)
+_GENERIC_TELEMETRY_PAYLOAD_DROP_KEYS = frozenset(
+    {
+        "agent_name",
+        "attempt",
+        "event_id",
+        "id",
+        "index",
+        "interrupt_id",
+        "message_id",
+        "model_call_id",
+        "run_id",
+        "seq",
+        "thread_id",
+        "tool_call_id",
+        "tool_name",
+        "type",
+    }
+)
+
 
 @dataclass(frozen=True)
 class TelemetryEvent:
-    """Structured telemetry event emitted by the runtime telemetry stream.
+    """Structured audit event emitted by the runtime telemetry stream.
 
     Args:
         stream_mode: Source stream mode such as `messages`, `updates`, `debug`,
             `custom`, or runtime-owned `lifecycle`.
         event_type: Fine-grained event type within the stream mode.
         payload: Structured payload for the event.
-        ns: LangGraph namespace path. Empty means the root graph.
+        namespace: LangGraph namespace path. Empty means the root graph.
         metadata: Structured metadata associated with the event.
         timestamp: UNIX timestamp for the event.
         run_id: Execution run identifier.
+        thread_id: Conversation thread identifier associated with the run.
         agent_name: Name of the producing agent.
-        public_event: Optional compatibility projection into the existing
-            public `RuntimeEvent` transport.
+        schema_version: Stable audit event schema version.
+        retention: Whether this event should be persisted or streamed only.
     """
 
     stream_mode: str
     event_type: str
     payload: Any = None
-    ns: tuple[str, ...] = ()
+    namespace: tuple[str, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
     timestamp: float = field(default_factory=time.time)
     run_id: str = ""
+    thread_id: str = ""
     agent_name: str = ""
-    public_event: RuntimeEvent | None = None
+    schema_version: int = AUDIT_SCHEMA_VERSION
+    retention: str = TELEMETRY_RETENTION_DURABLE
     event_id: str = ""
     attempt: int = 0
     seq: int = 0
@@ -69,6 +121,7 @@ class TelemetryParserState:
     tool_call_buffers: dict[Any, dict[str, Any]] = field(default_factory=dict)
     stats: SessionStats = field(default_factory=SessionStats)
     run_id: str = ""
+    thread_id: str = ""
     agent_name: str = ""
     start_checkpoint_id: str = ""
     end_checkpoint_id: str = ""
@@ -86,21 +139,28 @@ class TelemetryParseResult:
 def telemetry_from_runtime_event(
     event: RuntimeEvent,
     *,
-    ns: tuple[str, ...] = (),
+    namespace: tuple[str, ...] = (),
     stream_mode: str = "lifecycle",
+    thread_id: str = "",
 ) -> TelemetryEvent:
-    """Project an existing public `RuntimeEvent` into a telemetry event."""
+    """Project a public `RuntimeEvent` into one audit event."""
+
+    resolved_thread_id = thread_id
+    if not resolved_thread_id:
+        raw_thread_id = event.data.get("thread_id")
+        resolved_thread_id = raw_thread_id if isinstance(raw_thread_id, str) else ""
 
     return TelemetryEvent(
         stream_mode=stream_mode,
         event_type=_telemetry_event_type_from_runtime_event(event.type),
         payload=_normalize_json_like(event.data),
-        ns=ns,
+        namespace=namespace,
         metadata={},
         timestamp=event.timestamp,
         run_id=event.run_id,
+        thread_id=resolved_thread_id,
         agent_name=event.agent_name,
-        public_event=event,
+        retention=_retention_for_runtime_event_type(event.type),
     )
 
 
@@ -128,18 +188,25 @@ def finalize_telemetry_event(
         tool_call_id,
     )
     event_id = event.event_id or f"{event.run_id}:{attempt}:{seq}"
+    thread_id = event.thread_id or _telemetry_string(payload.get("thread_id"))
 
-    return replace(
+    resolved = replace(
         event,
         event_id=event_id,
         attempt=attempt,
         seq=seq,
+        thread_id=thread_id,
         node_name=node_name,
         task_id=task_id,
         model_call_id=model_call_id,
         tool_call_id=tool_call_id,
         interrupt_id=interrupt_id,
         message_id=message_id,
+    )
+    return replace(
+        resolved,
+        metadata=_compact_telemetry_metadata(resolved),
+        payload=_compact_telemetry_payload(resolved),
     )
 
 
@@ -153,131 +220,109 @@ def parse_telemetry_stream_part(
     namespaces and richer stream modes such as `debug` and `custom`.
     """
 
-    if not isinstance(part, dict):
-        return TelemetryParseResult()
+    part_view = wrap_stream_part(part)
 
-    ns = tuple(str(item) for item in part.get("ns", ()) if isinstance(item, str))
-    stream_mode = part.get("type")
-    data = part.get("data")
-
-    if stream_mode == "messages":
-        return _parse_message_part(data, ns, state)
-    if stream_mode == "updates" and isinstance(data, dict):
-        return _parse_updates_part(data, ns, state)
-    if stream_mode == "debug":
-        return _parse_debug_part(data, ns, state)
-    if stream_mode == "custom":
+    if isinstance(part_view, MessagesPartView):
+        return _parse_message_part_view(part_view, state)
+    if isinstance(part_view, UpdatesPartView):
+        return _parse_updates_part_view(part_view, state)
+    if isinstance(part_view, DebugPartView):
+        return _parse_debug_part_view(part_view, state)
+    if isinstance(part_view, CustomPartView):
         return TelemetryParseResult(
             events=[
                 TelemetryEvent(
                     stream_mode="custom",
                     event_type="custom",
-                    payload=_normalize_json_like(data),
-                    ns=ns,
+                    payload=_normalize_json_like(part_view.structure.value),
+                    namespace=part_view.header.ns.structure.segments,
                     metadata={},
                     run_id=state.run_id,
+                    thread_id=state.thread_id,
                     agent_name=state.agent_name,
+                    retention=TELEMETRY_RETENTION_DURABLE,
                 )
             ]
         )
     return TelemetryParseResult()
 
 
-def _parse_message_part(
-    data: Any,
-    ns: tuple[str, ...],
+def _parse_message_part_view(
+    part_view: MessagesPartView,
     state: TelemetryParserState,
 ) -> TelemetryParseResult:
-    """Parse one `messages` stream part into telemetry events."""
+    """Parse one wrapped `messages` stream part into telemetry events."""
 
-    if not isinstance(data, tuple) or len(data) != 2:
+    message_view = part_view.structure.message
+    if message_view is None:
         return TelemetryParseResult()
+    namespace = part_view.header.ns.structure.segments
+    metadata = _metadata_from_message_view(part_view.structure.metadata)
 
-    message_obj, raw_metadata = data
-    metadata = _normalize_metadata(raw_metadata)
-
-    try:
-        from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
-    except ImportError:
-        return TelemetryParseResult()
-
-    if isinstance(message_obj, (AIMessage, AIMessageChunk)):
+    if message_view.classification.kind == "ai":
         return TelemetryParseResult(
-            events=_parse_ai_message(message_obj, ns, metadata, state)
+            events=_parse_ai_message_view(message_view, namespace, metadata, state)
         )
-    if isinstance(message_obj, ToolMessage):
+    if message_view.classification.kind == "tool":
         return TelemetryParseResult(
-            events=_parse_tool_message(message_obj, ns, metadata, state)
+            events=_parse_tool_message_view(message_view, namespace, metadata, state)
         )
     return TelemetryParseResult()
 
 
-def _parse_ai_message(
-    message_obj: Any,
-    ns: tuple[str, ...],
+def _parse_ai_message_view(
+    message_view: MessageObjectView,
+    namespace: tuple[str, ...],
     metadata: dict[str, Any],
     state: TelemetryParserState,
 ) -> list[TelemetryEvent]:
-    """Parse one AI message into telemetry events."""
+    """Parse one wrapped AI message into telemetry events."""
 
     result: list[TelemetryEvent] = []
-    content_blocks = getattr(message_obj, "content_blocks", None)
-    if content_blocks is None:
-        return result
-
-    usage = getattr(message_obj, "usage_metadata", None)
+    content_blocks = message_view.structure.content_blocks
+    usage = message_view.structure.usage_metadata
     if usage and isinstance(usage, dict):
         input_toks = usage.get("input_tokens", 0)
         output_toks = usage.get("output_tokens", 0)
         if input_toks or output_toks:
             state.stats.record_request("", input_toks, output_toks)
 
-    model_call_id = _stable_model_call_id(message_obj)
+    model_call_id = _stable_model_call_id_from_view(message_view)
 
-    for block in content_blocks:
-        if not isinstance(block, dict):
+    for block_view in content_blocks:
+        payload = _normalize_json_like(block_view.raw)
+        if not isinstance(payload, dict):
             continue
 
-        block_type = str(block.get("type", "message_block"))
-        payload = _normalize_json_like(block)
-        if (
-            isinstance(payload, dict)
-            and model_call_id
-            and block_type not in {"tool_call", "tool_call_chunk"}
-        ):
+        block_type = block_view.structure.type_name or "message_block"
+        if model_call_id and block_type not in {"tool_call", "tool_call_chunk"}:
             payload["model_call_id"] = model_call_id
         timestamp = time.time()
-        public_event: RuntimeEvent | None = None
 
         if block_type == "text":
-            text = str(block.get("text", ""))
-            if text and not ns:
+            text = block_view.structure.text or ""
+            if text and not namespace:
                 state.full_response.append(text)
-            if text and not ns:
-                public_event = events.text_delta(
-                    text,
-                    run_id=state.run_id,
-                    agent_name=state.agent_name,
-                )
-
         elif block_type in {"tool_call_chunk", "tool_call"}:
             result.append(
                 TelemetryEvent(
                     stream_mode="messages",
                     event_type=block_type,
                     payload=payload,
-                    ns=ns,
+                    namespace=namespace,
                     metadata=metadata,
                     timestamp=timestamp,
                     run_id=state.run_id,
+                    thread_id=state.thread_id,
                     agent_name=state.agent_name,
                     model_call_id=model_call_id,
+                    retention=TELEMETRY_RETENTION_STREAM_ONLY,
                 )
             )
             result.extend(
                 _maybe_emit_tool_call_start(
-                    block=block,
-                    ns=ns,
+                    block=payload,
+                    namespace=namespace,
                     metadata=metadata,
                     timestamp=timestamp,
                     state=state,
@@ -290,13 +335,14 @@ def _parse_ai_message(
                 stream_mode="messages",
                 event_type=block_type,
                 payload=payload,
-                ns=ns,
+                namespace=namespace,
                 metadata=metadata,
                 timestamp=timestamp,
                 run_id=state.run_id,
+                thread_id=state.thread_id,
                 agent_name=state.agent_name,
-                public_event=public_event,
                 model_call_id=model_call_id,
+                retention=TELEMETRY_RETENTION_STREAM_ONLY,
             )
         )
 
@@ -306,7 +352,7 @@ def _parse_ai_message(
 def _maybe_emit_tool_call_start(
     *,
     block: dict[str, Any],
-    ns: tuple[str, ...],
+    namespace: tuple[str, ...],
     metadata: dict[str, Any],
     timestamp: float,
     state: TelemetryParserState,
@@ -319,12 +365,12 @@ def _maybe_emit_tool_call_start(
     chunk_args = block.get("args")
 
     buffer_key: int | str = (
-        (*ns, str(chunk_index))
+        (*namespace, str(chunk_index))
         if chunk_index is not None
         else (
-            (*ns, str(chunk_id))
+            (*namespace, str(chunk_id))
             if chunk_id is not None
-            else (*ns, f"unknown-{len(state.tool_call_buffers)}")
+            else (*namespace, f"unknown-{len(state.tool_call_buffers)}")
         )
     )
 
@@ -364,17 +410,6 @@ def _maybe_emit_tool_call_start(
     buffer["started"] = True
     tool_call_id = str(buffer["id"] or buffer_key)
     args = _buffer_args(buffer)
-    public_event = (
-        events.tool_call_start(
-            tool_name=str(chunk_name),
-            tool_call_id=tool_call_id,
-            args=args,
-            run_id=state.run_id,
-            agent_name=state.agent_name,
-        )
-        if not ns
-        else None
-    )
     return [
         TelemetryEvent(
             stream_mode="messages",
@@ -386,27 +421,28 @@ def _maybe_emit_tool_call_start(
                     "args": args,
                 }
             ),
-            ns=ns,
+            namespace=namespace,
             metadata=metadata,
             timestamp=timestamp,
             run_id=state.run_id,
+            thread_id=state.thread_id,
             agent_name=state.agent_name,
-            public_event=public_event,
+            retention=TELEMETRY_RETENTION_DURABLE,
         )
     ]
 
 
-def _parse_tool_message(
-    message_obj: Any,
-    ns: tuple[str, ...],
+def _parse_tool_message_view(
+    message_view: MessageObjectView,
+    namespace: tuple[str, ...],
     metadata: dict[str, Any],
     state: TelemetryParserState,
 ) -> list[TelemetryEvent]:
-    """Parse one tool message into telemetry events."""
+    """Parse one wrapped tool message into telemetry events."""
 
-    tool_call_id = str(getattr(message_obj, "tool_call_id", ""))
-    raw_content = message_obj.content
-    is_error = getattr(message_obj, "status", "") == "error"
+    tool_call_id = message_view.structure.tool_call_id or ""
+    raw_content = message_view.structure.content
+    is_error = message_view.structure.status == "error"
     timestamp = time.time()
 
     tool_name = ""
@@ -418,17 +454,6 @@ def _parse_tool_message(
         if not buf.get("started"):
             buf["started"] = True
             args = _buffer_args(buf)
-            public_start = (
-                events.tool_call_start(
-                    tool_name=tool_name,
-                    tool_call_id=tool_call_id,
-                    args=args,
-                    run_id=state.run_id,
-                    agent_name=state.agent_name,
-                )
-                if not ns
-                else None
-            )
             start_events.append(
                 TelemetryEvent(
                     stream_mode="messages",
@@ -440,46 +465,28 @@ def _parse_tool_message(
                             "args": args,
                         }
                     ),
-                    ns=ns,
+                    namespace=namespace,
                     metadata=metadata,
                     timestamp=timestamp,
                     run_id=state.run_id,
+                    thread_id=state.thread_id,
                     agent_name=state.agent_name,
-                    public_event=public_start,
+                    retention=TELEMETRY_RETENTION_DURABLE,
                 )
             )
         break
 
-    raw_payload = getattr(message_obj, "artifact", _UNSUPPORTED_PAYLOAD)
+    raw_payload = (
+        message_view.structure.artifact
+        if message_view.structure.has_artifact
+        else _UNSUPPORTED_PAYLOAD
+    )
     payload = (
         _json_like_payload(raw_payload)
         if raw_payload is not _UNSUPPORTED_PAYLOAD
         else _json_like_payload(raw_content)
     )
     content = _tool_result_text(raw_content, payload)
-
-    public_done = (
-        events.tool_call_done(
-            tool_name=tool_name,
-            tool_call_id=tool_call_id,
-            run_id=state.run_id,
-            agent_name=state.agent_name,
-        )
-        if not ns
-        else None
-    )
-    public_result = (
-        events.tool_result(
-            tool_call_id,
-            content,
-            payload=payload if payload is not _UNSUPPORTED_PAYLOAD else _UNSET,
-            is_error=is_error,
-            run_id=state.run_id,
-            agent_name=state.agent_name,
-        )
-        if not ns
-        else None
-    )
 
     result_payload: dict[str, Any] = {
         "tool_call_id": tool_call_id,
@@ -501,44 +508,49 @@ def _parse_tool_message(
                     "tool_call_id": tool_call_id,
                 }
             ),
-            ns=ns,
+            namespace=namespace,
             metadata=metadata,
             timestamp=timestamp,
             run_id=state.run_id,
+            thread_id=state.thread_id,
             agent_name=state.agent_name,
-            public_event=public_done,
+            retention=TELEMETRY_RETENTION_STREAM_ONLY,
         ),
         TelemetryEvent(
             stream_mode="messages",
             event_type="tool_result",
             payload=_normalize_json_like(result_payload),
-            ns=ns,
+            namespace=namespace,
             metadata=metadata,
             timestamp=timestamp,
             run_id=state.run_id,
+            thread_id=state.thread_id,
             agent_name=state.agent_name,
-            public_event=public_result,
+            retention=TELEMETRY_RETENTION_DURABLE,
         ),
     ]
 
 
-def _parse_updates_part(
-    data: dict[str, Any],
-    ns: tuple[str, ...],
+def _parse_updates_part_view(
+    part_view: UpdatesPartView,
     state: TelemetryParserState,
 ) -> TelemetryParseResult:
-    """Parse one `updates` stream part and retain only interrupt semantics."""
+    """Parse one wrapped `updates` stream part and retain only interrupt semantics."""
 
     result = TelemetryParseResult()
     timestamp = time.time()
-
-    if "__interrupt__" not in data:
+    namespace = part_view.header.ns.structure.segments
+    if not part_view.classification.interrupts:
         return result
 
     adapter = TypeAdapter(HITLRequest)
-    for interrupt_obj in data.get("__interrupt__", []):
-        interrupt_id = str(getattr(interrupt_obj, "id", str(id(interrupt_obj))))
-        interrupt_value = getattr(interrupt_obj, "value", interrupt_obj)
+    for interrupt_view in part_view.classification.interrupts:
+        interrupt_id = interrupt_view.structure.id or str(id(interrupt_view.raw))
+        interrupt_value = (
+            interrupt_view.structure.value
+            if interrupt_view.structure.value is not None
+            else interrupt_view.raw
+        )
         try:
             validated = adapter.validate_python(interrupt_value)
             normalized = adapter.dump_python(validated, mode="json")
@@ -550,7 +562,8 @@ def _parse_updates_part(
                         run_id=state.run_id,
                         agent_name=state.agent_name,
                     ),
-                    ns=ns,
+                    namespace=namespace,
+                    thread_id=state.thread_id,
                 )
             )
             continue
@@ -567,49 +580,61 @@ def _parse_updates_part(
                 stream_mode="updates",
                 event_type="interrupt",
                 payload=_normalize_json_like(request),
-                ns=ns,
+                namespace=namespace,
                 metadata={},
                 timestamp=timestamp,
                 run_id=state.run_id,
+                thread_id=state.thread_id,
                 agent_name=state.agent_name,
+                retention=TELEMETRY_RETENTION_STREAM_ONLY,
             )
         )
 
     return result
 
 
-def _parse_debug_part(
-    data: Any,
-    ns: tuple[str, ...],
+def _parse_debug_part_view(
+    part_view: DebugPartView,
     state: TelemetryParserState,
 ) -> TelemetryParseResult:
-    """Parse one `debug` stream part into telemetry events."""
+    """Parse one wrapped `debug` stream part into telemetry events."""
 
-    if not isinstance(data, dict):
-        return TelemetryParseResult()
-
-    event_type = str(data.get("type", "debug"))
-    payload = data.get("payload")
+    namespace = part_view.header.ns.structure.segments
+    event_type = part_view.classification.variant
     metadata: dict[str, Any] = {}
-    if "step" in data:
-        metadata["step"] = _normalize_json_like(data["step"])
-    timestamp = _timestamp_from_debug(data.get("timestamp")) or time.time()
+    if part_view.structure.step is not None:
+        metadata["step"] = _normalize_json_like(part_view.structure.step)
+    timestamp = _timestamp_from_debug(part_view.structure.timestamp) or time.time()
 
     if event_type == "checkpoint":
-        _update_checkpoint_bounds(payload, state)
+        checkpoint_view = (
+            part_view.structure.event.structure.payload
+            if part_view.structure.event is not None
+            else None
+        )
+        _update_checkpoint_bounds_from_view(checkpoint_view, state)
         return TelemetryParseResult()
 
     if event_type == "task":
-        payload_dict = payload if isinstance(payload, dict) else {}
-        task_id = _telemetry_string(payload_dict.get("id"))
+        task_view = (
+            part_view.structure.event.structure.payload
+            if part_view.structure.event is not None
+            else None
+        )
+        task_id = task_view.structure.id if task_view is not None else ""
         if task_id:
-            task_key = (ns, task_id)
+            task_key = (namespace, task_id)
             if task_key in state.emitted_task_keys:
                 return TelemetryParseResult()
             state.emitted_task_keys.add(task_key)
-        payload = _compact_debug_task_payload(payload_dict)
+        payload = _compact_debug_task_payload_view(task_view)
     elif event_type == "task_result":
-        payload = _compact_debug_task_result_payload(payload)
+        task_result_view = (
+            part_view.structure.event.structure.payload
+            if part_view.structure.event is not None
+            else None
+        )
+        payload = _compact_debug_task_result_payload_view(task_result_view)
     else:
         return TelemetryParseResult()
 
@@ -619,24 +644,301 @@ def _parse_debug_part(
                 stream_mode="debug",
                 event_type=event_type,
                 payload=_normalize_json_like(payload),
-                ns=ns,
+                namespace=namespace,
                 metadata=metadata,
                 timestamp=timestamp,
                 run_id=state.run_id,
+                thread_id=state.thread_id,
                 agent_name=state.agent_name,
+                retention=TELEMETRY_RETENTION_STREAM_ONLY,
             )
         ]
     )
 
 
-def _update_checkpoint_bounds(payload: Any, state: TelemetryParserState) -> None:
-    """Track checkpoint boundaries without emitting raw checkpoint events."""
+def _metadata_from_message_view(
+    metadata_view: MessageMetadataView | None,
+) -> dict[str, Any]:
+    """Convert one wrapped message metadata object into telemetry metadata."""
 
-    if not isinstance(payload, dict):
+    if metadata_view is None:
+        return {}
+
+    metadata: dict[str, Any] = {
+        key: _normalize_json_like(value)
+        for key, value in metadata_view.structure.extras.items()
+    }
+    if metadata_view.structure.langgraph_node is not None:
+        metadata["langgraph_node"] = metadata_view.structure.langgraph_node
+    if metadata_view.structure.langgraph_step is not None:
+        metadata["langgraph_step"] = metadata_view.structure.langgraph_step
+    if metadata_view.structure.langgraph_triggers:
+        metadata["langgraph_triggers"] = list(metadata_view.structure.langgraph_triggers)
+    if metadata_view.structure.langgraph_path:
+        metadata["langgraph_path"] = _normalize_json_like(
+            metadata_view.structure.langgraph_path
+        )
+    if metadata_view.structure.ls_provider is not None:
+        metadata["ls_provider"] = metadata_view.structure.ls_provider
+    if metadata_view.structure.ls_model_name is not None:
+        metadata["ls_model_name"] = metadata_view.structure.ls_model_name
+    return metadata
+
+
+def _compact_telemetry_metadata(event: TelemetryEvent) -> dict[str, Any]:
+    """Drop envelope duplicates and noisy framework internals from metadata."""
+
+    if not isinstance(event.metadata, dict):
+        return {}
+
+    compact: dict[str, Any] = {}
+    for key, value in event.metadata.items():
+        if key in _TELEMETRY_METADATA_DROP_KEYS:
+            continue
+        if key == "lc_agent_name" and value == event.agent_name:
+            continue
+        if _telemetry_value_is_empty(value):
+            continue
+        compact[key] = value
+    return compact
+
+
+def _compact_telemetry_payload(event: TelemetryEvent) -> Any:
+    """Shrink one telemetry payload down to event-specific semantics only."""
+
+    if event.event_type == "custom":
+        return event.payload
+    if not isinstance(event.payload, dict):
+        return event.payload
+
+    payload = event.payload
+    event_type = event.event_type
+    if event_type == "run_started":
+        return {}
+    if event_type in {"text", "text_done"}:
+        return _compact_text_payload(payload)
+    if event_type == "reasoning":
+        return _compact_reasoning_payload(payload)
+    if event_type in {"tool_call", "tool_call_chunk"}:
+        return _compact_tool_call_chunk_payload(payload)
+    if event_type == "tool_call_start":
+        return _compact_tool_call_start_payload(payload)
+    if event_type == "tool_call_done":
+        return {}
+    if event_type == "tool_result":
+        return _compact_tool_result_payload(payload)
+    if event_type in {"interrupt", "hitl_request"}:
+        return _compact_interrupt_payload(payload)
+    if event_type == "task":
+        return _compact_task_payload(event, payload)
+    if event_type == "task_result":
+        return _compact_task_result_payload(payload)
+    if event_type == "run_ended":
+        return _compact_run_ended_payload(payload)
+    if event_type == "run_canceled":
+        return _compact_run_canceled_payload(payload)
+    if event_type == "error":
+        return _compact_error_payload(payload)
+    return _compact_generic_payload(payload)
+
+
+def _compact_text_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    text = payload.get("text")
+    if isinstance(text, str) and text:
+        return {"text": text}
+    return {}
+
+
+def _compact_reasoning_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    compact: dict[str, Any] = {}
+    summary = _compact_reasoning_summary(payload.get("summary"))
+    if summary:
+        compact["summary"] = summary
+
+    text = payload.get("reasoning")
+    if not isinstance(text, str):
+        text = payload.get("text")
+    if isinstance(text, str) and text:
+        compact["text"] = text
+    return compact
+
+
+def _compact_reasoning_summary(value: Any) -> list[Any]:
+    if not isinstance(value, list):
+        return []
+
+    summary: list[Any] = []
+    for item in value:
+        if isinstance(item, dict):
+            text = item.get("text")
+            if isinstance(text, str) and text:
+                summary.append({"text": text})
+                continue
+            compact_item = {
+                key: part
+                for key, part in item.items()
+                if key != "type" and not _telemetry_value_is_empty(part)
+            }
+            if compact_item:
+                summary.append(compact_item)
+            continue
+
+        normalized = _normalize_json_like(item)
+        if not _telemetry_value_is_empty(normalized):
+            summary.append(normalized)
+    return summary
+
+
+def _compact_tool_call_chunk_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    args = payload.get("args")
+    if isinstance(args, dict) and args:
+        return {"args": args}
+    if isinstance(args, str) and args:
+        return {"args_text": args}
+    return {}
+
+
+def _compact_tool_call_start_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    args = payload.get("args")
+    if _telemetry_value_is_empty(args):
+        return {}
+    return {"args": args}
+
+
+def _compact_tool_result_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    compact: dict[str, Any] = {}
+
+    content = payload.get("content")
+    if isinstance(content, str) and content:
+        compact["content"] = content
+
+    is_error = payload.get("is_error")
+    if isinstance(is_error, bool):
+        compact["is_error"] = is_error
+
+    data = payload.get("payload")
+    if data is None:
+        data = payload.get("data")
+    if data is not None and not _telemetry_value_is_empty(data):
+        compact["data"] = data
+    return compact
+
+
+def _compact_interrupt_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    compact: dict[str, Any] = {}
+    action_requests = payload.get("action_requests")
+    if isinstance(action_requests, list) and action_requests:
+        compact["action_requests"] = action_requests
+
+    review_configs = payload.get("review_configs")
+    if isinstance(review_configs, list) and review_configs:
+        compact["review_configs"] = review_configs
+    return compact
+
+
+def _compact_task_payload(
+    event: TelemetryEvent,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    compact: dict[str, Any] = {}
+
+    name = payload.get("name")
+    if isinstance(name, str) and name and name != event.node_name:
+        compact["name"] = name
+
+    triggers = payload.get("triggers")
+    if isinstance(triggers, list) and triggers:
+        compact["triggers"] = triggers
+
+    task_input = payload.get("input")
+    if not _telemetry_value_is_empty(task_input):
+        compact["input"] = task_input
+    return compact
+
+
+def _compact_task_result_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    compact: dict[str, Any] = {}
+    error = payload.get("error")
+    if isinstance(error, str) and error:
+        compact["error"] = error
+
+    interrupts = payload.get("interrupts")
+    if isinstance(interrupts, list) and interrupts:
+        compact["interrupts"] = interrupts
+
+    result = payload.get("result")
+    if not _telemetry_value_is_empty(result):
+        compact["result"] = result
+    return compact
+
+
+def _compact_run_ended_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    stats = payload.get("stats")
+    if isinstance(stats, dict) and stats:
+        return {"stats": stats}
+    return {}
+
+
+def _compact_run_canceled_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    reason = payload.get("reason")
+    if isinstance(reason, str) and reason:
+        return {"reason": reason}
+    return {}
+
+
+def _compact_error_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    compact: dict[str, Any] = {}
+    message = payload.get("message")
+    if isinstance(message, str) and message:
+        compact["message"] = message
+
+    error_type = payload.get("error_type")
+    if isinstance(error_type, str) and error_type:
+        compact["error_type"] = error_type
+    return compact
+
+
+def _compact_generic_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in payload.items()
+        if key not in _GENERIC_TELEMETRY_PAYLOAD_DROP_KEYS
+        and not _telemetry_value_is_empty(value)
+    }
+
+
+def _stable_model_call_id_from_view(message_view: MessageObjectView) -> str:
+    """Return the stable model call ID for one wrapped message."""
+
+    identifier = message_view.structure.id
+    if isinstance(identifier, str) and identifier.strip():
+        return identifier
+    response_metadata = message_view.structure.response_metadata or {}
+    response_id = response_metadata.get("id")
+    if isinstance(response_id, str) and response_id.strip():
+        return response_id
+    return ""
+
+
+def _update_checkpoint_bounds_from_view(
+    checkpoint_view: CheckpointView | None,
+    state: TelemetryParserState,
+) -> None:
+    """Track checkpoint boundaries from one wrapped checkpoint payload."""
+
+    if checkpoint_view is None:
         return
 
-    parent_checkpoint_id = _nested_checkpoint_id(payload.get("parent_config"))
-    checkpoint_id = _nested_checkpoint_id(payload.get("config"))
+    parent_config = checkpoint_view.structure.parent_config
+    checkpoint_config = checkpoint_view.structure.config
+    parent_checkpoint_id = (
+        parent_config.classification.checkpoint_id if parent_config is not None else ""
+    )
+    checkpoint_id = (
+        checkpoint_config.classification.checkpoint_id
+        if checkpoint_config is not None
+        else ""
+    )
 
     if not state.start_checkpoint_id and parent_checkpoint_id:
         state.start_checkpoint_id = parent_checkpoint_id
@@ -644,41 +946,43 @@ def _update_checkpoint_bounds(payload: Any, state: TelemetryParserState) -> None
         state.end_checkpoint_id = checkpoint_id
 
 
-def _nested_checkpoint_id(config_value: Any) -> str:
-    """Read one checkpoint ID from a LangGraph debug checkpoint config blob."""
+def _compact_debug_task_payload_view(task_view: TaskStartView | None) -> dict[str, Any]:
+    """Drop repeated thread-state blobs from one wrapped debug task payload."""
 
-    if not isinstance(config_value, dict):
-        return ""
-    configurable = config_value.get("configurable")
-    if not isinstance(configurable, dict):
-        return ""
-    return _telemetry_string(configurable.get("checkpoint_id"))
-
-
-def _compact_debug_task_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    """Drop repeated thread-state blobs from one debug task payload."""
-
-    compact: dict[str, Any] = {}
-    for key in ("id", "name", "triggers"):
-        if key in payload:
-            compact[key] = _normalize_json_like(payload[key])
-    if "input" in payload:
-        compact["input"] = _compact_debug_state(payload["input"])
-    return compact
-
-
-def _compact_debug_task_result_payload(payload: Any) -> dict[str, Any]:
-    """Drop repeated thread-state blobs from one debug task_result payload."""
-
-    if not isinstance(payload, dict):
+    if task_view is None:
         return {}
 
     compact: dict[str, Any] = {}
-    for key in ("id", "error", "interrupts"):
-        if key in payload:
-            compact[key] = _normalize_json_like(payload[key])
-    if "result" in payload:
-        compact["result"] = _compact_debug_state(payload["result"])
+    if task_view.structure.id is not None:
+        compact["id"] = task_view.structure.id
+    if task_view.structure.name is not None:
+        compact["name"] = task_view.structure.name
+    if task_view.structure.triggers:
+        compact["triggers"] = list(task_view.structure.triggers)
+    if task_view.classification.has_input:
+        compact["input"] = _compact_debug_state(task_view.structure.input)
+    return compact
+
+
+def _compact_debug_task_result_payload_view(
+    task_result_view: TaskResultView | None,
+) -> dict[str, Any]:
+    """Drop repeated thread-state blobs from one wrapped debug task_result payload."""
+
+    if task_result_view is None:
+        return {}
+
+    compact: dict[str, Any] = {}
+    if task_result_view.structure.id is not None:
+        compact["id"] = task_result_view.structure.id
+    if task_result_view.structure.error is not None:
+        compact["error"] = task_result_view.structure.error
+    if task_result_view.structure.interrupts:
+        compact["interrupts"] = _normalize_json_like(
+            [interrupt.raw for interrupt in task_result_view.structure.interrupts]
+        )
+    if task_result_view.classification.has_result:
+        compact["result"] = _compact_debug_state(task_result_view.structure.result)
     return compact
 
 
@@ -727,6 +1031,24 @@ def _telemetry_event_type_from_runtime_event(
     return mapping[event_type]
 
 
+def _retention_for_runtime_event_type(event_type: RuntimeEventType) -> str:
+    """Return the default retention policy for one public runtime event."""
+
+    mapping = {
+        RuntimeEventType.RUN_START: TELEMETRY_RETENTION_DURABLE,
+        RuntimeEventType.TEXT_DELTA: TELEMETRY_RETENTION_STREAM_ONLY,
+        RuntimeEventType.TEXT_DONE: TELEMETRY_RETENTION_DURABLE,
+        RuntimeEventType.TOOL_CALL_START: TELEMETRY_RETENTION_DURABLE,
+        RuntimeEventType.TOOL_CALL_DONE: TELEMETRY_RETENTION_STREAM_ONLY,
+        RuntimeEventType.TOOL_RESULT: TELEMETRY_RETENTION_DURABLE,
+        RuntimeEventType.HITL_REQUEST: TELEMETRY_RETENTION_DURABLE,
+        RuntimeEventType.RUN_END: TELEMETRY_RETENTION_DURABLE,
+        RuntimeEventType.RUN_CANCELED: TELEMETRY_RETENTION_DURABLE,
+        RuntimeEventType.ERROR: TELEMETRY_RETENTION_DURABLE,
+    }
+    return mapping[event_type]
+
+
 def _derive_node_name(
     event: TelemetryEvent,
     payload: dict[str, Any],
@@ -735,21 +1057,20 @@ def _derive_node_name(
     if event.stream_mode == "lifecycle":
         return "run"
 
-    metadata_node = _telemetry_string(metadata.get("langgraph_node"))
-    if metadata_node:
-        return metadata_node
-
     payload_name = _telemetry_string(payload.get("name"))
     if payload_name:
         return payload_name
 
-    if event.public_event is not None:
-        tool_name = _telemetry_string(event.public_event.data.get("tool_name"))
-        if tool_name:
-            return tool_name
+    payload_tool_name = _telemetry_string(payload.get("tool_name"))
+    if payload_tool_name:
+        return payload_tool_name
 
-    if event.ns:
-        raw = event.ns[-1]
+    metadata_node = _telemetry_string(metadata.get("langgraph_node"))
+    if metadata_node:
+        return metadata_node
+
+    if event.namespace:
+        raw = event.namespace[-1]
         if ":" in raw:
             _, tail = raw.split(":", 1)
             if tail:
@@ -768,8 +1089,6 @@ def _derive_tool_call_id(event: TelemetryEvent, payload: dict[str, Any]) -> str:
         block_id = _telemetry_string(payload.get("id"))
         if block_id:
             return block_id
-    if event.public_event is not None:
-        return _telemetry_string(event.public_event.data.get("tool_call_id"))
     return ""
 
 
@@ -777,8 +1096,6 @@ def _derive_interrupt_id(event: TelemetryEvent, payload: dict[str, Any]) -> str:
     interrupt_id = _telemetry_string(payload.get("interrupt_id"))
     if interrupt_id:
         return interrupt_id
-    if event.public_event is not None:
-        return _telemetry_string(event.public_event.data.get("interrupt_id"))
     return ""
 
 
@@ -813,28 +1130,14 @@ def _derive_model_call_id(
     return message_id
 
 
-def _stable_model_call_id(message_obj: Any) -> str:
-    identifier = getattr(message_obj, "id", None)
-    if isinstance(identifier, str) and identifier.strip():
-        return identifier
-    response_metadata = getattr(message_obj, "response_metadata", None)
-    if isinstance(response_metadata, dict):
-        response_id = response_metadata.get("id")
-        if isinstance(response_id, str) and response_id.strip():
-            return response_id
-    return ""
-
-
 def _telemetry_string(value: Any) -> str:
     return value if isinstance(value, str) else ""
 
 
-def _normalize_metadata(value: Any) -> dict[str, Any]:
-    """Normalize arbitrary metadata into a JSON-like dict."""
-
-    if not isinstance(value, dict):
-        return {}
-    return {str(key): _normalize_json_like(item) for key, item in value.items()}
+def _telemetry_value_is_empty(value: Any) -> bool:
+    return value is None or value == "" or (
+        isinstance(value, (dict, list, tuple)) and not value
+    )
 
 
 def _normalize_json_like(value: Any) -> Any:

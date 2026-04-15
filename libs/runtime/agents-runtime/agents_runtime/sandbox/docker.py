@@ -395,7 +395,7 @@ try:
         print(base64.b64encode(handle.read()).decode('ascii'), end='')
 except PermissionError:
     print('permission_denied', file=sys.stderr)
-    sys.exit(13)
+    sys.exit(13)"
 """
 
 

@@ -1,0 +1,20 @@
+export type TelemetryEventVM = {
+  id: string;
+  runId?: string;
+  threadId?: string;
+  agentName?: string;
+  timestamp?: string;
+  schemaVersion?: number;
+  retention?: string;
+  nodeName?: string;
+  namespace: string[];
+  streamMode: string;
+  eventType: string;
+  taskId?: string;
+  modelCallId?: string;
+  toolCallId?: string;
+  interruptId?: string;
+  messageId?: string;
+  metadata?: unknown;
+  payload?: unknown;
+};

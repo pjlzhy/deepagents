@@ -32,7 +32,6 @@ import type {
   SubmitHitlDecisionsRequestDTO,
   TelemetryEventsListDTO,
   TelemetryRunsListDTO,
-  TelemetryStepsListDTO,
   WorkspaceListResponseDTO,
   WorkspaceUploadResponseDTO,
 } from '@/shared/types/api';
@@ -316,9 +315,6 @@ export const controlClient = {
           include_raw: params.includeRaw ? 'true' : undefined,
         },
       );
-    },
-    listTelemetrySteps(runId: string) {
-      return httpClient.get<TelemetryStepsListDTO>(`/api/v1/telemetry/runs/${encodeURIComponent(runId)}/steps`);
     },
     listTelemetryEvents(runId: string, params: NumberPageQuery) {
       return httpClient.get<TelemetryEventsListDTO>(
